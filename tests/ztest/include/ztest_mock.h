@@ -38,6 +38,19 @@
 			    (uintptr_t)(value))
 
 /**
+ * @brief Tell function @a func to ignore the value for @a param
+ *
+ * When using ztest_check_expected_value(), tell that the value of @a param
+ * can be ignored during a check.
+ *
+ * @param func Function in question
+ * @param param Parameter for which the value should be ignored
+ */
+#define ztest_ignore_param(func, param) \
+	_ztest_ignore_param(STRINGIFY(func), STRINGIFY(param))
+
+
+/**
  * @brief If @a param doesn't match the value set by ztest_expect_value(),
  * fail the test
  *
@@ -95,6 +108,7 @@ void _init_mock(void);
 int _cleanup_mock(void);
 
 void _ztest_expect_value(const char *fn, const char *name, uintptr_t value);
+void _ztest_ignore_param(const char *fn, const char *name);
 void _ztest_check_expected_value(const char *fn, const char *param,
 				 uintptr_t value);
 

@@ -14,6 +14,7 @@ struct parameter {
 	const char *fn;
 	const char *name;
 	uintptr_t value;
+	bool ignore;
 };
 
 #ifndef KERNEL
@@ -148,6 +149,7 @@ static void insert_value(struct parameter *param, const char *fn,
 	value->fn = fn;
 	value->name = name;
 	value->value = val;
+	value->ignore = false;
 
 	/* Seek to end of linked list to ensure correct discovery order in find_and_delete_value */
 	while (param->next) {
@@ -159,6 +161,28 @@ static void insert_value(struct parameter *param, const char *fn,
 	param->next = value;
 }
 
+static void insert_value_ignore(struct parameter *param, const char *fn,
+			 const char *name)
+{
+	struct parameter *value;
+
+	value = alloc_parameter();
+	value->fn = fn;
+	value->name = name;
+	value->ignore = true;
+
+	/* Seek to end of linked list to ensure correct discovery order in find_and_delete_value */
+	while (param->next) {
+		param = param->next;
+	}
+
+	/* Append to end of linked list */
+	value->next = param->next;
+	param->next = value;
+}
+
+
+
 static struct parameter parameter_list = { NULL, "", "", 0 };
 static struct parameter return_value_list = { NULL, "", "", 0 };
 
@@ -167,11 +191,17 @@ void _ztest_expect_value(const char *fn, const char *name, uintptr_t val)
 	insert_value(&parameter_list, fn, name, val);
 }
 
+void _ztest_ignore_param(const char *fn, const char *name)
+{
+	insert_value_ignore(&parameter_list, fn, name);
+}
+
 void _ztest_check_expected_value(const char *fn, const char *name,
 				 uintptr_t val)
 {
 	struct parameter *param;
 	uintptr_t expected;
+	bool ignore;
 
 	param = find_and_delete_value(&parameter_list, fn, name);
 	if (!param) {
@@ -180,9 +210,11 @@ void _ztest_check_expected_value(const char *fn, const char *name,
 	}
 
 	expected = param->value;
+	ignore = param->ignore;
+
 	free_parameter(param);
 
-	if (expected != val) {
+	if (!ignore && expected != val) {
 		/* We need to cast these values since the toolchain doesn't
 		 * provide inttypes.h
 		 */
