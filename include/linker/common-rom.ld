@@ -30,10 +30,10 @@
 	} GROUP_ROM_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
 #endif
 
-	/* verify we don't have rogue .init_<something> initlevel sections */
+	/* verify we don't have rogue .z_init_<something> initlevel sections */
 	SECTION_PROLOGUE(initlevel_error,,)
 	{
-		KEEP(*(SORT(.init_[_A-Z0-9]*)))
+		KEEP(*(SORT(.z_init_[_A-Z0-9]*)))
 	}
 	ASSERT(SIZEOF(initlevel_error) == 0, "Undefined initialization levels used.")
 
@@ -153,6 +153,13 @@
 	} GROUP_LINK_IN(ROMABLE_REGION)
 #endif /* CONFIG_PCIE */
 
+	SECTION_DATA_PROLOGUE(log_strings_sections,,)
+	{
+		__log_strings_start = .;
+		KEEP(*(SORT(.log_strings*)));
+		__log_strings_end = .;
+	} GROUP_ROM_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
+
 	SECTION_DATA_PROLOGUE(log_const_sections,,)
 	{
 		__log_const_start = .;
@@ -193,10 +200,10 @@
 	SECTION_DATA_PROLOGUE(device_handles,,)
 	{
 		__device_handles_start = .;
-#ifdef LINKER_PASS2
+#ifdef LINKER_ZEPHYR_FINAL
 		KEEP(*(SORT(.__device_handles_pass2*)));
-#else /* LINKER_PASS2 */
+#else /* LINKER_ZEPHYR_FINAL */
 		KEEP(*(SORT(.__device_handles_pass1*)));
-#endif /* LINKER_PASS2 */
+#endif /* LINKER_ZEPHYR_FINAL */
 		__device_handles_end = .;
 	} GROUP_ROM_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)

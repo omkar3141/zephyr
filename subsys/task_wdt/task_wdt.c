@@ -7,7 +7,7 @@
 #include "task_wdt/task_wdt.h"
 
 #include <drivers/watchdog.h>
-#include <power/reboot.h>
+#include <sys/reboot.h>
 #include <device.h>
 #include <errno.h>
 
@@ -171,7 +171,7 @@ int task_wdt_feed(int channel_id)
 	 */
 	k_sched_lock();
 
-	current_ticks = z_tick_get();
+	current_ticks = sys_clock_tick_get();
 
 	/* feed the specified channel */
 	channels[channel_id].timeout_abs_ticks = current_ticks +

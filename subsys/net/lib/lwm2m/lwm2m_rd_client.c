@@ -229,6 +229,11 @@ static void socket_fault_cb(int error)
 /* force re-update with remote peer */
 void engine_trigger_update(bool update_objects)
 {
+	if (client.engine_state < ENGINE_REGISTRATION_SENT ||
+	    client.engine_state > ENGINE_UPDATE_SENT) {
+		return;
+	}
+
 	/* TODO: add locking? */
 	client.trigger_update = true;
 
@@ -714,7 +719,7 @@ static int sm_send_registration(bool send_obj_support_data,
 
 	if (!sm_is_registered()) {
 		snprintk(query_buffer, sizeof(query_buffer) - 1,
-			"lwm2m=%s", LWM2M_PROTOCOL_VERSION);
+			"lwm2m=%s", LWM2M_PROTOCOL_VERSION_STRING);
 		ret = coap_packet_append_option(
 			&msg->cpkt, COAP_OPTION_URI_QUERY,
 			query_buffer, strlen(query_buffer));
