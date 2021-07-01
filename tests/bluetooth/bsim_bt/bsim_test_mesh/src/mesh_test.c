@@ -14,6 +14,11 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #define RECV_QUEUE_SIZE 32
 
 const struct bt_mesh_test_cfg *cfg;
+
+static void time_update_cb(struct bt_mesh_time_srv *srv,
+			   struct bt_mesh_msg_ctx *ctx,
+			   enum bt_mesh_time_update_types type)
+{}
 struct bt_mesh_model *test_model;
 
 static K_MEM_SLAB_DEFINE(msg_pool, sizeof(struct bt_mesh_test_msg),
@@ -21,6 +26,8 @@ static K_MEM_SLAB_DEFINE(msg_pool, sizeof(struct bt_mesh_test_msg),
 static K_QUEUE_DEFINE(recv);
 struct bt_mesh_test_stats test_stats;
 struct bt_mesh_msg_ctx test_send_ctx;
+struct k_sem test_main_sem;
+
 
 static void msg_rx(struct bt_mesh_model *mod, struct bt_mesh_msg_ctx *ctx,
 		   struct net_buf_simple *buf)
@@ -77,10 +84,22 @@ static struct bt_mesh_model_pub pub = {
 
 static struct bt_mesh_cfg_cli cfg_cli;
 
+static struct bt_mesh_time_srv time_srv = BT_MESH_TIME_SRV_INIT(time_update_cb);
+
+#ifndef REMOVE_SCHED
+static struct bt_mesh_scheduler_srv scheduler_srv =
+	BT_MESH_SCHEDULER_SRV_INIT(scheduler_action_set_cb, &time_srv);
+static struct bt_mesh_scheduler_cli scheduler_cli;
+#endif
 static struct bt_mesh_model models[] = {
 	BT_MESH_MODEL_CFG_SRV,
 	BT_MESH_MODEL_CFG_CLI(&cfg_cli),
 	BT_MESH_MODEL(TEST_MOD_ID, model_op, &pub, NULL),
+#ifndef REMOVE_SCHED
+	BT_MESH_MODEL_SCHEDULER_SRV(&scheduler_srv),
+	BT_MESH_MODEL_SCHEDULER_CLI(&scheduler_cli),
+#endif
+	BT_MESH_MODEL_TIME_SRV(&time_srv),
 };
 
 static struct bt_mesh_elem elems[] = {
@@ -96,11 +115,17 @@ const uint8_t test_net_key[16] = { 1, 2, 3 };
 const uint8_t test_app_key[16] = { 4, 5, 6 };
 const uint8_t test_va_uuid[16] = "Mesh Label UUID";
 
-static void bt_enabled(void)
+static void bt_enabled(int err)
 {
 	static struct bt_mesh_prov prov;
 	uint8_t status;
-	int err;
+
+	if (err) {
+		printk("Bluetooth init failed (err %d)\n", err);
+		return;
+	}
+
+	printk("Bluetooth initialized\n");
 
 	net_buf_simple_init(pub.msg, 0);
 
@@ -110,13 +135,17 @@ static void bt_enabled(void)
 		return;
 	}
 
+	LOG_INF("Mesh initialized");
+
+	if (IS_ENABLED(CONFIG_SETTINGS)) {
+		settings_load();
+	}
+
 	err = bt_mesh_provision(test_net_key, 0, 0, 0, cfg->addr, cfg->dev_key);
 	if (err) {
 		FAIL("Provisioning failed (err %d)", err);
 		return;
 	}
-
-	LOG_INF("Mesh initialized");
 
 	/* Self configure */
 
@@ -141,6 +170,32 @@ static void bt_enabled(void)
 		     status);
 		return;
 	}
+
+	/* Scheduler model configuration */
+#ifndef REMOVE_SCHED
+	err = bt_mesh_cfg_mod_app_bind(0, cfg->addr, cfg->addr, 0, BT_MESH_MODEL_ID_SCHEDULER_SRV,
+				       &status);
+	if (err || status) {
+		FAIL("Mod app bind failed (err %d, status %u)", err, status);
+		return;
+	}
+
+	err = bt_mesh_cfg_mod_app_bind(0, cfg->addr, cfg->addr, 0, BT_MESH_MODEL_ID_SCHEDULER_SETUP_SRV,
+				       &status);
+	if (err || status) {
+		FAIL("Mod app bind failed (err %d, status %u)", err, status);
+		return;
+	}
+
+	err = bt_mesh_cfg_mod_app_bind(0, cfg->addr, cfg->addr, 0, BT_MESH_MODEL_ID_SCHEDULER_CLI,
+				       &status);
+	if (err || status) {
+		FAIL("Mod app bind failed (err %d, status %u)", err, status);
+		return;
+	}
+#endif
+
+	k_sem_give(&test_main_sem);
 }
 
 void bt_mesh_test_setup(void)
@@ -148,8 +203,14 @@ void bt_mesh_test_setup(void)
 	int err;
 
 	test_model = &models[2];
+	err = k_sem_init(&test_main_sem, 0, 1);
+	if (err) {
+		FAIL("k_sem_init failed (err %d)", err);
+		return;
+	}
 
-	err = bt_enable(NULL);
+	err = bt_enable(0);
+
 	if (err) {
 		FAIL("Bluetooth init failed (err %d)", err);
 		return;
@@ -157,17 +218,17 @@ void bt_mesh_test_setup(void)
 
 	LOG_INF("Bluetooth initialized");
 
-	bt_enabled();
+	bt_enabled(0);
 }
 
 void bt_mesh_test_timeout(bs_time_t HW_device_time)
 {
-	if (bst_result != Passed) {
-		FAIL("Test timeout (not passed after %i seconds)",
-		     HW_device_time / USEC_PER_SEC);
-	}
+	// if (bst_result != Passed) {
+	// 	FAIL("Test timeout (not passed after %i seconds)",
+	// 	     HW_device_time / USEC_PER_SEC);
+	// }
 
-	bs_trace_silent_exit(0);
+	// bs_trace_silent_exit(0);
 }
 
 void bt_mesh_test_cfg_set(const struct bt_mesh_test_cfg *my_cfg, int wait_time)

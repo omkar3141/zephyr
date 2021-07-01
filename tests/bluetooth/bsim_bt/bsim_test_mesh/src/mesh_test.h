@@ -24,6 +24,11 @@
 
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/mesh.h>
+#include <bluetooth/mesh/models.h>
+
+// #define REMOVE_SCHED 1
+
+extern struct k_sem test_main_sem;
 
 #define TEST_MOD_ID 0x8888
 #define TEST_MSG_OP BT_MESH_MODEL_OP_1(0x0f)
@@ -85,6 +90,13 @@ extern struct bt_mesh_msg_ctx test_send_ctx;
 void bt_mesh_test_cfg_set(const struct bt_mesh_test_cfg *cfg, int wait_time);
 void bt_mesh_test_setup(void);
 void bt_mesh_test_timeout(bs_time_t HW_device_time);
+
+#ifndef REMOVE_SCHED
+void scheduler_action_set_cb(struct bt_mesh_scheduler_srv *srv,
+			     struct bt_mesh_msg_ctx *ctx,
+			     uint8_t idx,
+			     struct bt_mesh_schedule_entry *entry);
+#endif
 
 int bt_mesh_test_recv(uint16_t len, uint16_t dst, k_timeout_t timeout);
 int bt_mesh_test_recv_msg(struct bt_mesh_test_msg *msg, k_timeout_t timeout);
