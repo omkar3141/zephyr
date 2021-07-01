@@ -53,6 +53,7 @@
 struct bt_mesh_test_cfg {
 	uint16_t addr;
 	uint8_t dev_key[16];
+	uint16_t net_idx;
 };
 
 enum bt_mesh_test_send_flags {

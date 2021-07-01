@@ -4,7 +4,7 @@
 
 # Compile all the applications needed by the bsim_bt tests
 
-#set -x #uncomment this line for debugging
+# set -x #uncomment this line for debugging
 set -ue
 
 : "${BSIM_OUT_PATH:?BSIM_OUT_PATH must be defined}"
