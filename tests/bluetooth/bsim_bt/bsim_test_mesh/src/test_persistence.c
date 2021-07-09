@@ -16,15 +16,6 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 #define WAIT_TIME 60 /*seconds*/
 
-static FATFS fat_fs;
-
-/* mounting info */
-static struct fs_mount_t fatfs_mnt = {
-	.type = FS_FATFS,
-	.mnt_point = "/RAM:",
-	.fs_data = &fat_fs,
-};
-
 static const struct bt_mesh_test_cfg scheduler_srv_model_cfg = {
 	.addr = 0x0001,
 	.dev_key = { 0x01 },
@@ -35,14 +26,6 @@ static const struct bt_mesh_test_cfg load_cfg = {
 	.dev_key = { 0xD },
 	.net_idx = 0x077
 };
-
-static void mount_settings_area(struct fs_mount_t * fs_mnt)
-{
-#ifndef REMOVE_SCHED
-	int err = fs_mount(fs_mnt);
-	LOG_INF("Mount point creation status: %i", err);
-#endif
-}
 
 static void test_provisioning_sv_init(void)
 {
@@ -176,9 +159,9 @@ static void test_provisioning_sv_check_save(void)
 {
 	struct key_checker_data validater;
 
-	mount_settings_area(&fatfs_mnt);
+	mount_settings_area();
 	bt_mesh_test_cfg_set(&scheduler_srv_model_cfg, WAIT_TIME);
-	bt_mesh_test_setup();
+	bt_mesh_test_setup(false);
 
 	/* print raw dump of settings file */
 	char dir_path[100] = CONFIG_SETTINGS_FS_DIR;
@@ -204,7 +187,7 @@ static void test_provisioning_ld_check_load(void)
 {
 	int err;
 
-	mount_settings_area(&fatfs_mnt);
+	mount_settings_area();
 	settings_subsys_init();
 
 	/* Provision the device */
@@ -248,7 +231,7 @@ static void test_provisioning_ld_check_load(void)
 
 	/* This should work without fail, as it contains additional config client API calls that
 	 * should work as is since device is booting up in already provisioned state. */
-	bt_mesh_test_setup();
+	bt_mesh_test_setup(false);
 
 	PASS();
 }

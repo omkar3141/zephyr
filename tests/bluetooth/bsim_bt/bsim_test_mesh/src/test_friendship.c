@@ -176,7 +176,7 @@ static void friend_wait_for_polls(int polls)
  */
 static void test_friend_est(void)
 {
-	bt_mesh_test_setup();
+	bt_mesh_test_setup(true);
 
 	bt_mesh_friend_set(BT_MESH_FEATURE_ENABLED);
 
@@ -195,7 +195,7 @@ static void test_friend_est_multi(void)
 {
 	int err;
 
-	bt_mesh_test_setup();
+	bt_mesh_test_setup(true);
 
 	k_sem_init(&events[FRIEND_ESTABLISHED], 0,
 		   CONFIG_BT_MESH_FRIEND_LPN_COUNT);
@@ -223,7 +223,7 @@ static void test_friend_est_multi(void)
  */
 static void test_friend_msg(void)
 {
-	bt_mesh_test_setup();
+	bt_mesh_test_setup(true);
 
 	bt_mesh_friend_set(BT_MESH_FEATURE_ENABLED);
 
@@ -284,7 +284,7 @@ static void test_friend_msg(void)
  */
 static void test_friend_overflow(void)
 {
-	bt_mesh_test_setup();
+	bt_mesh_test_setup(true);
 
 	bt_mesh_friend_set(BT_MESH_FEATURE_ENABLED);
 
@@ -322,7 +322,7 @@ static void test_friend_group(void)
 {
 	uint16_t virtual_addr;
 
-	bt_mesh_test_setup();
+	bt_mesh_test_setup(true);
 
 	bt_mesh_friend_set(BT_MESH_FEATURE_ENABLED);
 
@@ -368,7 +368,7 @@ static void test_friend_group(void)
  */
 static void test_lpn_est(void)
 {
-	bt_mesh_test_setup();
+	bt_mesh_test_setup(true);
 
 	bt_mesh_lpn_set(true);
 
@@ -389,7 +389,7 @@ static void test_lpn_est(void)
  */
 static void test_lpn_msg_frnd(void)
 {
-	bt_mesh_test_setup();
+	bt_mesh_test_setup(true);
 
 	bt_mesh_lpn_set(true);
 
@@ -451,7 +451,7 @@ static void test_lpn_msg_frnd(void)
  */
 static void test_lpn_msg_mesh(void)
 {
-	bt_mesh_test_setup();
+	bt_mesh_test_setup(true);
 
 	bt_mesh_lpn_set(true);
 
@@ -503,7 +503,7 @@ static void test_lpn_msg_mesh(void)
  */
 static void test_lpn_re_est(void)
 {
-	bt_mesh_test_setup();
+	bt_mesh_test_setup(true);
 
 	for (int i = 0; i < 4; i++) {
 		bt_mesh_lpn_set(true);
@@ -525,7 +525,7 @@ static void test_lpn_re_est(void)
  */
 static void test_lpn_poll(void)
 {
-	bt_mesh_test_setup();
+	bt_mesh_test_setup(true);
 
 	bt_mesh_lpn_set(true);
 	ASSERT_OK(evt_wait(LPN_ESTABLISHED, K_SECONDS(5)),
@@ -551,7 +551,7 @@ static void test_lpn_overflow(void)
 	struct bt_mesh_test_msg msg;
 	int err;
 
-	bt_mesh_test_setup();
+	bt_mesh_test_setup(true);
 
 	bt_mesh_lpn_set(true);
 	ASSERT_OK(evt_wait(LPN_ESTABLISHED, K_SECONDS(5)),
@@ -603,7 +603,7 @@ static void test_lpn_group(void)
 	uint8_t status = 0;
 	int err;
 
-	bt_mesh_test_setup();
+	bt_mesh_test_setup(true);
 
 	err = bt_mesh_cfg_mod_sub_add(0, cfg->addr, cfg->addr, GROUP_ADDR,
 				      TEST_MOD_ID, &status);
@@ -695,7 +695,7 @@ static void test_lpn_loopback(void)
 	uint8_t status = 0;
 	int err;
 
-	bt_mesh_test_setup();
+	bt_mesh_test_setup(true);
 
 	err = bt_mesh_cfg_mod_sub_add(0, cfg->addr, cfg->addr, GROUP_ADDR,
 				      TEST_MOD_ID, &status);
@@ -754,7 +754,7 @@ static void test_lpn_loopback(void)
  */
 static void test_other_msg(void)
 {
-	bt_mesh_test_setup();
+	bt_mesh_test_setup(true);
 
 	/* Receive an unsegmented message from the LPN. */
 	ASSERT_OK(bt_mesh_test_recv(5, cfg->addr, K_SECONDS(4)),
@@ -790,7 +790,7 @@ static void test_other_group(void)
 {
 	uint16_t virtual_addr;
 
-	bt_mesh_test_setup();
+	bt_mesh_test_setup(true);
 
 	ASSERT_OK(bt_mesh_va_add(test_va_uuid, &virtual_addr));
 

@@ -22,6 +22,9 @@
 #include <zephyr.h>
 #include <sys/printk.h>
 
+#include <fs/fs.h>
+#include <ff.h>
+
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/mesh.h>
 
@@ -84,7 +87,7 @@ extern struct bt_mesh_test_stats test_stats;
 extern struct bt_mesh_msg_ctx test_send_ctx;
 
 void bt_mesh_test_cfg_set(const struct bt_mesh_test_cfg *cfg, int wait_time);
-void bt_mesh_test_setup(void);
+void bt_mesh_test_setup(bool mount_fs);
 void bt_mesh_test_timeout(bs_time_t HW_device_time);
 
 int bt_mesh_test_recv(uint16_t len, uint16_t dst, k_timeout_t timeout);
@@ -97,4 +100,9 @@ int bt_mesh_test_send_async(uint16_t addr, size_t len,
 			    enum bt_mesh_test_send_flags flags,
 			    const struct bt_mesh_send_cb *send_cb,
 			    void *cb_data);
+
+#if CONFIG_SETTINGS
+int mount_settings_area(void);
+#endif
+
 #endif /* ZEPHYR_TESTS_BLUETOOTH_BSIM_BT_BSIM_TEST_MESH_MESH_TEST_H_ */

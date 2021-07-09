@@ -23,6 +23,22 @@ static K_QUEUE_DEFINE(recv);
 struct bt_mesh_test_stats test_stats;
 struct bt_mesh_msg_ctx test_send_ctx;
 
+/* mounting info */
+#if CONFIG_SETTINGS
+static FATFS fat_fs;
+static struct fs_mount_t fatfs_mnt = {
+	.type = FS_FATFS,
+	.mnt_point = "/RAM:",
+	.fs_data = &fat_fs,
+};
+
+int mount_settings_area(void)
+{
+	int err = fs_mount(&fatfs_mnt);
+	LOG_INF("Mount point creation status: %i", err);
+	return err;
+}
+#endif
 
 static void msg_rx(struct bt_mesh_model *mod, struct bt_mesh_msg_ctx *ctx,
 		   struct net_buf_simple *buf)
@@ -157,9 +173,21 @@ static void bt_enabled(int err)
 	}
 }
 
-void bt_mesh_test_setup(void)
+void bt_mesh_test_setup(bool mount_fs)
 {
 	int err;
+
+	if (IS_ENABLED(CONFIG_SETTINGS)) {
+		if (mount_fs) {
+			err = mount_settings_area();
+			if (err) {
+				FAIL("Cannot mount settings file system (err %d)", err);
+			}
+		}
+	}
+	else {
+		ARG_UNUSED(mount_fs);
+	}
 
 	test_model = &models[2];
 	err = bt_enable(0);
