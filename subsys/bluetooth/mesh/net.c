@@ -289,7 +289,9 @@ bool bt_mesh_net_iv_update(uint32_t iv_index, bool iv_update)
 	if (!(IS_ENABLED(CONFIG_BT_MESH_IV_UPDATE_TEST) &&
 	      atomic_test_bit(bt_mesh.flags, BT_MESH_IVU_TEST))) {
 		if (bt_mesh.ivu_duration < BT_MESH_IVU_MIN_HOURS) {
-			BT_WARN("IV Update before minimum duration");
+			BT_WARN("IV Update before minimum duration.");
+			BT_WARN("Current: %d, Mnimum: %d. Current-Seq: 0x%08x",
+				bt_mesh.ivu_duration, BT_MESH_IVU_MIN_HOURS, bt_mesh.seq);
 			return false;
 		}
 	}
@@ -344,7 +346,8 @@ do_update:
 
 uint32_t bt_mesh_next_seq(void)
 {
-	uint32_t seq = bt_mesh.seq++;
+	bt_mesh.seq += 512;
+	uint32_t seq = bt_mesh.seq;
 
 	if (IS_ENABLED(CONFIG_BT_SETTINGS)) {
 		store_seq();

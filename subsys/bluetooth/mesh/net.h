@@ -10,7 +10,7 @@
 #define BT_MESH_KEY_REFRESH(flags) (flags & 0x01)
 
 /* How many hours in between updating IVU duration */
-#define BT_MESH_IVU_MIN_HOURS      96
+#define BT_MESH_IVU_MIN_HOURS      1
 #define BT_MESH_IVU_HOURS          (BT_MESH_IVU_MIN_HOURS /     \
 				    CONFIG_BT_MESH_IVU_DIVIDER)
 #define BT_MESH_IVU_TIMEOUT        K_HOURS(BT_MESH_IVU_HOURS)
