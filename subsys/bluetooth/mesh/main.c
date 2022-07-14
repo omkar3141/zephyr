@@ -106,6 +106,7 @@ int bt_mesh_provision(const uint8_t net_key[16], uint16_t net_idx,
 	}
 
 	err = bt_mesh_net_create(net_idx, flags, net_key, iv_index);
+
 	if (err) {
 		atomic_clear_bit(bt_mesh.flags, BT_MESH_VALID);
 
@@ -116,6 +117,7 @@ int bt_mesh_provision(const uint8_t net_key[16], uint16_t net_idx,
 		return err;
 	}
 
+	bt_mesh_net_settings_commit();
 	bt_mesh.seq = 0U;
 
 	bt_mesh_comp_provision(addr);
