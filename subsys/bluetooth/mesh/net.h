@@ -13,7 +13,7 @@
 #define BT_MESH_IVU_MIN_HOURS      96
 #define BT_MESH_IVU_HOURS          (BT_MESH_IVU_MIN_HOURS /     \
 				    CONFIG_BT_MESH_IVU_DIVIDER)
-#define BT_MESH_IVU_TIMEOUT        K_HOURS(BT_MESH_IVU_HOURS)
+#define BT_MESH_IVU_TIMEOUT        K_SECONDS(BT_MESH_IVU_HOURS)
 
 /* Minimum valid Mesh Network PDU length. The Network headers
  * themselves take up 9 bytes. After that there is a minimum of 1 byte

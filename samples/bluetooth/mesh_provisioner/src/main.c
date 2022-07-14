@@ -20,6 +20,8 @@ static uint8_t node_uuid[16];
 K_SEM_DEFINE(sem_unprov_beacon, 0, 1);
 K_SEM_DEFINE(sem_node_added, 0, 1);
 
+#define GROUP_ADDR (0xC000)
+
 static struct bt_mesh_cfg_cli cfg_cli = {
 };
 
@@ -173,7 +175,7 @@ static void configure_node(struct bt_mesh_cdb_node *node)
 			    id == BT_MESH_MODEL_ID_CFG_SRV) {
 				continue;
 			}
-			printk("Binding AppKey to model 0x%03x:%04x\n",
+			printk("Binding AppKey to model 0x%03x:0x%04x\n",
 			       elem_addr, id);
 
 			err = bt_mesh_cfg_mod_app_bind(net_idx, node->addr,
@@ -182,6 +184,47 @@ static void configure_node(struct bt_mesh_cdb_node *node)
 			if (err || status) {
 				printk("Failed (err: %d, status: %d)\n", err,
 				       status);
+			}
+
+			/* setup publication for onoff client */
+			switch(id) {
+				case BT_MESH_MODEL_ID_GEN_ONOFF_CLI:
+					{
+						struct bt_mesh_cfg_mod_pub pub = {
+							.addr = GROUP_ADDR,
+							.uuid = NULL,
+							.app_idx = app_idx,
+							.cred_flag = 0,
+							.ttl = 0,
+							.period = BT_MESH_PUB_PERIOD_100MS(2),
+							.transmit = 0
+						};
+
+						printk("Configuring periodic publication for model 0x%03x:0x%04x\n dst: 0x%04x",
+					       elem_addr, id, pub.addr);
+
+						err = bt_mesh_cfg_mod_pub_set(net_idx, elem_addr, elem_addr,
+								BT_MESH_MODEL_ID_GEN_ONOFF_CLI, &pub, &status);
+						if (err || status) {
+							printk("pub_set Failed (err: %d, status: %d)\n", err,
+							       status);
+						}
+					}
+					break;
+
+				case BT_MESH_MODEL_ID_GEN_ONOFF_SRV:
+					{
+						printk("Configuring subscription for model 0x%03x:0x%04x\n dst: 0x%04x",
+					       elem_addr, id, GROUP_ADDR);
+
+					   	err = bt_mesh_cfg_mod_sub_add(net_idx, elem_addr, elem_addr,
+					   			GROUP_ADDR, id, &status);
+						if (err || status) {
+							printk("sub_add Failed (err: %d, status: %d)\n", err,
+							       status);
+						}
+					}
+					break;
 			}
 		}
 
@@ -203,7 +246,7 @@ static void configure_node(struct bt_mesh_cdb_node *node)
 		}
 
 		elem_addr++;
-	}
+	};
 
 	atomic_set_bit(node->flags, BT_MESH_CDB_NODE_CONFIGURED);
 

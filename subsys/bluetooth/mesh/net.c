@@ -289,7 +289,9 @@ bool bt_mesh_net_iv_update(uint32_t iv_index, bool iv_update)
 	if (!(IS_ENABLED(CONFIG_BT_MESH_IV_UPDATE_TEST) &&
 	      atomic_test_bit(bt_mesh.flags, BT_MESH_IVU_TEST))) {
 		if (bt_mesh.ivu_duration < BT_MESH_IVU_MIN_HOURS) {
-			BT_WARN("IV Update before minimum duration");
+			BT_WARN("IV Update before minimum duration.");
+			BT_WARN("Current: %d, Mnimum: %d. Current-Seq: 0x%08x",
+				bt_mesh.ivu_duration, BT_MESH_IVU_MIN_HOURS, bt_mesh.seq);
 			return false;
 		}
 	}
@@ -309,7 +311,7 @@ bool bt_mesh_net_iv_update(uint32_t iv_index, bool iv_update)
 		bt_mesh_rpl_reset();
 		ivi_was_recovered = false;
 	} else {
-		BT_DBG("Normal mode entered");
+		BT_DBG("IVU Normal mode entered");
 		bt_mesh.seq = 0U;
 	}
 
@@ -344,7 +346,19 @@ do_update:
 
 uint32_t bt_mesh_next_seq(void)
 {
-	uint32_t seq = bt_mesh.seq++;
+	uint32_t seq = bt_mesh.seq;
+
+	static bool speed_up = false;
+
+	if (speed_up || bt_mesh.seq > 50) {
+		bt_mesh.seq += 8000;
+		speed_up = true;
+	}
+	else
+	{
+		bt_mesh.seq++;
+	}
+
 
 	if (IS_ENABLED(CONFIG_BT_SETTINGS)) {
 		store_seq();
@@ -421,8 +435,8 @@ static int net_header_encode(struct bt_mesh_net_tx *tx, uint8_t nid,
 		return -EINVAL;
 	}
 
-	BT_DBG("src 0x%04x dst 0x%04x ctl %u seq 0x%06x",
-	       tx->src, tx->ctx->addr, ctl, bt_mesh.seq);
+	// BT_DBG("src 0x%04x dst 0x%04x ctl %u seq 0x%06x",
+	//        tx->src, tx->ctx->addr, ctl, bt_mesh.seq);
 
 	net_buf_simple_push_be16(buf, tx->ctx->addr);
 	net_buf_simple_push_be16(buf, tx->src);
@@ -498,11 +512,10 @@ int bt_mesh_net_send(struct bt_mesh_net_tx *tx, struct net_buf *buf,
 	const struct bt_mesh_net_cred *cred;
 	int err;
 
-	BT_DBG("src 0x%04x dst 0x%04x len %u headroom %zu tailroom %zu",
-	       tx->src, tx->ctx->addr, buf->len, net_buf_headroom(buf),
+	BT_DBG("src 0x%04x dst 0x%04x seq 0x%08x len %u headroom %zu tailroom %zu",
+	       tx->src, tx->ctx->addr, bt_mesh.seq, buf->len, net_buf_headroom(buf),
 	       net_buf_tailroom(buf));
 	BT_DBG("Payload len %u: %s", buf->len, bt_hex(buf->data, buf->len));
-	BT_DBG("Seq 0x%06x", bt_mesh.seq);
 
 	cred = net_tx_cred_get(tx);
 	err = net_header_encode(tx, cred->nid, &buf->b);
@@ -787,8 +800,8 @@ int bt_mesh_net_decode(struct net_buf_simple *in, enum bt_mesh_net_if net_if,
 		return -EBADMSG;
 	}
 
-	BT_DBG("src 0x%04x dst 0x%04x ttl %u", rx->ctx.addr, rx->ctx.recv_dst,
-	       rx->ctx.recv_ttl);
+	BT_DBG("src 0x%04x dst 0x%04x ttl %u seq 0x%08x", rx->ctx.addr, rx->ctx.recv_dst,
+	       rx->ctx.recv_ttl, rx->seq);
 	BT_DBG("PDU: %s", bt_hex(out->data, out->len));
 
 	msg_cache_add(rx);
@@ -803,7 +816,7 @@ void bt_mesh_net_recv(struct net_buf_simple *data, int8_t rssi,
 	struct bt_mesh_net_rx rx = { .ctx.recv_rssi = rssi };
 	struct net_buf_simple_state state;
 
-	BT_DBG("rssi %d net_if %u", rssi, net_if);
+	// BT_DBG("rssi %d net_if %u", rssi, net_if);
 
 	if (!bt_mesh_is_provisioned()) {
 		return;
@@ -890,6 +903,9 @@ void bt_mesh_net_init(void)
 	k_work_init_delayable(&bt_mesh.ivu_timer, ivu_refresh);
 
 	k_work_init(&bt_mesh.local_work, bt_mesh_net_local);
+
+	// BT_INFO("BT_MESH_IVU_MIN_HOURS: %d BT_MESH_IVU_HOURS: %d BT_MESH_IVU_TIMEOUT: %d",
+	// 		BT_MESH_IVU_MIN_HOURS,  (uint32_t)BT_MESH_IVU_HOURS, (uint32_t)BT_MESH_IVU_TIMEOUT);
 }
 
 static int net_set(const char *name, size_t len_rd, settings_read_cb read_cb,
