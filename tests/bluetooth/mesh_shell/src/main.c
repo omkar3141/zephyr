@@ -13,6 +13,7 @@
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/mesh.h>
 #include <zephyr/bluetooth/mesh/shell.h>
+#include <bluetooth/mesh/models.h>
 
 static struct bt_mesh_cfg_cli cfg_cli;
 
@@ -38,6 +39,12 @@ static struct bt_mesh_od_priv_proxy_cli od_priv_proxy_cli;
 #endif
 
 BT_MESH_SHELL_HEALTH_PUB_DEFINE(health_pub);
+
+static const struct bt_mesh_sensor_cli_handlers bt_mesh_sensor_cli_handlers = { 0 };
+
+static struct bt_mesh_sensor_cli sensor_cli =
+	BT_MESH_SENSOR_CLI_INIT(&bt_mesh_sensor_cli_handlers);
+
 
 static struct bt_mesh_model root_models[] = {
 	BT_MESH_MODEL_CFG_SRV,
@@ -101,6 +108,7 @@ static struct bt_mesh_model root_models[] = {
 #if defined(CONFIG_BT_MESH_OD_PRIV_PROXY_SRV)
 	BT_MESH_MODEL_OD_PRIV_PROXY_SRV,
 #endif
+	BT_MESH_MODEL_SENSOR_CLI(&sensor_cli)
 };
 
 static struct bt_mesh_elem elements[] = {
