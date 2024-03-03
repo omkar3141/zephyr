@@ -945,6 +945,7 @@ config BT_MESH_BLOB_IO_FLASH
 
 config BT_MESH_DFU_SRV
 	bool "Support for Firmware Update Server model"
+	select BT_MESH_MODEL_EXTENSIONS
 	depends on BT_MESH_BLOB_SRV
 	help
 	  Enable the Firmware Update Server model.
@@ -1010,6 +1011,7 @@ endif
 
 menuconfig BT_MESH_DFD_SRV
 	bool "Support for Firmware Distribution Server model"
+	select BT_MESH_MODEL_EXTENSIONS
 	depends on BT_MESH_BLOB_SRV
 	depends on BT_MESH_DFU_CLI
 	help
