@@ -239,6 +239,12 @@ static void unprovisioned_beacon(uint8_t uuid[16],
 				 bt_mesh_prov_oob_info_t oob_info,
 				 uint32_t *uri_hash)
 {
+	/* Apply partial UUID filter to avoid provisioning someone else's device. */
+	uint8_t my_uuid_filter[4] = {0x86, 0x3d, 0xeb, 0xd1};
+	if (memcmp(uuid, my_uuid_filter, ARRAY_SIZE(my_uuid_filter)) != 0) {
+		return;
+	}
+
 	memcpy(node_uuid, uuid, 16);
 	k_sem_give(&sem_unprov_beacon);
 }
@@ -375,8 +381,29 @@ int main(void)
 		k_sem_reset(&sem_node_added);
 		bt_mesh_cdb_node_foreach(check_unconfigured, NULL);
 
+		/* Wait for store timeout and then unprovision the node and remove it from CDB */
+		struct bt_mesh_cdb_node *node = bt_mesh_cdb_node_get(node_addr);
+		if (node) {
+			printk("Waiting for Store Timeout ...\n");
+			k_sleep(K_SECONDS(CONFIG_BT_MESH_STORE_TIMEOUT + 1));
+
+			printk("Removing node 0x%04x\n", node->addr);
+
+			bool status;
+			err = bt_mesh_cfg_cli_node_reset(net_idx, node->addr, &status);
+			if (err || !status) {
+				printk("Failed to reset node 0x%04x (err %d, status %d)\n",
+				       node->addr, err, status);
+			}
+			bt_mesh_cdb_node_del(node, true);
+
+			printk("Waiting for Store Timeout ...\n");
+			k_sleep(K_SECONDS(CONFIG_BT_MESH_STORE_TIMEOUT + 1));
+		}
+
+
 		printk("Waiting for unprovisioned beacon...\n");
-		err = k_sem_take(&sem_unprov_beacon, K_SECONDS(10));
+		err = k_sem_take(&sem_unprov_beacon, K_SECONDS(15));
 		if (err == -EAGAIN) {
 			continue;
 		}
@@ -386,10 +413,10 @@ int main(void)
 #if DT_NODE_HAS_STATUS(SW0_NODE, okay)
 		k_sem_reset(&sem_button_pressed);
 		printk("Device %s detected, press button 1 to provision.\n", uuid_hex_str);
-		err = k_sem_take(&sem_button_pressed, K_SECONDS(30));
+		err = k_sem_take(&sem_button_pressed, K_SECONDS(5));
 		if (err == -EAGAIN) {
-			printk("Timed out, button 1 wasn't pressed in time.\n");
-			continue;
+			printk("Timed out, continuing to provision anyway.\n");
+			// continue;
 		}
 #endif
 
