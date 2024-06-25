@@ -1093,6 +1093,27 @@ config BT_MESH_RPR_SRV_AD_DATA_MAX
 
 endmenu # Remote Provisioning configuration
 
+config BT_MESH_SBC_SRV
+	bool "Subnet Bridge Configuration Server model"
+	help
+	  Enable the Subnet Bridge Configuration Server model.
+config BT_MESH_SBC_CLI
+	bool "Subnet Bridge Configuration Client model"
+	help
+	  Enable the Subnet Bridge Configuration Client model.
+
+menu "Subnet Bridge configuration"
+	visible if BT_MESH_SBC_SRV
+
+config BT_MESH_SBC_BRIDGING_TABLE_ITEMS_MAX
+	int "Maximum number of entries in the bridging table"
+	default 16
+	range 16 255
+	help
+	  The maximum number of entries in the bridging table.
+
+endmenu
+
 config BT_MESH_SAR_CFG
 	bool
 
