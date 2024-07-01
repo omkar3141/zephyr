@@ -5,6 +5,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#undef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L /* Required for strnlen() */
+
 #include <errno.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -96,13 +99,13 @@ static int handle_http1_static_resource(
 			   sizeof("xxxx") +				\
 			   sizeof("\r\n")];				\
 	snprintk(http_response, sizeof(http_response),			\
-		 _template "\r\n",					\
+		 _template,						\
 		 "Content-Type: ",					\
 		 _content_type == NULL ?				\
 		 "text/html" : _content_type);				\
 	ret = http_server_sendall(client, http_response,		\
 				  strnlen(http_response,		\
-					  sizeof(_template) - 1));	\
+					  sizeof(http_response) - 1));	\
 	ret; })
 
 static int dynamic_get_req(struct http_resource_detail_dynamic *dynamic_detail,
@@ -233,11 +236,10 @@ static int dynamic_post_req(struct http_resource_detail_dynamic *dynamic_detail,
 			}
 
 			(void)http_server_sendall(client, crlf, 2);
-
-			offset += copy_len;
-			remaining -= copy_len;
 		}
 
+		offset += copy_len;
+		remaining -= copy_len;
 		copy_len = MIN(remaining, dynamic_detail->data_buffer_len);
 	}
 

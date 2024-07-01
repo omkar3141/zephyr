@@ -3,13 +3,17 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#include <stddef.h>
 
-#ifdef CONFIG_BT_MCS
-
+#include <zephyr/autoconf.h>
 #include <zephyr/bluetooth/audio/media_proxy.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/sys/printk.h>
 
+#include "bstests.h"
 #include "common.h"
 
+#ifdef CONFIG_BT_MCS
 extern enum bst_result_t bst_result;
 
 static void start_adv(void)
@@ -58,7 +62,7 @@ static void test_main(void)
 static const struct bst_test_instance test_mcs[] = {
 	{
 		.test_id = "mcs",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_main
 	},

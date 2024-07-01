@@ -103,7 +103,7 @@ macro:
 
     HTTP_SERVICE_DEFINE(my_service, "0.0.0.0", &http_service_port, 1, 10, NULL);
 
-Alternatively, an HTTPS service can be defined with with
+Alternatively, an HTTPS service can be defined with
 :c:macro:`HTTPS_SERVICE_DEFINE`:
 
 .. code-block:: c
@@ -129,6 +129,24 @@ Alternatively, an HTTPS service can be defined with with
 
 Once HTTP(s) service is defined, resources can be registered for it with
 :c:macro:`HTTP_RESOURCE_DEFINE` macro.
+
+Application can enable resource wildcard support by enabling
+:kconfig:option:`CONFIG_HTTP_SERVER_RESOURCE_WILDCARD` option. When this
+option is set, then it is possible to match several incoming HTTP requests
+with just one resource handler. The `fnmatch()
+<https://pubs.opengroup.org/onlinepubs/9699919799/functions/fnmatch.html>`__
+POSIX API function is used to match the pattern in the URL paths.
+
+Example:
+
+.. code-block:: c
+
+    HTTP_RESOURCE_DEFINE(my_resource, my_service, "/foo*", &resource_detail);
+
+This would match all URLs that start with a string ``foo``. See
+`POSIX.2 chapter 2.13
+<https://pubs.opengroup.org/onlinepubs/9699919799/utilities/V3_chap02.html#tag_18_13>`__
+for pattern matching syntax description.
 
 Static resources
 ================
@@ -259,7 +277,7 @@ in the reply.
 Websocket resources
 ===================
 
-Websocket resources register an application callback, which is is called when a
+Websocket resources register an application callback, which is called when a
 Websocket connection upgrade takes place. The callback is provided with a socket
 descriptor corresponding to the underlying TCP/TLS connection. Once called,
 the application takes full control over the socket, i. e. is responsible to

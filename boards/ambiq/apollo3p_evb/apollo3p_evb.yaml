@@ -12,7 +12,9 @@ supported:
   - watchdog
   - counter
   - gpio
+  - spi
   - i2c
+  - mspi
 testing:
   ignore_tags:
     - net

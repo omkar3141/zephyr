@@ -257,7 +257,7 @@ Artificially long but functional example:
         "-A", "--board-root", action="append", default=board_root_list,
         help="""Directory to search for board configuration files. All .yaml
 files in the directory will be processed. The directory should have the same
-structure in the main Zephyr tree: boards/<arch>/<board_name>/""")
+structure in the main Zephyr tree: boards/<vendor>/<board_name>/""")
 
     parser.add_argument(
         "--allow-installed-plugin", action="store_true", default=None,
@@ -386,6 +386,18 @@ structure in the main Zephyr tree: boards/<arch>/<board_name>/""")
              "using additional build option `--target footprint`.")
 
     footprint_group.add_argument(
+        "--footprint-report",
+        nargs="?",
+        default=None,
+        choices=['all', 'ROM', 'RAM'],
+        const="all",
+        help="Select which memory area symbols' data to collect as 'footprint' property "
+             "of each test suite built, and report in 'twister_footprint.json' together "
+             "with the relevant execution metadata the same way as in `twister.json`. "
+             "Implies '--create-rom-ram-report' to generate the footprint data files. "
+             "No value means '%(const)s'. Default: %(default)s""")
+
+    footprint_group.add_argument(
         "--enable-size-report",
         action="store_true",
         help="Collect and report ROM/RAM section sizes for each test image built.")
@@ -401,7 +413,8 @@ structure in the main Zephyr tree: boards/<arch>/<board_name>/""")
         action = "store_true",
         help="Take ROM/RAM sections footprint summary values from the 'build.log' "
              "instead of 'objdump' results used otherwise."
-             "Requires --enable-size-report or one of the baseline comparison modes.")
+             "Requires --enable-size-report or one of the baseline comparison modes."
+             "Warning: the feature will not work correctly with sysbuild.")
 
     compare_group_option = footprint_group.add_mutually_exclusive_group()
 
@@ -547,6 +560,8 @@ structure in the main Zephyr tree: boards/<arch>/<board_name>/""")
     parser.add_argument("--overflow-as-errors", action="store_true",
                         help="Treat RAM/SRAM overflows as errors.")
 
+    parser.add_argument("--report-filtered", action="store_true",
+                        help="Include filtered tests in the reports.")
 
     parser.add_argument("-P", "--exclude-platform", action="append", default=[],
             help="""Exclude platforms and do not build or run any tests
@@ -788,6 +803,9 @@ def parse_arguments(parser, args, options = None, on_init=True):
     if options.last_metrics or options.compare_report:
         options.enable_size_report = True
 
+    if options.footprint_report:
+        options.create_rom_ram_report = True
+
     if options.aggressive_no_clean:
         options.no_clean = True
 
@@ -845,9 +863,13 @@ def parse_arguments(parser, args, options = None, on_init=True):
             sc.size_report()
         sys.exit(0)
 
-    if options.footprint_from_buildlog and not options.enable_size_report:
-        logger.error("--footprint-from-buildlog requires --enable-size-report")
-        sys.exit(1)
+    if options.footprint_from_buildlog:
+        logger.warning("WARNING: Using --footprint-from-buildlog will give inconsistent results "
+                       "for configurations using sysbuild. It is recommended to not use this flag "
+                       "when building configurations using sysbuild.")
+        if not options.enable_size_report:
+            logger.error("--footprint-from-buildlog requires --enable-size-report")
+            sys.exit(1)
 
     if len(options.extra_test_args) > 0:
         # extra_test_args is a list of CLI args that Twister did not recognize

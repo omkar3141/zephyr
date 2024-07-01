@@ -24,6 +24,7 @@
 		zephyr,canbus = &twai;
 		zephyr,entropy = &trng0;
 		zephyr,flash-controller = &flash;
+		zephyr,bt-hci = &esp32_bt_hci;
 	};
 
 	cpus {
@@ -68,6 +69,11 @@
 		status = "disabled";
 	};
 
+	esp32_bt_hci: esp32_bt_hci {
+		compatible = "espressif,esp32-bt-hci";
+		status = "disabled";
+	};
+
 	soc {
 		#address-cells = <1>;
 		#size-cells = <1>;
@@ -103,6 +109,15 @@
 			slow-clk-src = <ESP32_RTC_SLOW_CLK_SRC_RC_SLOW>;
 			#clock-cells = <1>;
 			status = "okay";
+		};
+
+		xt_wdt: xt_wdt@60008004 {
+			compatible = "espressif,esp32-xt-wdt";
+			reg = <0x60008004 0x4>;
+			clocks = <&rtc ESP32_MODULE_MAX>;
+			interrupts = <RTC_CORE_INTR_SOURCE>;
+			interrupt-parent = <&intc>;
+			status = "disabled";
 		};
 
 		rtc_timer: rtc_timer@60008004 {

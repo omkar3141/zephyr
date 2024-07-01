@@ -30,7 +30,7 @@ static int st_stm32_common_config(void)
 #if defined(CONFIG_SOC_SERIES_STM32WBX) || defined(CONFIG_SOC_SERIES_STM32H5X)
 	LL_DBGMCU_EnableTraceClock();
 #endif
-#if !defined(CONFIG_SOC_SERIES_STM32WBX)
+#if !defined(CONFIG_SOC_SERIES_STM32WBX) && defined(DBGMCU_CR_TRACE_IOEN)
 	LL_DBGMCU_SetTracePinAssignment(LL_DBGMCU_TRACE_ASYNCH);
 #endif
 #endif /* CONFIG_LOG_BACKEND_SWO */
@@ -65,7 +65,8 @@ static int st_stm32_common_config(void)
 
 #if defined(CONFIG_STM32_ENABLE_DEBUG_SLEEP_STOP)
 
-#if defined(CONFIG_SOC_SERIES_STM32H7X) || defined(CONFIG_SOC_SERIES_STM32MP1X)
+#if defined(CONFIG_SOC_SERIES_STM32H7X) || defined(CONFIG_SOC_SERIES_STM32H7RSX) \
+	|| defined(CONFIG_SOC_SERIES_STM32MP1X)
 	HAL_EnableDBGStopMode();
 #elif defined(CONFIG_SOC_SERIES_STM32G0X) || defined(CONFIG_SOC_SERIES_STM32C0X)
 	LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_DBGMCU);
@@ -86,7 +87,8 @@ static int st_stm32_common_config(void)
 #else
 
 /* keeping in mind that debugging draws a lot of power we explcitly disable when not needed */
-#if defined(CONFIG_SOC_SERIES_STM32H7X) || defined(CONFIG_SOC_SERIES_STM32MP1X)
+#if defined(CONFIG_SOC_SERIES_STM32H7X) || defined(CONFIG_SOC_SERIES_STM32H7RSX) \
+	|| defined(CONFIG_SOC_SERIES_STM32MP1X)
 	HAL_DisableDBGStopMode();
 #elif defined(CONFIG_SOC_SERIES_STM32G0X) || defined(CONFIG_SOC_SERIES_STM32C0X)
 	LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_DBGMCU);

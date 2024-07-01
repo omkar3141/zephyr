@@ -31,16 +31,19 @@ on the simulated nRF54L15 SOC.
 
 .. warning::
 
-   This target is experimental, and does not yet include models of the RADIO peripheral,
-   so the BLE and 802.15.4 stacks cannot be run on it yet.
+   This target is experimental, and even though it includes models of the RADIO, it does not yet
+   include models of the AAR, CCM or ECB peripherals, so the BLE and 802.15.4 stacks can only be
+   run without encryption or privacy features so far.
 
 This boards include models of some of the nRF54L15 SOC peripherals:
 
+* CLOCK (Clock control)
 * DPPI (Distributed Programmable Peripheral Interconnect)
 * EGU (Event Generator Unit)
 * FICR (Factory Information Configuration Registers)
 * GRTC (Global Real-time Counter)
 * PPIB (PPI Bridge)
+* RADIO
 * RRAMC (Resistive RAM Controller)
 * RTC (Real Time Counter)
 * TEMP (Temperature sensor)

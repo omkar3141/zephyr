@@ -125,6 +125,12 @@ uint8_t ll_big_sync_create(uint8_t big_handle, uint16_t sync_handle,
 		last_index = bis[i];
 	}
 
+	/* Check if encryption supported */
+	if (!IS_ENABLED(CONFIG_BT_CTLR_BROADCAST_ISO_ENC) &&
+	    encryption) {
+		return BT_HCI_ERR_CMD_DISALLOWED;
+	};
+
 	/* Check if requested encryption matches */
 	if (encryption != sync->enc) {
 		return BT_HCI_ERR_ENC_MODE_NOT_ACCEPTABLE;
@@ -466,11 +472,13 @@ void ull_sync_iso_setup(struct ll_sync_iso_set *sync_iso,
 	lll->payload_count |= (uint64_t)bi->payload_count_framing[2] << 16;
 	lll->payload_count |= (uint64_t)bi->payload_count_framing[3] << 24;
 	lll->payload_count |= (uint64_t)(bi->payload_count_framing[4] & 0x7f) << 32;
+	lll->framing = (bi->payload_count_framing[4] & 0x80) >> 7;
 
 	/* Set establishment event countdown */
 	lll->establish_events = CONN_ESTAB_COUNTDOWN;
 
-	if (lll->enc && (bi_size == PDU_BIG_INFO_ENCRYPTED_SIZE)) {
+	if (IS_ENABLED(CONFIG_BT_CTLR_BROADCAST_ISO_ENC) &&
+	    lll->enc && (bi_size == PDU_BIG_INFO_ENCRYPTED_SIZE)) {
 		const uint8_t BIG3[4]  = {0x33, 0x47, 0x49, 0x42};
 		struct ccm *ccm_rx;
 		uint8_t gsk[16];
@@ -575,7 +583,7 @@ void ull_sync_iso_setup(struct ll_sync_iso_set *sync_iso,
 		slot_us = (pdu_spacing * lll->nse * num_bis) + ctrl_spacing;
 
 	} else if (lll->bis_spacing >= (lll->sub_interval * lll->nse)) {
-		/* Time reservation omitting PTC subevents in sequetial
+		/* Time reservation omitting PTC subevents in sequential
 		 * packing.
 		 */
 		slot_us = pdu_spacing * ((lll->nse * num_bis) - lll->ptc);
@@ -805,18 +813,6 @@ void ull_sync_iso_done_terminate(struct node_rx_event_done *done)
 			  ticker_stop_op_cb, (void *)sync_iso);
 	LL_ASSERT((ret == TICKER_STATUS_SUCCESS) ||
 		  (ret == TICKER_STATUS_BUSY));
-}
-
-uint32_t ull_big_sync_delay(const struct lll_sync_iso *lll_iso)
-{
-	/* BT Core v5.4 - Vol 6, Part B, Section 4.4.6.4:
-	 * BIG_Sync_Delay = (Num_BIS – 1) × BIS_Spacing + (NSE – 1) × Sub_Interval + MPT.
-	 */
-	return (lll_iso->num_bis - 1) * lll_iso->bis_spacing +
-		(lll_iso->nse - 1) * lll_iso->sub_interval +
-		BYTES2US(PDU_OVERHEAD_SIZE(lll_iso->phy) +
-			lll_iso->max_pdu + (lll_iso->enc ? 4 : 0),
-			lll_iso->phy);
 }
 
 static void disable(uint8_t sync_idx)

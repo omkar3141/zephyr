@@ -16,7 +16,7 @@ static int test_file_open(void)
 {
 	int res;
 
-	res = open(TEST_FILE, O_CREAT | O_RDWR);
+	res = open(TEST_FILE, O_CREAT | O_RDWR, 0660);
 	if (res < 0) {
 		TC_ERROR("Failed opening file: %d, errno=%d\n", res, errno);
 		/* FIXME: restructure tests as per #46897 */
@@ -290,7 +290,7 @@ ZTEST(posix_fs_file_test, test_fs_unlink)
 ZTEST(posix_fs_file_test, test_fs_fd_leak)
 {
 	const int reps =
-	    MAX(CONFIG_POSIX_MAX_OPEN_FILES, CONFIG_POSIX_MAX_FDS) + 5;
+	    MAX(CONFIG_POSIX_OPEN_MAX, CONFIG_ZVFS_OPEN_MAX) + 5;
 
 	for (int i = 0; i < reps; i++) {
 		if (i > 0) {

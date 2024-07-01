@@ -130,6 +130,8 @@ class BuildConfiguration:
 
     Kconfig configuration values are available (parsed from .config).'''
 
+    config_prefix = 'CONFIG'
+
     def __init__(self, build_dir: str):
         self.build_dir = build_dir
         self.options: Dict[str, Union[str, int]] = {}
@@ -153,8 +155,9 @@ class BuildConfiguration:
 
     def _parse(self):
         filename = self.path
-        opt_value = re.compile('^(?P<option>CONFIG_[A-Za-z0-9_]+)=(?P<value>.*)$')
-        not_set = re.compile('^# (?P<option>CONFIG_[A-Za-z0-9_]+) is not set$')
+
+        opt_value = re.compile(f'^(?P<option>{self.config_prefix}_[A-Za-z0-9_]+)=(?P<value>.*)$')
+        not_set = re.compile(f'^# (?P<option>{self.config_prefix}_[A-Za-z0-9_]+) is not set$')
 
         with open(filename, 'r') as f:
             for line in f:
@@ -187,6 +190,22 @@ class BuildConfiguration:
                     # '# CONFIG_FOO is not set' means a boolean option is false.
                     self.options[match.group('option')] = False
 
+class SysbuildConfiguration(BuildConfiguration):
+    '''This helper class provides access to sysbuild-time configuration.
+
+    Configuration options can be read as if the object were a dict,
+    either object['SB_CONFIG_FOO'] or object.get('SB_CONFIG_FOO').
+
+    Kconfig configuration values are available (parsed from .config).'''
+
+    config_prefix = 'SB_CONFIG'
+
+    def _parse(self):
+        # If the build does not use sysbuild, skip parsing the file.
+        if not os.path.exists(self.path):
+            return
+        super()._parse()
+
 class MissingProgram(FileNotFoundError):
     '''FileNotFoundError subclass for missing program dependencies.
 
@@ -200,7 +219,7 @@ class MissingProgram(FileNotFoundError):
         super().__init__(errno.ENOENT, os.strerror(errno.ENOENT), program)
 
 
-_RUNNERCAPS_COMMANDS = {'flash', 'debug', 'debugserver', 'attach'}
+_RUNNERCAPS_COMMANDS = {'flash', 'debug', 'debugserver', 'attach', 'simulate', 'robot'}
 
 @dataclass
 class RunnerCaps:
@@ -212,7 +231,7 @@ class RunnerCaps:
     Available capabilities:
 
     - commands: set of supported commands; default is {'flash',
-      'debug', 'debugserver', 'attach'}.
+      'debug', 'debugserver', 'attach', 'simulate', 'robot'}.
 
     - dev_id: whether the runner supports device identifiers, in the form of an
       -i, --dev-id option. This is useful when the user has multiple debuggers
@@ -247,6 +266,8 @@ class RunnerCaps:
     - file: whether the runner supports a --file option, which specifies
       exactly the file that should be used to flash, overriding any default
       discovered in the build directory.
+
+    - hide_load_files: whether the elf/hex/bin file arguments should be hidden.
     '''
 
     commands: Set[str] = field(default_factory=lambda: set(_RUNNERCAPS_COMMANDS))
@@ -257,6 +278,7 @@ class RunnerCaps:
     extload: bool = False
     tool_opt: bool = False
     file: bool = False
+    hide_load_files: bool = False
 
     def __post_init__(self):
         if not self.commands.issubset(_RUNNERCAPS_COMMANDS):
@@ -511,18 +533,23 @@ class ZephyrBinaryRunner(abc.ABC):
             parser.add_argument('-f', '--file', help=argparse.SUPPRESS)
             parser.add_argument('-t', '--file-type', help=argparse.SUPPRESS)
 
-        parser.add_argument('--elf-file',
-                        metavar='FILE',
-                        action=(partial(depr_action, cls=cls, replacement='-f/--file') if caps.file else None),
-                        help='path to zephyr.elf' if not caps.file else 'Deprecated, use -f/--file instead.')
-        parser.add_argument('--hex-file',
-                        metavar='FILE',
-                        action=(partial(depr_action, cls=cls, replacement='-f/--file') if caps.file else None),
-                        help='path to zephyr.hex' if not caps.file else 'Deprecated, use -f/--file instead.')
-        parser.add_argument('--bin-file',
-                        metavar='FILE',
-                        action=(partial(depr_action, cls=cls, replacement='-f/--file') if caps.file else None),
-                        help='path to zephyr.bin' if not caps.file else 'Deprecated, use -f/--file instead.')
+        if caps.hide_load_files:
+            parser.add_argument('--elf-file', help=argparse.SUPPRESS)
+            parser.add_argument('--hex-file', help=argparse.SUPPRESS)
+            parser.add_argument('--bin-file', help=argparse.SUPPRESS)
+        else:
+            parser.add_argument('--elf-file',
+                                metavar='FILE',
+                                action=(partial(depr_action, cls=cls, replacement='-f/--file') if caps.file else None),
+                                help='path to zephyr.elf' if not caps.file else 'Deprecated, use -f/--file instead.')
+            parser.add_argument('--hex-file',
+                                metavar='FILE',
+                                action=(partial(depr_action, cls=cls, replacement='-f/--file') if caps.file else None),
+                                help='path to zephyr.hex' if not caps.file else 'Deprecated, use -f/--file instead.')
+            parser.add_argument('--bin-file',
+                                metavar='FILE',
+                                action=(partial(depr_action, cls=cls, replacement='-f/--file') if caps.file else None),
+                                help='path to zephyr.bin' if not caps.file else 'Deprecated, use -f/--file instead.')
 
         parser.add_argument('--erase', '--no-erase', nargs=0,
                             action=_ToggleAction,
@@ -644,6 +671,13 @@ class ZephyrBinaryRunner(abc.ABC):
         if not hasattr(self, '_build_conf'):
             self._build_conf = BuildConfiguration(self.cfg.build_dir)
         return self._build_conf
+
+    @property
+    def sysbuild_conf(self) -> SysbuildConfiguration:
+        '''Get a SysbuildConfiguration for the sysbuild directory.'''
+        if not hasattr(self, '_sysbuild_conf'):
+            self._sysbuild_conf = SysbuildConfiguration(os.path.dirname(self.cfg.build_dir))
+        return self._sysbuild_conf
 
     @property
     def thread_info_enabled(self) -> bool:

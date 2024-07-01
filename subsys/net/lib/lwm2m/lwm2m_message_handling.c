@@ -750,9 +750,12 @@ int lwm2m_send_empty_ack(struct lwm2m_ctx *client_ctx, uint16_t mid)
 		goto cleanup;
 	}
 
-	lwm2m_send_message_async(msg);
+	ret = zsock_send(client_ctx->sock_fd, msg->cpkt.data, msg->cpkt.offset, 0);
 
-	return 0;
+	if (ret < 0) {
+		LOG_ERR("Failed to send packet, err %d", errno);
+		ret = -errno;
+	}
 
 cleanup:
 	lwm2m_reset_message(msg, true);
@@ -996,15 +999,15 @@ static int lwm2m_write_handler_opaque(struct lwm2m_engine_obj_inst *obj_inst,
 #endif /* CONFIG_LWM2M_ENGINE_VALIDATION_BUFFER_SIZE > 0 */
 
 		if (res->post_write_cb) {
-			ret = res->post_write_cb(obj_inst->obj_inst_id, res->res_id,
-						 res_inst->res_inst_id, data_ptr, len,
-						 last_pkt_block && last_block, opaque_ctx.len,
-						 msg->in.block_ctx->ctx.current);
+			ret = res->post_write_cb(
+				obj_inst->obj_inst_id, res->res_id, res_inst->res_inst_id, data_ptr,
+				len, last_pkt_block && last_block, opaque_ctx.len,
+				(msg->in.block_ctx ? msg->in.block_ctx->ctx.current : 0));
 			if (ret < 0) {
 				return ret;
 			}
 		}
-		if (msg->in.block_ctx) {
+		if (msg->in.block_ctx && !last_pkt_block) {
 			msg->in.block_ctx->ctx.current += len;
 		}
 	}
@@ -2066,6 +2069,10 @@ static int parse_write_op(struct lwm2m_message *msg, uint16_t format)
 			free_block_ctx(block_ctx);
 
 			r = init_block_ctx(&msg->path, &block_ctx);
+			/* If we have already parsed the packet, we can handle the block size
+			 * given by the server.
+			 */
+			block_ctx->ctx.block_size = block_size;
 		}
 
 		if (r < 0) {
@@ -2100,13 +2107,7 @@ static int parse_write_op(struct lwm2m_message *msg, uint16_t format)
 		}
 
 		block_ctx->last_block = last_block;
-
-		/* Initial block sent by the server might be larger or smaller than
-		 * our block size, therefore it is needed to take this into account
-		 * when calculating next expected block number.
-		 */
-		block_ctx->expected +=
-			1 << MAX(0, GET_BLOCK_SIZE(block_opt) - block_ctx->ctx.block_size);
+		block_ctx->expected++;
 	}
 
 	r = do_write_op(msg, format);
@@ -3594,35 +3595,4 @@ cleanup:
 	LOG_WRN("LwM2M send is only supported for CONFIG_LWM2M_SERVER_OBJECT_VERSION_1_1");
 	return -ENOTSUP;
 #endif
-}
-
-int lwm2m_send(struct lwm2m_ctx *ctx, const struct lwm2m_obj_path path_list[],
-			 uint8_t path_list_size, bool confirmation_request)
-{
-	if (!confirmation_request) {
-		return -EINVAL;
-	}
-
-	return lwm2m_send_cb(ctx, path_list, path_list_size, NULL);
-}
-
-int lwm2m_engine_send(struct lwm2m_ctx *ctx, char const *path_list[], uint8_t path_list_size,
-		      bool confirmation_request)
-{
-	int ret;
-	struct lwm2m_obj_path lwm2m_path_list[CONFIG_LWM2M_COMPOSITE_PATH_LIST_SIZE];
-
-	if (path_list_size > CONFIG_LWM2M_COMPOSITE_PATH_LIST_SIZE) {
-		return -E2BIG;
-	}
-
-	for (int i = 0; i < path_list_size; i++) {
-		/* translate path -> path_obj */
-		ret = lwm2m_string_to_path(path_list[i], &lwm2m_path_list[i], '/');
-		if (ret < 0) {
-			return ret;
-		}
-	}
-
-	return lwm2m_send_cb(ctx, lwm2m_path_list, path_list_size, NULL);
 }

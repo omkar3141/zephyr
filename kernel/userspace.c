@@ -82,7 +82,7 @@ static void clear_perms_cb(struct k_object *ko, void *ctx_ptr);
 const char *otype_to_str(enum k_objects otype)
 {
 	const char *ret;
-	/* -fdata-sections doesn't work right except in very very recent
+	/* -fdata-sections doesn't work right except in very recent
 	 * GCC and these literal strings would appear in the binary even if
 	 * otype_to_str was omitted by the linker
 	 */
@@ -94,7 +94,7 @@ const char *otype_to_str(enum k_objects otype)
 	case K_OBJ_ANY:
 		ret = "generic";
 		break;
-#include <otype-to-str.h>
+#include <zephyr/otype-to-str.h>
 	default:
 		ret = "?";
 		break;
@@ -134,7 +134,7 @@ uint8_t *z_priv_stack_find(k_thread_stack_t *stack)
 /*
  * Note that dyn_obj->data is where the kernel object resides
  * so it is the one that actually needs to be aligned.
- * Due to the need to get the the fields inside struct dyn_obj
+ * Due to the need to get the fields inside struct dyn_obj
  * from kernel object pointers (i.e. from data[]), the offset
  * from data[] needs to be fixed at build time. Therefore,
  * data[] is declared with __aligned(), such that when dyn_obj
@@ -192,7 +192,7 @@ static size_t obj_size_get(enum k_objects otype)
 	size_t ret;
 
 	switch (otype) {
-#include <otype-to-size.h>
+#include <zephyr/otype-to-size.h>
 	default:
 		ret = sizeof(const struct device);
 		break;
@@ -1014,4 +1014,4 @@ static uintptr_t handler_no_syscall(uintptr_t arg1, uintptr_t arg2,
 	CODE_UNREACHABLE; /* LCOV_EXCL_LINE */
 }
 
-#include <syscall_dispatch.c>
+#include <zephyr/syscall_dispatch.c>
