@@ -228,6 +228,7 @@ static int settings_nvs_save(struct settings_store *cs, const char *name,
 	/* Find out if we are doing a delete */
 	delete = ((value == NULL) || (val_len == 0));
 
+	// int64_t timestamp = k_uptime_get();
 #if CONFIG_SETTINGS_NVS_NAME_CACHE
 	bool name_in_cache = false;
 
@@ -239,6 +240,8 @@ static int settings_nvs_save(struct settings_store *cs, const char *name,
 		goto found;
 	}
 #endif
+	// int64_t delta = k_uptime_delta(&timestamp);
+	// printk(" ncm %u m ", (uint32_t) delta);
 
 	name_id = cf->last_name_id + 1;
 	write_name_id = cf->last_name_id + 1;
@@ -251,6 +254,7 @@ static int settings_nvs_save(struct settings_store *cs, const char *name,
 	}
 #endif
 
+	// timestamp = k_uptime_get();
 	while (1) {
 		name_id--;
 		if (name_id == NVS_NAMECNT_ID) {
@@ -280,9 +284,12 @@ static int settings_nvs_save(struct settings_store *cs, const char *name,
 
 		goto found;
 	}
+	// delta = k_uptime_delta(&timestamp);
+	// printk(" w(1) %u m ", (uint32_t) delta);
 
 found:
 	if (delete) {
+		// timestamp = k_uptime_get();
 		if (name_id == NVS_NAMECNT_ID) {
 			return 0;
 		}
@@ -294,6 +301,8 @@ found:
 		}
 
 		if (rc < 0) {
+			// delta = k_uptime_delta(&timestamp);
+			// printk(" d1 %u m ", (uint32_t) delta);
 			return rc;
 		}
 
@@ -305,10 +314,14 @@ found:
 				/* Error: can't to store
 				 * the largest name ID in use.
 				 */
+				// delta = k_uptime_delta(&timestamp);
+				// printk(" d2 %u m ", (uint32_t) delta);
 				return rc;
 			}
 		}
 
+		// delta = k_uptime_delta(&timestamp);
+		// printk(" d3 %u m ", (uint32_t) delta);
 		return 0;
 	}
 
@@ -318,6 +331,7 @@ found:
 	}
 
 	/* update the last_name_id and write to flash if required*/
+	// timestamp = k_uptime_get();
 	if (write_name_id > cf->last_name_id) {
 		cf->last_name_id = write_name_id;
 		rc = nvs_write(&cf->cf_nvs, NVS_NAMECNT_ID, &cf->last_name_id,
@@ -326,21 +340,29 @@ found:
 			return rc;
 		}
 	}
+	// delta = k_uptime_delta(&timestamp);
+	// printk(" upid %u m ", (uint32_t) delta);
 
 	/* write the value */
+	// timestamp = k_uptime_get();
 	rc = nvs_write(&cf->cf_nvs, write_name_id + NVS_NAME_ID_OFFSET,
 		       value, val_len);
 	if (rc < 0) {
 		return rc;
 	}
+	// delta = k_uptime_delta(&timestamp);
+	// printk(" wv %u m ", (uint32_t) delta);
 
 	/* write the name if required */
+	// timestamp = k_uptime_get();
 	if (write_name) {
 		rc = nvs_write(&cf->cf_nvs, write_name_id, name, strlen(name));
 		if (rc < 0) {
 			return rc;
 		}
 	}
+	// delta = k_uptime_delta(&timestamp);
+	// printk(" wn %u m ", (uint32_t) delta);
 
 #if CONFIG_SETTINGS_NVS_NAME_CACHE
 	if (!name_in_cache) {

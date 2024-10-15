@@ -24,6 +24,8 @@
 #include "rpl.h"
 #include "settings.h"
 
+#include <zephyr/sys/printk.h>
+
 #define LOG_LEVEL CONFIG_BT_MESH_RPL_LOG_LEVEL
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(bt_mesh_rpl);
@@ -43,6 +45,11 @@ enum {
 	RPL_FLAGS_COUNT,
 };
 static ATOMIC_DEFINE(rpl_flags, RPL_FLAGS_COUNT);
+
+struct bt_mesh_rpl_statistics rpl_statistic = {
+	.single_entry_min = UINT32_MAX
+};
+uint64_t ate_loops = 0;
 
 static inline int rpl_idx(const struct bt_mesh_rpl *rpl)
 {
@@ -333,7 +340,28 @@ static void store_rpl(struct bt_mesh_rpl *entry)
 
 	snprintk(path, sizeof(path), "bt/mesh/RPL/%x", entry->src);
 
+	int64_t timestamp = k_uptime_get();
 	err = settings_save_one(path, &rpl, sizeof(rpl));
+	int64_t delta = k_uptime_delta(&timestamp);
+	printk(" sso %u ms ", (uint32_t) delta);
+	uint8_t divider = 2;
+
+	if (rpl_statistic.single_entry_max < delta) {
+		rpl_statistic.single_entry_max = delta;
+	}
+
+	if (rpl_statistic.single_entry_min > delta) {
+		rpl_statistic.single_entry_min = delta;
+	}
+
+	if (rpl_statistic.single_entry_middle == 0) {
+		divider = 1;
+	}
+
+	rpl_statistic.single_entry_middle += delta;
+	rpl_statistic.single_entry_middle /= divider;
+	rpl_statistic.total_calculated += delta;
+
 	if (err) {
 		LOG_ERR("Failed to store RPL %s value", path);
 	} else {
@@ -348,26 +376,34 @@ void bt_mesh_rpl_pending_store(uint16_t addr)
 	bool clr;
 	bool rst;
 
+	printk("*** storing started ***\n");
+
+	int64_t timestamp = k_uptime_get();
+
 	if (!IS_ENABLED(CONFIG_BT_SETTINGS) ||
 	    (!BT_MESH_ADDR_IS_UNICAST(addr) &&
 	     addr != BT_MESH_ADDR_ALL_NODES)) {
 		return;
 	}
-
+	printk("1");
 	if (addr == BT_MESH_ADDR_ALL_NODES) {
 		bt_mesh_settings_store_cancel(BT_MESH_SETTINGS_RPL_PENDING);
 	}
 
+	printk("2");
 	clr = atomic_test_and_clear_bit(rpl_flags, PENDING_CLEAR);
 	rst = atomic_test_bit(rpl_flags, PENDING_RESET);
 
+	printk("3");
 	for (int i = 0; i < ARRAY_SIZE(replay_list); i++) {
+		printk("\nStoring entry: %d :", i);
 		struct bt_mesh_rpl *rpl = &replay_list[i];
 
 		if (addr != BT_MESH_ADDR_ALL_NODES && addr != rpl->src) {
 			continue;
 		}
 
+		printk("4");
 		if (clr) {
 			clear_rpl(rpl);
 			shift++;
@@ -375,8 +411,9 @@ void bt_mesh_rpl_pending_store(uint16_t addr)
 			if (shift > 0) {
 				replay_list[i - shift] = *rpl;
 			}
-
+			printk("5");
 			store_rpl(&replay_list[i - shift]);
+			printk("6");
 		} else if (rst) {
 			clear_rpl(rpl);
 
@@ -396,6 +433,7 @@ void bt_mesh_rpl_pending_store(uint16_t addr)
 		if (addr != BT_MESH_ADDR_ALL_NODES) {
 			break;
 		}
+		printk("7");
 	}
 
 	atomic_clear_bit(rpl_flags, PENDING_RESET);
@@ -403,4 +441,16 @@ void bt_mesh_rpl_pending_store(uint16_t addr)
 	if (addr == BT_MESH_ADDR_ALL_NODES) {
 		(void)memset(&replay_list[last - shift + 1], 0, sizeof(struct bt_mesh_rpl) * shift);
 	}
+
+	int64_t delta = k_uptime_delta(&timestamp);
+	rpl_statistic.total_measured = delta;
+
+	printk("*** storing over %u RPL entries completed ***\n", ARRAY_SIZE(replay_list));
+	printk("total calculated: %u, total measured: %u\n", rpl_statistic.total_calculated,
+	       rpl_statistic.total_measured);
+	printk("entry max: %u, entry min: %u, entry middle: %u\n",
+	       rpl_statistic.single_entry_max, rpl_statistic.single_entry_min,
+	       rpl_statistic.single_entry_middle);
+	printk("entry reading loops: %llu\n", ate_loops);
+	printk("**********************************************\n");
 }
