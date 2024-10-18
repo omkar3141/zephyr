@@ -19,7 +19,7 @@ zephyr_library_sources(
   )
 
 if(CONFIG_NET_OFFLOAD)
-zephyr_library_sources(net_context.c net_pkt.c net_tc.c)
+zephyr_library_sources(net_context.c net_pkt.c)
 endif()
 
 zephyr_library_sources_ifdef(CONFIG_NET_MGMT_EVENT   net_mgmt.c)
@@ -33,6 +33,7 @@ zephyr_library_sources_ifdef(CONFIG_NET_IP           connection.c)
 zephyr_library_sources_ifdef(CONFIG_NET_6LO          6lo.c)
 zephyr_library_sources_ifdef(CONFIG_NET_IPV4_AUTO    ipv4_autoconf.c)
 zephyr_library_sources_ifdef(CONFIG_NET_IPV4         icmpv4.c ipv4.c)
+zephyr_library_sources_ifdef(CONFIG_NET_IPV4_ACD     ipv4_acd.c)
 zephyr_library_sources_ifdef(CONFIG_NET_IPV4_IGMP    igmp.c)
 zephyr_library_sources_ifdef(CONFIG_NET_IPV6         icmpv6.c nbr.c
                                                      ipv6.c ipv6_nbr.c)

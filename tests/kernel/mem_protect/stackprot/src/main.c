@@ -15,7 +15,7 @@
 ZTEST_BMEM static int count;
 ZTEST_BMEM static int ret = TC_PASS;
 
-void k_sys_fatal_error_handler(unsigned int reason, const z_arch_esf_t *esf)
+void k_sys_fatal_error_handler(unsigned int reason, const struct arch_esf *esf)
 {
 	if (reason != K_ERR_STACK_CHK_FAIL) {
 		printk("wrong error type\n");
@@ -143,7 +143,7 @@ ZTEST(stackprot, test_create_alt_thread)
 }
 
 #ifdef CONFIG_STACK_CANARIES_TLS
-extern __thread volatile uintptr_t __stack_chk_guard;
+extern Z_THREAD_LOCAL volatile uintptr_t __stack_chk_guard;
 #else
 extern volatile uintptr_t __stack_chk_guard;
 #endif

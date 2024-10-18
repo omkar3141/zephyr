@@ -91,8 +91,8 @@ this:
 
       # CONFIG_SOME_OTHER_BOOL is not set
 
-   This is the format you will see in the merged configuration in
-   :file:`zephyr/.config`.
+   This is the format you will see in the merged configuration
+   saved to :file:`zephyr/.config` in the build directory.
 
    This style is accepted for historical reasons: Kconfig configuration files
    can be parsed as makefiles (though Zephyr doesn't use this). Having
@@ -196,6 +196,55 @@ As long as :file:`zephyr/.config` exists and is up-to-date (is newer than any
 to producing a new merged configuration. :file:`zephyr/.config` is also the
 configuration that gets modified when making changes in the :ref:`interactive
 configuration interfaces <menuconfig>`.
+
+
+Tracking Kconfig symbols
+************************
+
+It is possible to create Kconfig symbols which takes the default value of
+another Kconfig symbol.
+
+This is valuable when you want a symbol specific to an application or subsystem
+but do not want to rely directly on the common symbol. For example, you might
+want to decouple the settings so they can be independently configured, or to
+ensure you always have a locally named setting, even if the external setting name changes.
+is later changed.
+
+For example, consider the common ``FOO_STRING`` setting where a subsystem wants
+to have a ``SUB_FOO_STRING`` but still allow for customization.
+
+This can be done like this:
+
+.. code-block:: kconfig
+
+    config FOO_STRING
+            string "Foo"
+            default "foo"
+
+    config SUB_FOO_STRING
+            string "Sub-foo"
+            default FOO_STRING
+
+This ensures that the default value of ``SUB_FOO_STRING`` is identical to
+``FOO_STRING`` while still allows users to configure both settings
+independently.
+
+It is also possible to make ``SUB_FOO_STRING`` invisible and thereby keep the
+two symbols in sync, unless the value of the tracking symbol is changed in a
+:file:`defconfig` file.
+
+.. code-block:: kconfig
+
+    config FOO_STRING
+            string "Foo"
+            default "foo"
+
+    config SUB_FOO_STRING
+            string
+            default FOO_STRING
+            help
+              Hidden symbol which follows FOO_STRING
+              Can be changed through *.defconfig files.
 
 
 Configuring invisible Kconfig symbols

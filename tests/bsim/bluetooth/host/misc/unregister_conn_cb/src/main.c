@@ -123,7 +123,7 @@ static void start_adv(void)
 	const struct bt_data ad[] = {
 		BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR))};
 
-	err = bt_le_adv_start(BT_LE_ADV_CONN_ONE_TIME, ad, ARRAY_SIZE(ad), NULL, 0);
+	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, ad, ARRAY_SIZE(ad), NULL, 0);
 	if (err != 0) {
 		FAIL("Advertising failed to start (err %d)\n", err);
 		return;
@@ -230,12 +230,12 @@ static void test_central_main(void)
 
 static const struct bst_test_instance test_def[] = {{.test_id = "peripheral",
 						     .test_descr = "Peripheral device",
-						     .test_post_init_f = test_init,
+						     .test_pre_init_f = test_init,
 						     .test_tick_f = test_tick,
 						     .test_main_f = test_peripheral_main},
 						    {.test_id = "central",
 						     .test_descr = "Central device",
-						     .test_post_init_f = test_init,
+						     .test_pre_init_f = test_init,
 						     .test_tick_f = test_tick,
 						     .test_main_f = test_central_main},
 						    BSTEST_END_MARKER};

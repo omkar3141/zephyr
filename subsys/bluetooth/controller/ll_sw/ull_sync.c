@@ -722,11 +722,12 @@ void ull_sync_setup(struct ll_scan_set *scan, struct ll_scan_aux_set *aux,
 	memcpy(lll->crc_init, si->crc_init, sizeof(lll->crc_init));
 	lll->event_counter = sys_le16_to_cpu(si->evt_cntr);
 	lll->phy = aux->lll.phy;
+	lll->forced = 0U;
 
 	interval = sys_le16_to_cpu(si->interval);
 	interval_us = interval * PERIODIC_INT_UNIT_US;
 
-	/* Convert fromm 10ms units to interval units */
+	/* Convert from 10ms units to interval units */
 	sync->timeout_reload = RADIO_SYNC_EVENTS((sync->timeout * 10U *
 						  USEC_PER_MSEC), interval_us);
 
@@ -1015,13 +1016,7 @@ void ull_sync_established_report(memq_link_t *link, struct node_rx_pdu *rx)
 
 void ull_sync_done(struct node_rx_event_done *done)
 {
-	uint32_t ticks_drift_minus;
-	uint32_t ticks_drift_plus;
 	struct ll_sync_set *sync;
-	uint16_t elapsed_event;
-	uint16_t skip_event;
-	uint16_t lazy;
-	uint8_t force;
 
 	/* Get reference to ULL context */
 	sync = CONTAINER_OF(done->param, struct ll_sync_set, ull);
@@ -1051,17 +1046,19 @@ void ull_sync_done(struct node_rx_event_done *done)
 	} else
 #endif /* CONFIG_BT_CTLR_SYNC_PERIODIC_CTE_TYPE_FILTERING */
 	{
+		uint32_t ticks_drift_minus;
+		uint32_t ticks_drift_plus;
+		uint16_t elapsed_event;
 		struct lll_sync *lll;
+		uint16_t skip_event;
+		uint8_t force_lll;
+		uint16_t lazy;
+		uint8_t force;
 
 		lll = &sync->lll;
 
 		/* Events elapsed used in timeout checks below */
 		skip_event = lll->skip_event;
-		if (lll->skip_prepare) {
-			elapsed_event = skip_event + lll->skip_prepare;
-		} else {
-			elapsed_event = skip_event + 1U;
-		}
 
 		/* Sync drift compensation and new skip calculation */
 		ticks_drift_plus = 0U;
@@ -1076,6 +1073,8 @@ void ull_sync_done(struct node_rx_event_done *done)
 			/* Reset failed to establish sync countdown */
 			sync->sync_expire = 0U;
 		}
+
+		elapsed_event = skip_event + lll->lazy_prepare + 1U;
 
 		/* Reset supervision countdown */
 		if (done->extra.crc_valid) {
@@ -1100,6 +1099,7 @@ void ull_sync_done(struct node_rx_event_done *done)
 
 		/* check timeout */
 		force = 0U;
+		force_lll = 0U;
 		if (sync->timeout_expire) {
 			if (sync->timeout_expire > elapsed_event) {
 				sync->timeout_expire -= elapsed_event;
@@ -1107,7 +1107,11 @@ void ull_sync_done(struct node_rx_event_done *done)
 				/* break skip */
 				lll->skip_event = 0U;
 
-				if (skip_event) {
+				if (sync->timeout_expire <= 6U) {
+					force_lll = 1U;
+
+					force = 1U;
+				} else if (skip_event) {
 					force = 1U;
 				}
 			} else {
@@ -1116,6 +1120,8 @@ void ull_sync_done(struct node_rx_event_done *done)
 				return;
 			}
 		}
+
+		lll->forced = force_lll;
 
 		/* Check if skip needs update */
 		lazy = 0U;
@@ -1445,6 +1451,24 @@ static void sync_lost(void *param)
 
 	/* Enqueue the sync lost towards ULL context */
 	ll_rx_put_sched(rx->hdr.link, rx);
+
+#if defined(CONFIG_BT_CTLR_SYNC_ISO)
+	if (sync->iso.sync_iso) {
+		/* ISO create BIG flag in the periodic advertising context is still set */
+		struct ll_sync_iso_set *sync_iso;
+
+		sync_iso = sync->iso.sync_iso;
+
+		rx = (void *)&sync_iso->node_rx_lost;
+		rx->hdr.handle = sync_iso->big_handle;
+		rx->hdr.type = NODE_RX_TYPE_SYNC_ISO;
+		rx->rx_ftr.param = sync_iso;
+		*((uint8_t *)rx->pdu) = BT_HCI_ERR_CONN_FAIL_TO_ESTAB;
+
+		/* Enqueue the sync iso lost towards ULL context */
+		ll_rx_put_sched(rx->hdr.link, rx);
+	}
+#endif /* CONFIG_BT_CTLR_SYNC_ISO */
 }
 
 #if defined(CONFIG_BT_CTLR_CHECK_SAME_PEER_SYNC)
@@ -1504,7 +1528,7 @@ static struct pdu_cte_info *pdu_cte_info_get(struct pdu_adv *pdu)
 		return NULL;
 	}
 
-	/* Make sure there are no fields that are not allowd for AUX_SYNC_IND and AUX_CHAIN_IND */
+	/* Make sure there are no fields that are not allowed for AUX_SYNC_IND and AUX_CHAIN_IND */
 	LL_ASSERT(!hdr->adv_addr);
 	LL_ASSERT(!hdr->tgt_addr);
 

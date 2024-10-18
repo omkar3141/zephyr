@@ -85,7 +85,7 @@ features:
 +-----------+------------+-------------------------------------+
 | DAC       | on-chip    | dac                                 |
 +-----------+------------+-------------------------------------+
-| ACMP      | on-chip    | analog comparator                   |
+| ACMP      | on-chip    | sensor                              |
 +-----------+------------+-------------------------------------+
 
 The default configuration can be found in the defconfig file:
@@ -193,7 +193,7 @@ etc.):
 Flashing
 ========
 
-Here is an example for the :ref:`hello_world` application.
+Here is an example for the :zephyr:code-sample:`hello_world` application.
 
 .. zephyr-app-commands::
    :zephyr-app: samples/hello_world
@@ -211,7 +211,7 @@ see the following message in the terminal:
 Debugging
 =========
 
-Here is an example for the :ref:`hello_world` application.
+Here is an example for the :zephyr:code-sample:`hello_world` application.
 
 .. zephyr-app-commands::
    :zephyr-app: samples/hello_world

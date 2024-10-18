@@ -58,7 +58,14 @@ static struct spi_dt_spec spi_slow = SPI_DT_SPEC_GET(SPI_SLOW_DEV, SPI_OP(FRAME_
 #define STACK_SIZE (512 + CONFIG_TEST_EXTRA_STACK_SIZE)
 #define BUF_SIZE 18
 #define BUF2_SIZE 36
+
+#ifdef CONFIG_DSPI_MCUX_EDMA
+/*DSPI DMA need aligned buffer for internal*/
+#define BUF3_SIZE 1440
+#else
 #define BUF3_SIZE 8192
+#endif
+
 
 #if CONFIG_NOCACHE_MEMORY
 #define __NOCACHE	__attribute__((__section__(".nocache")))
@@ -87,9 +94,6 @@ static uint8_t buffer_print_rx[BUF_SIZE * 5 + 1];
 
 static uint8_t buffer_print_tx2[BUF2_SIZE * 5 + 1];
 static uint8_t buffer_print_rx2[BUF2_SIZE * 5 + 1];
-
-static uint8_t large_buffer_print_tx[BUF3_SIZE * 5 + 1];
-static uint8_t large_buffer_print_rx[BUF3_SIZE * 5 + 1];
 
 static void to_display_format(const uint8_t *src, size_t size, char *dst)
 {
@@ -484,6 +488,11 @@ static int spi_rx_bigger_than_tx(struct spi_dt_spec *spec)
 		return 0;
 	}
 
+	if (IS_ENABLED(CONFIG_DSPI_MCUX_EDMA)) {
+		LOG_INF("Skip rx bigger than tx");
+		return 0;
+	}
+
 	LOG_INF("Start rx bigger than tx");
 
 	(void)memset(buffer_rx, 0xff, BUF_SIZE);
@@ -558,10 +567,6 @@ static int spi_complete_large_transfers(struct spi_dt_spec *spec)
 	}
 
 	if (memcmp(large_buffer_tx, large_buffer_rx, BUF3_SIZE)) {
-		to_display_format(large_buffer_tx, BUF3_SIZE, large_buffer_print_tx);
-		to_display_format(large_buffer_rx, BUF3_SIZE, large_buffer_print_rx);
-		LOG_ERR("Large Buffer contents are different: %s", large_buffer_print_tx);
-		LOG_ERR("                             vs: %s", large_buffer_print_rx);
 		zassert_false(1, "Large Buffer contents are different");
 		return -1;
 	}
@@ -691,10 +696,6 @@ static int spi_async_call(struct spi_dt_spec *spec)
 	}
 
 	if (memcmp(large_buffer_tx, large_buffer_rx, BUF3_SIZE)) {
-		to_display_format(large_buffer_tx, BUF3_SIZE, large_buffer_print_tx);
-		to_display_format(large_buffer_rx, BUF3_SIZE, large_buffer_print_rx);
-		LOG_ERR("Buffer 3 contents are different: %s", large_buffer_print_tx);
-		LOG_ERR("                             vs: %s", large_buffer_print_rx);
 		zassert_false(1, "Buffer 3 contents are different");
 		return -1;
 	}

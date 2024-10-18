@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2017 Erwin Rol <erwin@erwinrol.com>
- * Copyright (c) 2020 Alexander Kozhinov <AlexanderKozhinov@yandex.com>
+ * Copyright (c) 2020 Alexander Kozhinov <ak.alexander.kozhinov@gmail.com>
  * Copyright (c) 2021 Carbon Robotics
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -45,35 +45,33 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include "eth.h"
 #include "eth_stm32_hal_priv.h"
 
-#if defined(CONFIG_ETH_STM32_HAL_RANDOM_MAC) || DT_INST_PROP(0, zephyr_random_mac_address)
+#if DT_INST_PROP(0, zephyr_random_mac_address)
 #define ETH_STM32_RANDOM_MAC
 #endif
 
 #if defined(CONFIG_ETH_STM32_HAL_USE_DTCM_FOR_DMA_BUFFER) && \
-	    !DT_NODE_HAS_STATUS(DT_CHOSEN(zephyr_dtcm), okay)
+	    !DT_NODE_HAS_STATUS_OKAY(DT_CHOSEN(zephyr_dtcm))
 #error DTCM for DMA buffer is activated but zephyr,dtcm is not present in dts
 #endif
 
 #define PHY_ADDR	CONFIG_ETH_STM32_HAL_PHY_ADDRESS
 
-#if defined(CONFIG_SOC_SERIES_STM32H7X) || defined(CONFIG_SOC_SERIES_STM32H5X)
+#if defined(CONFIG_MDIO)
 
 #define DEVICE_PHY_BY_NAME(n) \
-	    DEVICE_DT_GET(DT_CHILD(DT_INST_CHILD(n, mdio), ethernet_phy_0))
+	    DEVICE_DT_GET(DT_CHILD(DT_INST_CHILD(n, mdio), _CONCAT(ethernet_phy_, PHY_ADDR)))
 
 static const struct device *eth_stm32_phy_dev = DEVICE_PHY_BY_NAME(0);
+
+#endif
+
+#if defined(CONFIG_SOC_SERIES_STM32H7X) || defined(CONFIG_SOC_SERIES_STM32H5X)
 
 #define PHY_BSR  ((uint16_t)0x0001U)  /*!< Transceiver Basic Status Register */
 #define PHY_LINKED_STATUS  ((uint16_t)0x0004U)  /*!< Valid link established */
 
 #define IS_ETH_DMATXDESC_OWN(dma_tx_desc)	(dma_tx_desc->DESC3 & \
 							ETH_DMATXNDESCRF_OWN)
-
-#define ETH_RXBUFNB	ETH_RX_DESC_CNT
-#define ETH_TXBUFNB	ETH_TX_DESC_CNT
-
-#define ETH_MEDIA_INTERFACE_MII		HAL_ETH_MII_MODE
-#define ETH_MEDIA_INTERFACE_RMII	HAL_ETH_RMII_MODE
 
 /* Only one tx_buffer is sufficient to pass only 1 dma_buffer */
 #define ETH_TXBUF_DEF_NB	1U
@@ -87,7 +85,7 @@ static const struct device *eth_stm32_phy_dev = DEVICE_PHY_BY_NAME(0);
 #define ETH_DMA_TX_TIMEOUT_MS	20U  /* transmit timeout in milliseconds */
 
 #if defined(CONFIG_ETH_STM32_HAL_USE_DTCM_FOR_DMA_BUFFER) && \
-	    DT_NODE_HAS_STATUS(DT_CHOSEN(zephyr_dtcm), okay)
+	    DT_NODE_HAS_STATUS_OKAY(DT_CHOSEN(zephyr_dtcm))
 #define __eth_stm32_desc __dtcm_noinit_section
 #define __eth_stm32_buf  __dtcm_noinit_section
 #elif defined(CONFIG_SOC_SERIES_STM32H7X)
@@ -101,14 +99,14 @@ static const struct device *eth_stm32_phy_dev = DEVICE_PHY_BY_NAME(0);
 #define __eth_stm32_buf  __aligned(4)
 #endif
 
-static ETH_DMADescTypeDef dma_rx_desc_tab[ETH_RXBUFNB] __eth_stm32_desc;
-static ETH_DMADescTypeDef dma_tx_desc_tab[ETH_TXBUFNB] __eth_stm32_desc;
-static uint8_t dma_rx_buffer[ETH_RXBUFNB][ETH_STM32_RX_BUF_SIZE] __eth_stm32_buf;
-static uint8_t dma_tx_buffer[ETH_TXBUFNB][ETH_STM32_TX_BUF_SIZE] __eth_stm32_buf;
+static ETH_DMADescTypeDef dma_rx_desc_tab[ETH_RX_DESC_CNT] __eth_stm32_desc;
+static ETH_DMADescTypeDef dma_tx_desc_tab[ETH_TX_DESC_CNT] __eth_stm32_desc;
+static uint8_t dma_rx_buffer[ETH_RX_DESC_CNT][ETH_MAX_PACKET_SIZE] __eth_stm32_buf;
+static uint8_t dma_tx_buffer[ETH_TX_DESC_CNT][ETH_MAX_PACKET_SIZE] __eth_stm32_buf;
 
 #if defined(CONFIG_ETH_STM32_HAL_API_V2)
 
-BUILD_ASSERT(ETH_STM32_RX_BUF_SIZE % 4 == 0, "Rx buffer size must be a multiple of 4");
+BUILD_ASSERT(ETH_MAX_PACKET_SIZE % 4 == 0, "Rx buffer size must be a multiple of 4");
 
 struct eth_stm32_rx_buffer_header {
 	struct eth_stm32_rx_buffer_header *next;
@@ -126,12 +124,12 @@ struct eth_stm32_tx_context {
 	uint16_t first_tx_buffer_index;
 };
 
-static struct eth_stm32_rx_buffer_header dma_rx_buffer_header[ETH_RXBUFNB];
-static struct eth_stm32_tx_buffer_header dma_tx_buffer_header[ETH_TXBUFNB];
+static struct eth_stm32_rx_buffer_header dma_rx_buffer_header[ETH_RX_DESC_CNT];
+static struct eth_stm32_tx_buffer_header dma_tx_buffer_header[ETH_TX_DESC_CNT];
 
 void HAL_ETH_RxAllocateCallback(uint8_t **buf)
 {
-	for (size_t i = 0; i < ETH_RXBUFNB; ++i) {
+	for (size_t i = 0; i < ETH_RX_DESC_CNT; ++i) {
 		if (!dma_rx_buffer_header[i].used) {
 			dma_rx_buffer_header[i].next = NULL;
 			dma_rx_buffer_header[i].size = 0;
@@ -143,8 +141,8 @@ void HAL_ETH_RxAllocateCallback(uint8_t **buf)
 	*buf = NULL;
 }
 
-/* Pointer to an array of ETH_STM32_RX_BUF_SIZE uint8_t's */
-typedef uint8_t (*RxBufferPtr)[ETH_STM32_RX_BUF_SIZE];
+/* Pointer to an array of ETH_MAX_PACKET_SIZE uint8_t's */
+typedef uint8_t (*RxBufferPtr)[ETH_MAX_PACKET_SIZE];
 
 /* called by HAL_ETH_ReadData() */
 void HAL_ETH_RxLinkCallback(void **pStart, void **pEnd, uint8_t *buff, uint16_t Length)
@@ -155,7 +153,7 @@ void HAL_ETH_RxLinkCallback(void **pStart, void **pEnd, uint8_t *buff, uint16_t 
 	size_t index = (RxBufferPtr)buff - &dma_rx_buffer[0];
 	struct eth_stm32_rx_buffer_header *header = &dma_rx_buffer_header[index];
 
-	__ASSERT_NO_MSG(index < ETH_RXBUFNB);
+	__ASSERT_NO_MSG(index < ETH_RX_DESC_CNT);
 
 	header->size = Length;
 
@@ -196,7 +194,7 @@ void HAL_ETH_TxFreeCallback(uint32_t *buff)
 static inline uint16_t allocate_tx_buffer(void)
 {
 	for (;;) {
-		for (uint16_t index = 0; index < ETH_TXBUFNB; index++) {
+		for (uint16_t index = 0; index < ETH_TX_DESC_CNT; index++) {
 			if (!dma_tx_buffer_header[index].used) {
 				dma_tx_buffer_header[index].used = true;
 				return index;
@@ -326,7 +324,7 @@ static int eth_tx(const struct device *dev, struct net_pkt *pkt)
 	heth = &dev_data->heth;
 
 	total_len = net_pkt_get_len(pkt);
-	if (total_len > (ETH_STM32_TX_BUF_SIZE * ETH_TXBUFNB)) {
+	if (total_len > (ETH_MAX_PACKET_SIZE * ETH_TX_DESC_CNT)) {
 		LOG_ERR("PKT too big");
 		return -EIO;
 	}
@@ -352,7 +350,8 @@ static int eth_tx(const struct device *dev, struct net_pkt *pkt)
 #endif /* CONFIG_ETH_STM32_HAL_API_V2 */
 
 #if defined(CONFIG_PTP_CLOCK_STM32_HAL)
-	timestamped_frame = eth_is_ptp_pkt(net_pkt_iface(pkt), pkt);
+	timestamped_frame = eth_is_ptp_pkt(net_pkt_iface(pkt), pkt) ||
+			    net_pkt_is_tx_timestamping(pkt);
 	if (timestamped_frame) {
 		/* Enable transmit timestamp */
 #if defined(CONFIG_ETH_STM32_HAL_API_V2)
@@ -368,19 +367,19 @@ static int eth_tx(const struct device *dev, struct net_pkt *pkt)
 #if defined(CONFIG_ETH_STM32_HAL_API_V2)
 	remaining_read = total_len;
 	/* fill and allocate buffer until remaining data fits in one buffer */
-	while (remaining_read > ETH_STM32_TX_BUF_SIZE) {
-		if (net_pkt_read(pkt, buf_header->tx_buff.buffer, ETH_STM32_TX_BUF_SIZE)) {
+	while (remaining_read > ETH_MAX_PACKET_SIZE) {
+		if (net_pkt_read(pkt, buf_header->tx_buff.buffer, ETH_MAX_PACKET_SIZE)) {
 			res = -ENOBUFS;
 			goto error;
 		}
 		const uint16_t next_buffer_id = allocate_tx_buffer();
 
-		buf_header->tx_buff.len = ETH_STM32_TX_BUF_SIZE;
+		buf_header->tx_buff.len = ETH_MAX_PACKET_SIZE;
 		/* append new buffer to the linked list */
 		buf_header->tx_buff.next = &dma_tx_buffer_header[next_buffer_id].tx_buff;
 		/* and adjust tail pointer */
 		buf_header = &dma_tx_buffer_header[next_buffer_id];
-		remaining_read -= ETH_STM32_TX_BUF_SIZE;
+		remaining_read -= ETH_MAX_PACKET_SIZE;
 	}
 	if (net_pkt_read(pkt, buf_header->tx_buff.buffer, remaining_read)) {
 		res = -ENOBUFS;
@@ -730,7 +729,7 @@ static struct net_pkt *eth_rx(const struct device *dev)
 			rx_header; rx_header = rx_header->next) {
 		const size_t index = rx_header - &dma_rx_buffer_header[0];
 
-		__ASSERT_NO_MSG(index < ETH_RXBUFNB);
+		__ASSERT_NO_MSG(index < ETH_RX_DESC_CNT);
 		if (net_pkt_write(pkt, dma_rx_buffer[index], rx_header->size)) {
 			LOG_ERR("Failed to append RX buffer to context buffer");
 			net_pkt_unref(pkt);
@@ -789,13 +788,10 @@ release_desc:
 	}
 
 #if defined(CONFIG_PTP_CLOCK_STM32_HAL)
-	if (eth_is_ptp_pkt(get_iface(dev_data), pkt)) {
-		pkt->timestamp.second = timestamp.second;
-		pkt->timestamp.nanosecond = timestamp.nanosecond;
-	} else {
-		/* Invalid value */
-		pkt->timestamp.second = UINT64_MAX;
-		pkt->timestamp.nanosecond = UINT32_MAX;
+	pkt->timestamp.second = timestamp.second;
+	pkt->timestamp.nanosecond = timestamp.nanosecond;
+	if (timestamp.second != UINT64_MAX) {
+		net_pkt_set_rx_timestamping(pkt, true);
 	}
 #endif /* CONFIG_PTP_CLOCK_STM32_HAL */
 
@@ -1045,7 +1041,6 @@ void HAL_ETH_RxCpltCallback(ETH_HandleTypeDef *heth_handle)
 static void generate_mac(uint8_t *mac_addr)
 {
 #if defined(ETH_STM32_RANDOM_MAC)
-	/* Either CONFIG_ETH_STM32_HAL_RANDOM_MAC or device tree property */
 	/* "zephyr,random-mac-address" is set, generate a random mac address */
 	gen_random_mac(mac_addr, ST_OUI_B0, ST_OUI_B1, ST_OUI_B2);
 #else /* Use user defined mac address */
@@ -1056,10 +1051,6 @@ static void generate_mac(uint8_t *mac_addr)
 	mac_addr[3] = NODE_MAC_ADDR_OCTET(DT_DRV_INST(0), 3);
 	mac_addr[4] = NODE_MAC_ADDR_OCTET(DT_DRV_INST(0), 4);
 	mac_addr[5] = NODE_MAC_ADDR_OCTET(DT_DRV_INST(0), 5);
-#elif defined(CONFIG_ETH_STM32_HAL_USER_STATIC_MAC)
-	mac_addr[3] = CONFIG_ETH_STM32_HAL_MAC3;
-	mac_addr[4] = CONFIG_ETH_STM32_HAL_MAC4;
-	mac_addr[5] = CONFIG_ETH_STM32_HAL_MAC5;
 #else
 	uint8_t unique_device_ID_12_bytes[12];
 	uint32_t result_mac_32_bits;
@@ -1130,7 +1121,7 @@ static int eth_initialize(const struct device *dev)
 	defined(CONFIG_ETH_STM32_HAL_API_V2)
 	heth->Init.TxDesc = dma_tx_desc_tab;
 	heth->Init.RxDesc = dma_rx_desc_tab;
-	heth->Init.RxBuffLen = ETH_STM32_RX_BUF_SIZE;
+	heth->Init.RxBuffLen = ETH_MAX_PACKET_SIZE;
 #endif /* CONFIG_SOC_SERIES_STM32H7X || CONFIG_SOC_SERIES_STM32H5X || CONFIG_ETH_STM32_HAL_API_V2 */
 
 	hal_ret = HAL_ETH_Init(heth);
@@ -1199,7 +1190,7 @@ static int eth_initialize(const struct device *dev)
 #if defined(CONFIG_ETH_STM32_HAL_API_V2)
 
 	/* prepare tx buffer header */
-	for (uint16_t i = 0; i < ETH_TXBUFNB; ++i) {
+	for (uint16_t i = 0; i < ETH_TX_DESC_CNT; ++i) {
 		dma_tx_buffer_header[i].tx_buff.buffer = dma_tx_buffer[i];
 	}
 
@@ -1218,9 +1209,9 @@ static int eth_initialize(const struct device *dev)
 	hal_ret = HAL_ETH_Start_IT(heth);
 #else
 	HAL_ETH_DMATxDescListInit(heth, dma_tx_desc_tab,
-		&dma_tx_buffer[0][0], ETH_TXBUFNB);
+		&dma_tx_buffer[0][0], ETH_TX_DESC_CNT);
 	HAL_ETH_DMARxDescListInit(heth, dma_rx_desc_tab,
-		&dma_rx_buffer[0][0], ETH_RXBUFNB);
+		&dma_rx_buffer[0][0], ETH_RX_DESC_CNT);
 
 	hal_ret = HAL_ETH_Start(heth);
 #endif /* CONFIG_ETH_STM32_HAL_API_V2 */
@@ -1241,20 +1232,6 @@ static int eth_initialize(const struct device *dev)
 }
 
 #if defined(CONFIG_ETH_STM32_MULTICAST_FILTER)
-static uint32_t reverse(uint32_t val)
-{
-	uint32_t res = 0;
-	int i;
-
-	for (i = 0; i < 32; i++) {
-		if (val & BIT(i)) {
-			res |= BIT(31 - i);
-		}
-	}
-
-	return res;
-}
-
 static void eth_stm32_mcast_filter(const struct device *dev, const struct ethernet_filter *filter)
 {
 	struct eth_stm32_hal_dev_data *dev_data = (struct eth_stm32_hal_dev_data *)dev->data;
@@ -1265,7 +1242,7 @@ static void eth_stm32_mcast_filter(const struct device *dev, const struct ethern
 
 	heth = &dev_data->heth;
 
-	crc = reverse(crc32_ieee(filter->mac_address.addr, sizeof(struct net_eth_addr)));
+	crc = __RBIT(crc32_ieee(filter->mac_address.addr, sizeof(struct net_eth_addr)));
 	hash_index = (crc >> 26) & 0x3f;
 
 	__ASSERT_NO_MSG(hash_index < ARRAY_SIZE(dev_data->hash_index_cnt));
@@ -1348,7 +1325,9 @@ static void eth_iface_init(struct net_if *iface)
 		k_thread_create(&dev_data->rx_thread, dev_data->rx_thread_stack,
 				K_KERNEL_STACK_SIZEOF(dev_data->rx_thread_stack),
 				rx_thread, (void *) dev, NULL, NULL,
-				K_PRIO_COOP(CONFIG_ETH_STM32_HAL_RX_THREAD_PRIO),
+				IS_ENABLED(CONFIG_NET_TC_THREAD_PREEMPTIVE)
+					? K_PRIO_PREEMPT(CONFIG_ETH_STM32_HAL_RX_THREAD_PRIO)
+					: K_PRIO_COOP(CONFIG_ETH_STM32_HAL_RX_THREAD_PRIO),
 				0, K_NO_WAIT);
 
 		k_thread_name_set(&dev_data->rx_thread, "stm_eth");
@@ -1520,14 +1499,14 @@ static struct eth_stm32_hal_dev_data eth0_data = {
 					ETH_CHECKSUM_BY_HARDWARE : ETH_CHECKSUM_BY_SOFTWARE,
 #endif /* !CONFIG_SOC_SERIES_STM32H7X */
 			.MediaInterface = IS_ENABLED(CONFIG_ETH_STM32_HAL_MII) ?
-					  ETH_MEDIA_INTERFACE_MII : ETH_MEDIA_INTERFACE_RMII,
+					  HAL_ETH_MII_MODE : HAL_ETH_RMII_MODE,
 		},
 	},
 };
 
 ETH_NET_DEVICE_DT_INST_DEFINE(0, eth_initialize,
 		    NULL, &eth0_data, &eth0_config,
-		    CONFIG_ETH_INIT_PRIORITY, &eth_api, ETH_STM32_HAL_MTU);
+		    CONFIG_ETH_INIT_PRIORITY, &eth_api, NET_ETH_MTU);
 
 #if defined(CONFIG_PTP_CLOCK_STM32_HAL)
 
@@ -1823,7 +1802,7 @@ static int ptp_stm32_init(const struct device *port)
 
 #if defined(CONFIG_ETH_STM32_HAL_API_V2)
 	/* Set PTP Configuration done */
-	heth->IsPtpConfigured = HAL_ETH_PTP_CONFIGURATED;
+	heth->IsPtpConfigured = ETH_STM32_PTP_CONFIGURED;
 #endif
 
 	return 0;

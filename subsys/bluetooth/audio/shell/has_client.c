@@ -6,16 +6,21 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#include <errno.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
-#include <zephyr/kernel.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/audio/has.h>
 #include <zephyr/shell/shell.h>
-#include <stdlib.h>
-#include <stdio.h>
+#include <zephyr/kernel.h>
+#include <zephyr/shell/shell_string_conv.h>
 
-#include "shell/bt.h"
+#include "host/shell/bt.h"
 
 static struct bt_has *inst;
 

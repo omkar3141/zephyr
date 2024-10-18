@@ -27,6 +27,7 @@ struct lll_sync {
 	uint8_t filter_policy:1;
 	uint8_t is_rx_enabled:1;
 	uint8_t is_aux_sched:1;
+	uint8_t forced:1;
 
 #if defined(CONFIG_BT_CTLR_SYNC_ISO)
 	uint8_t sca:3;
@@ -41,6 +42,7 @@ struct lll_sync {
 #endif /* CONFIG_BT_CTLR_SCAN_AUX_SYNC_RESERVE_MIN */
 
 	uint16_t skip_prepare;
+	uint16_t lazy_prepare;
 	uint16_t skip_event;
 	uint16_t event_counter;
 
@@ -70,7 +72,7 @@ struct lll_sync {
 	 * generation.
 	 */
 	struct node_rx_iq_report *node_cte_incomplete;
-	/* Member sotres information if there were insufficient IQ report rx nodes for all CTEs
+	/* Member stores information if there were insufficient IQ report rx nodes for all CTEs
 	 * in pending synchronization event.
 	 */
 	bool is_cte_incomplete;

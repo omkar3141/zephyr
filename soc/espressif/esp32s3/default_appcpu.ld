@@ -12,6 +12,8 @@
 #define SRAM_DIRAM_I_START  0x40378000
 #define SRAM_IRAM_END       0x403BA000
 #define I_D_SRAM_OFFSET     (SRAM_DIRAM_I_START - SRAM_DRAM_START)
+#define DRAM_RESERVED_START 0x3fce9704
+#define IRAM_DRAM_OFFSET    0x6f0000
 
 #define SRAM_DRAM_START     0x3FC88000
 #define SRAM_DRAM_END       (SRAM_IRAM_END - I_D_SRAM_OFFSET)
@@ -34,9 +36,16 @@ MEMORY
 /*  Default entry point:  */
 ENTRY(__app_cpu_start)
 
+/* Used as a pointer to the heap end */
+_heap_sentry = DRAM_RESERVED_START;
+
 SECTIONS
 {
   #include <zephyr/linker/rel-sections.ld>
+
+  #ifdef CONFIG_LLEXT
+  #include <zephyr/linker/llext-sections.ld>
+  #endif
 
    /* Send .iram0 code to iram */
   .iram0.vectors : ALIGN(4)
@@ -181,7 +190,7 @@ SECTIONS
   #pragma push_macro("GROUP_ROM_LINK_IN")
   #undef GROUP_ROM_LINK_IN
   #define GROUP_ROM_LINK_IN(vregion, lregion) > RAMABLE_REGION AT > lregion
-  #include <zephyr/linker/common-rom/common-rom-cpp.ld>
+  #include <zephyr/linker/common-rom/common-rom-init.ld>
   #include <zephyr/linker/common-rom/common-rom-kernel-devices.ld>
   #include <zephyr/linker/common-rom/common-rom-ztest.ld>
   #include <zephyr/linker/common-rom/common-rom-net.ld>
@@ -255,9 +264,6 @@ SECTIONS
     #include <snippets-rwdata.ld>
 
     . = ALIGN(4);
-    _end = ABSOLUTE(.);
-    _heap_sentry = .;
-	. = ALIGN(4);
     __data_end = ABSOLUTE(.);
   } GROUP_DATA_LINK_IN(RAMABLE_REGION, IRAM_REGION)
 
@@ -285,6 +291,10 @@ SECTIONS
     . = ALIGN (8);
     __bss_end = ABSOLUTE(.);
   } GROUP_LINK_IN(RAMABLE_REGION)
+
+  /* Provide total SRAM usage, including IRAM and DRAM */
+  _image_ram_start = _iram_start - IRAM_DRAM_OFFSET;
+  #include <zephyr/linker/ram-end.ld>
 
   ASSERT(((__bss_end - ORIGIN(dram0_0_seg)) <= LENGTH(dram0_0_seg)), "DRAM segment data does not fit.")
 

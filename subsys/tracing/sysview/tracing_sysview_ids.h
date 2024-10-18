@@ -71,6 +71,7 @@ extern "C" {
 #define TID_HEAP_ALLOC (45u + TID_OFFSET)
 #define TID_HEAP_FREE (46u + TID_OFFSET)
 #define TID_HEAP_ALIGNED_ALLOC (47u + TID_OFFSET)
+#define TID_HEAP_REALLOC (48u + TID_OFFSET)
 
 #define TID_MSLAB_INIT (52u + TID_OFFSET)
 #define TID_MSLAB_ALLOC (53u + TID_OFFSET)
@@ -153,6 +154,8 @@ extern "C" {
 #define TID_PM_DEVICE_RUNTIME_DISABLE (129u + TID_OFFSET)
 
 #define TID_SYSCALL (130u + TID_OFFSET)
+
+#define TID_NAMED_EVENT (131u + TID_OFFSET)
 
 /* latest ID is 130 */
 

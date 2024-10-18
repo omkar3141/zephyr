@@ -43,7 +43,7 @@ __imr void power_init(void)
 #if CONFIG_SOC_INTEL_ACE15_MTPM
 	*((__sparse_force uint32_t *)sys_cache_cached_ptr_get(&adsp_pending_buffer)) =
 		INTEL_ADSP_ACE15_MAGIC_KEY;
-	cache_data_flush_range((__sparse_force void *)
+	sys_cache_data_flush_range((__sparse_force void *)
 			sys_cache_cached_ptr_get(&adsp_pending_buffer),
 			sizeof(adsp_pending_buffer));
 #endif /* CONFIG_SOC_INTEL_ACE15_MTPM */
@@ -72,8 +72,7 @@ __imr void power_init(void)
  * (each bit corresponds to one ebb)
  * @param response_to_ipc       flag if ipc response should be send during power down
  */
-extern void power_down(bool disable_lpsram, uint32_t *hpsram_pg_mask,
-			   bool response_to_ipc);
+void power_down(bool disable_lpsram, bool hpsram_mask, bool response_to_ipc);
 
 #ifdef CONFIG_ADSP_IMR_CONTEXT_SAVE
 /**
@@ -122,6 +121,9 @@ struct core_state {
 	uint32_t intenable;
 	uint32_t ps;
 	uint32_t bctl;
+#if (XCHAL_NUM_MISC_REGS == 2)
+	uint32_t misc[XCHAL_NUM_MISC_REGS];
+#endif
 };
 
 static struct core_state core_desc[CONFIG_MP_MAX_NUM_CPUS] = {{0}};
@@ -142,6 +144,10 @@ static ALWAYS_INLINE void _save_core_context(uint32_t core_id)
 	core_desc[core_id].excsave2 = XTENSA_RSR("EXCSAVE2");
 	core_desc[core_id].excsave3 = XTENSA_RSR("EXCSAVE3");
 	core_desc[core_id].thread_ptr = XTENSA_RUR("THREADPTR");
+#if (XCHAL_NUM_MISC_REGS == 2)
+	core_desc[core_id].misc[0] = XTENSA_RSR("MISC0");
+	core_desc[core_id].misc[1] = XTENSA_RSR("MISC1");
+#endif
 	__asm__ volatile("mov %0, a0" : "=r"(core_desc[core_id].a0));
 	__asm__ volatile("mov %0, a1" : "=r"(core_desc[core_id].a1));
 
@@ -162,6 +168,13 @@ static ALWAYS_INLINE void _restore_core_context(void)
 	XTENSA_WSR("EXCSAVE2", core_desc[core_id].excsave2);
 	XTENSA_WSR("EXCSAVE3", core_desc[core_id].excsave3);
 	XTENSA_WUR("THREADPTR", core_desc[core_id].thread_ptr);
+#if (XCHAL_NUM_MISC_REGS == 2)
+	XTENSA_WSR("MISC0", core_desc[core_id].misc[0]);
+	XTENSA_WSR("MISC1", core_desc[core_id].misc[1]);
+#endif
+#ifdef CONFIG_XTENSA_MMU
+	xtensa_mmu_reinit();
+#endif
 	__asm__ volatile("mov a0, %0" :: "r"(core_desc[core_id].a0));
 	__asm__ volatile("mov a1, %0" :: "r"(core_desc[core_id].a1));
 	__asm__ volatile("rsync");
@@ -261,6 +274,9 @@ __imr void pm_state_imr_restore(void)
 }
 #endif /* CONFIG_ADSP_IMR_CONTEXT_SAVE */
 
+#include "asm_memory_management.h"
+extern uint32_t hpsram_mask[MAX_MEMORY_SEGMENTS];
+
 void pm_state_set(enum pm_state state, uint8_t substate_id)
 {
 	ARG_UNUSED(substate_id);
@@ -280,6 +296,8 @@ void pm_state_set(enum pm_state state, uint8_t substate_id)
 		DSPCS.bootctl[cpu].bctl &= ~DSPBR_BCTL_WAITIPCG;
 		if (cpu == 0) {
 			soc_cpus_active[cpu] = false;
+			ret = pm_device_runtime_put(INTEL_ADSP_HST_DOMAIN_DEV);
+			__ASSERT_NO_MSG(ret == 0);
 #ifdef CONFIG_ADSP_IMR_CONTEXT_SAVE
 			/* save storage and restore information to imr */
 			__ASSERT_NO_MSG(global_imr_ram_storage != NULL);
@@ -292,7 +310,7 @@ void pm_state_set(enum pm_state state, uint8_t substate_id)
 			imr_layout->imr_state.header.imr_restore_vector =
 					(void *)boot_entry_d3_restore;
 			imr_layout->imr_state.header.imr_ram_storage = global_imr_ram_storage;
-			sys_cache_data_flush_range(imr_layout, sizeof(*imr_layout));
+			sys_cache_data_flush_range((void *)imr_layout, sizeof(*imr_layout));
 
 			/* save CPU context here
 			 * when _restore_core_context() is called, it will return directly to
@@ -323,19 +341,18 @@ void pm_state_set(enum pm_state state, uint8_t substate_id)
 #else
 			imr_layout->imr_state.header.imr_restore_vector =
 					(void *)rom_entry;
-			sys_cache_data_flush_range(imr_layout, sizeof(*imr_layout));
+			sys_cache_data_flush_range((void *)imr_layout, sizeof(*imr_layout));
 #endif /* CONFIG_ADSP_IMR_CONTEXT_SAVE */
-			uint32_t hpsram_mask = 0;
 #ifdef CONFIG_ADSP_POWER_DOWN_HPSRAM
 			/* turn off all HPSRAM banks - get a full bitmap */
 			uint32_t ebb_banks = ace_hpsram_get_bank_count();
-			hpsram_mask = (1 << ebb_banks) - 1;
+			hpsram_mask[0] = (1 << ebb_banks) - 1;
+#define HPSRAM_MASK true
+#else
+#define HPSRAM_MASK false
 #endif /* CONFIG_ADSP_POWER_DOWN_HPSRAM */
 			/* do power down - this function won't return */
-			ret = pm_device_runtime_put(INTEL_ADSP_HST_DOMAIN_DEV);
-			__ASSERT_NO_MSG(ret == 0);
-			power_down(true, sys_cache_cached_ptr_get(&hpsram_mask),
-				   true);
+			power_down(true, HPSRAM_MASK, true);
 		} else {
 			power_gate_entry(cpu);
 		}
@@ -426,7 +443,7 @@ void pm_state_exit_post_ops(enum pm_state state, uint8_t substate_id)
 
 #endif /* CONFIG_PM */
 
-#ifdef CONFIG_ARCH_CPU_IDLE_CUSTOM
+#ifdef CONFIG_ARCH_HAS_CUSTOM_CPU_IDLE
 
 __no_optimization
 void arch_cpu_idle(void)
@@ -446,4 +463,4 @@ void arch_cpu_idle(void)
 	__asm__ volatile ("waiti 0");
 }
 
-#endif /* CONFIG_ARCH_CPU_IDLE_CUSTOM */
+#endif /* CONFIG_ARCH_HAS_CUSTOM_CPU_IDLE */

@@ -20,6 +20,7 @@ the following devices:
 * RRAM
 * :abbr:`GPIO (General Purpose Input Output)`
 * :abbr:`TWIM (I2C-compatible two-wire interface master with EasyDMA)`
+* MEMCONF
 * :abbr:`MPU (Memory Protection Unit)`
 * :abbr:`NVIC (Nested Vectored Interrupt Controller)`
 * :abbr:`PWM (Pulse Width Modulation)`
@@ -65,6 +66,8 @@ hardware features:
 +-----------+------------+----------------------+
 | TWIM      | on-chip    | i2c                  |
 +-----------+------------+----------------------+
+| MEMCONF   | on-chip    | retained_mem         |
++-----------+------------+----------------------+
 | MPU       | on-chip    | arch/arm             |
 +-----------+------------+----------------------+
 | NVIC      | on-chip    | arch/arm             |
@@ -97,7 +100,7 @@ building and running.
 Flashing
 ========
 
-As an example, this section shows how to build and flash the :ref:`hello_world`
+As an example, this section shows how to build and flash the :zephyr:code-sample:`hello_world`
 application.
 
 .. warning::

@@ -28,11 +28,11 @@ the phyCORE-i.MX 8M Mini/Nano.
 
     - 4GB - 128GB eMMC
     - 8MB - 128MB SPI NOR Flash
-    - microSD Interfacce
+    - microSD Interface
     - 4kB EEPROM
   - Wireless:
 
-    - WiFi: 802.11 b/g/n (ac) 2,4 GHz / 5 GHz
+    - WiFi: 802.11 b/g/n (ac) 2.4 GHz / 5 GHz
     - BLE 4.2
   - USB:
 
@@ -90,6 +90,10 @@ hardware features:
 | GPIO      | on-chip    | GPIO output                         |
 |           |            | GPIO input                          |
 +-----------+------------+-------------------------------------+
+| SPI       | on-chip    | ECSPI                               |
++-----------+------------+-------------------------------------+
+| CAN       | MCP2518    | MCP2518 via ECSPI                   |
++-----------+------------+-------------------------------------+
 
 The default configuration can be found in the defconfig file:
 :zephyr_file:`boards/phytec/mimx8mm_phyboard_polis/mimx8mm_phyboard_polis_mimx8mm6_m4_defconfig`.
@@ -130,12 +134,27 @@ problems with the A53-Core because UART4 is only accessible from the M4-Core.
   On Boards with the version number 1532.1 UART4 isn't connected to the Debug
   USB. UART4 connects to pin 10(RX) and 12(TX) on the X8 pinheader.
 
+SPI:
+----
+
+ECSPI is disabled by default. On phyBOARD Polis, the SoC's ECSPI3 is not
+usable.
+ECSPI1 is connected to the MCP2518 CAN controller with a chip select.
+Another device can be connected via the expansion header (X8):
+PIN 5, 6, 7, 8 (CS, MOSI, MISO, SCLK).
+ECSPI2 is connected to the TPM module. Currently the TPM module is not
+supported by Zephyr.
+
+.. note::
+  Please note, that it is necessary to disable ECSPI1 in the Linux devicetree
+  before you can use it on the M4-Core with Zephyr.
+  See section "Disabling Interfaces in Linux" for more information.
 
 LEDs:
 -----
 
 Zephyr has the 3-color status LED configured. The led0 alias (the standard
-Zephyr led) is configured to be the blue led. The LED can also light up in red
+Zephyr LED) is configured to be the blue LED. The LED can also light up in red
 and green.
 
 GPIO:
@@ -144,7 +163,18 @@ GPIO:
 The pinmuxing for the GPIOs is the standard pinmuxing of the mimx8mm devicetree
 created by NXP. You can find it here:
 
-:zephyr_file:`dts/arm/nxp/nxp_imx8m_m4.dtsi`.
+CAN:
+----
+
+The MCP2518 is connected via ECSPI1. The CAN interface is disabled by default
+to not interfere with Linux on the A53-Core.
+If you want to use the CAN interface you need to disable ECSPI in the Linux
+devicetree.
+
+.. warning::
+  There is a bug in the MCP2518 driver that causes the enable pin of the
+  transceiver to be not set. This causes a ENETDOWN error when trying to send
+  a CAN frame. Receiving CAN frames in `listen-only` mode is possible.
 
 The Pinout of the PhyBOARD Polis can be found here:
 
@@ -189,12 +219,7 @@ For more information about memory mapping see the
 At compilation time you have to choose which RAM will be used. This
 configuration is done in
 :zephyr_file:`boards/phytec/mimx8mm_phyboard_polis/mimx8mm_phyboard_polis_mimx8mm6_m4.dts`
-with "zephyr,flash" (when CONFIG_XIP=y) and "zephyr,sram" properties.
-
-You also have to set XIP=n or edit the boards defconfig file, if you don't want
-the TCM memory area to be used. You can find the defconf file here:
-
-:zephyr_file:`boards/phytec/mimx8mm_phyboard_polis/mimx8mm_phyboard_polis_mimx8mm6_m4_defconfig`.
+with "zephyr,flash" and "zephyr,sram" properties.
 
 The following configurations are possible for the flash and sram chosen nodes
 to change the used memory area:
@@ -211,6 +236,9 @@ to change the used memory area:
    - &ocram_sys
    - &ocram_s_sys
 
+By default Zephyr is configured to use the TCM memory area and CONFIG_XIP is
+disabled. If you want to use the OCRAM memory area you have to enable
+CONFIG_XIP.
 
 Starting the M4-Core via U-Boot
 ===============================
@@ -220,10 +248,10 @@ This should output something like this:
 
 .. code-block:: console
 
-   u-boot=> tftp 0x48000000 192.168.3.10:zyphr.bin
+   u-boot=> tftp 0x48000000 192.168.3.10:zephyr.bin
    Using ethernet@30be0000 device
    TFTP from server 192.168.3.10; our IP address is 192.168.3.11
-   Filename 'zepyhr.bin'.
+   Filename 'zephyr.bin'.
    Load address: 0x48000000
    Loading: ##
             2 KiB/s
@@ -249,7 +277,7 @@ And finaly starting the M4-Core at the right memory address:
 Starting the M4-Core via remoteproc
 ===================================
 
-Copy the zepyhr.elf to ``/lib/firmware`` on the target. Maybe a Zephyr sample
+Copy the zephyr.elf to ``/lib/firmware`` on the target. Maybe a Zephyr sample
 will be included in a future BSP release.
 
 .. note::
@@ -265,12 +293,12 @@ To load and start a firmware use this commands:
 
 .. code-block:: console
 
-   target$ echo /lib/firmware/zepyhr.elf > /sys/class/remoteproc/remoteproc0/firmware
+   target$ echo /lib/firmware/zephyr.elf > /sys/class/remoteproc/remoteproc0/firmware
    target$ echo start > /sys/class/remoteproc/remoteproc0/state
    [   90.700611] remoteproc remoteproc0: powering up imx-rproc
-   [   90.706114] remoteproc remoteproc0: Direct firmware load for /lib/firmware/zepyhr.elf failed w2
-   [   90.716571] remoteproc remoteproc0: Falling back to sysfs fallback for: /lib/firmware/zepyhr.elf
-   [   90.739280] remoteproc remoteproc0: Booting fw image /lib/firmware/zepyhr.elf, size 599356
+   [   90.706114] remoteproc remoteproc0: Direct firmware load for /lib/firmware/zephyr.elf failed w2
+   [   90.716571] remoteproc remoteproc0: Falling back to sysfs fallback for: /lib/firmware/zephyr.elf
+   [   90.739280] remoteproc remoteproc0: Booting fw image /lib/firmware/zephyr.elf, size 599356
    [   90.804448] remoteproc remoteproc0: remote processor imx-rproc is now up
 
 
@@ -296,7 +324,7 @@ To debug efficiently you should use multiple terminals:
 (But its also possible to use ``west debug``)
 
 After connecting everything and building with west use this command while in
-the directory of the program you build earlier to start a debug server:
+the directory of the program you built earlier to start a debug server:
 
 .. code-block:: console
 
@@ -320,6 +348,45 @@ target:
    Continuing.
 
 The program can be debugged using standard gdb techniques.
+
+Disabling Interfaces in Linux
+=============================
+
+If Zephyr is used on the M4-Core while Linux runs on the A53-Core, it is
+recommended to disable the Interfaces used by the M4-Core to avoid conflicts.
+More simple interfaces can be enabled on both cores at the same time, for
+example GPIO. If you do that, keep in mind that conflicts can still arise.
+
+For more complex interfaces like SPI it is necessary to disable them in the
+Linux devicetree, otherwise Linux will probably crash in a panic, resetting
+the SoC.
+For example: disabling ECSPI1 in Linux to use it on the M4-Core with Zephyr:
+
+1. Create a new file called ``disable_spi.dts`` with the following content:
+
+  .. code:: dts
+
+   /dts-v1/;
+   /plugin/;
+
+   / {
+      fragment@0 {
+         target = <&ecspi1>;
+         __overlay__ {
+               status = "disabled";
+         };
+      };
+   };
+
+2. Compile the file with the dtc compiler to a devicetree blob:
+
+  .. code:: console
+
+   $ dtc -@ -I dts -O dtb -o imx8mm-phyboard-polis-disable-spi.dtbo disable_spi.dts;
+
+3. Copy the compiled file to the boot partition of the target.
+4. Add the filename to the ``/boot/bootenv.txt`` file at the end of the line.
+5. Reboot the target, the SPI interface is now disabled in Linux.
 
 .. _PHYTEC website:
    https://www.phytec.de/produkte/single-board-computer/phyboard-polis-imx8m-mini/

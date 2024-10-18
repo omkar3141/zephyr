@@ -44,7 +44,8 @@ static void bap_broadcast_source_test_suite_fixture_init(
 {
 	const uint8_t bis_cfg_data[] = {
 		BT_AUDIO_CODEC_DATA(BT_AUDIO_CODEC_CFG_CHAN_ALLOC,
-				    BT_AUDIO_LOCATION_FRONT_LEFT | BT_AUDIO_LOCATION_FRONT_RIGHT),
+				    BT_BYTES_LIST_LE32(BT_AUDIO_LOCATION_FRONT_LEFT |
+						       BT_AUDIO_LOCATION_FRONT_RIGHT)),
 	};
 	const size_t streams_per_subgroup = CONFIG_BT_BAP_BROADCAST_SRC_STREAM_COUNT /
 					    CONFIG_BT_BAP_BROADCAST_SRC_SUBGROUP_COUNT;
@@ -53,7 +54,7 @@ static void bap_broadcast_source_test_suite_fixture_init(
 	struct bt_bap_broadcast_source_subgroup_param *subgroup_param;
 	struct bt_bap_broadcast_source_stream_param *stream_params;
 	struct bt_audio_codec_cfg *codec_cfg;
-	struct bt_audio_codec_qos *codec_qos;
+	struct bt_bap_qos_cfg *qos_cfg;
 	struct bt_bap_stream *streams;
 	const uint16_t latency = 10U; /* ms*/
 	const uint32_t pd = 40000U;   /* us */
@@ -74,8 +75,8 @@ static void bap_broadcast_source_test_suite_fixture_init(
 	zassert_not_null(stream_params);
 	codec_cfg = malloc(sizeof(struct bt_audio_codec_cfg));
 	zassert_not_null(codec_cfg);
-	codec_qos = malloc(sizeof(struct bt_audio_codec_qos));
-	zassert_not_null(codec_qos);
+	qos_cfg = malloc(sizeof(struct bt_bap_qos_cfg));
+	zassert_not_null(qos_cfg);
 	streams = malloc(sizeof(struct bt_bap_stream) * CONFIG_BT_BAP_BROADCAST_SRC_STREAM_COUNT);
 	zassert_not_null(streams);
 	bis_data = malloc(CONFIG_BT_AUDIO_CODEC_CFG_MAX_DATA_SIZE);
@@ -90,14 +91,14 @@ static void bap_broadcast_source_test_suite_fixture_init(
 	       sizeof(struct bt_bap_broadcast_source_stream_param) *
 		       CONFIG_BT_BAP_BROADCAST_SRC_STREAM_COUNT);
 	memset(codec_cfg, 0, sizeof(struct bt_audio_codec_cfg));
-	memset(codec_qos, 0, sizeof(struct bt_audio_codec_qos));
+	memset(qos_cfg, 0, sizeof(struct bt_bap_qos_cfg));
 	memset(streams, 0, sizeof(struct bt_bap_stream) * CONFIG_BT_BAP_BROADCAST_SRC_STREAM_COUNT);
 	memset(bis_data, 0, CONFIG_BT_AUDIO_CODEC_CFG_MAX_DATA_SIZE);
 
 	/* Initialize default values*/
 	*codec_cfg = BT_AUDIO_CODEC_LC3_CONFIG(BT_AUDIO_CODEC_CFG_FREQ_16KHZ,
 					       BT_AUDIO_CODEC_CFG_DURATION_10, loc, 40U, 1, ctx);
-	*codec_qos = BT_AUDIO_CODEC_QOS_UNFRAMED(10000u, sdu, rtn, latency, pd);
+	*qos_cfg = BT_BAP_QOS_CFG_UNFRAMED(10000u, sdu, rtn, latency, pd);
 	memcpy(bis_data, bis_cfg_data, sizeof(bis_cfg_data));
 
 	for (size_t i = 0U; i < CONFIG_BT_BAP_BROADCAST_SRC_SUBGROUP_COUNT; i++) {
@@ -115,7 +116,7 @@ static void bap_broadcast_source_test_suite_fixture_init(
 
 	fixture->param->params_count = CONFIG_BT_BAP_BROADCAST_SRC_SUBGROUP_COUNT;
 	fixture->param->params = subgroup_param;
-	fixture->param->qos = codec_qos;
+	fixture->param->qos = qos_cfg;
 	fixture->param->encryption = false;
 	memset(fixture->param->broadcast_code, 0, sizeof(fixture->param->broadcast_code));
 	fixture->param->packing = BT_ISO_PACKING_SEQUENTIAL;
@@ -228,6 +229,19 @@ ZTEST_F(bap_broadcast_source_test_suite, test_broadcast_source_create_start_send
 		for (size_t j = 0U; j < create_param->params[i].params_count; j++) {
 			struct bt_bap_stream *bap_stream = create_param->params[i].params[j].stream;
 
+			/* verify bap stream started cb stream parameter */
+			zassert_equal(mock_bap_stream_started_cb_fake.arg0_history[i], bap_stream);
+			struct bt_audio_codec_cfg *codec_cfg = bap_stream->codec_cfg;
+			enum bt_audio_location chan_allocation;
+			/* verify subgroup codec data */
+			zassert_equal(bt_audio_codec_cfg_get_freq(codec_cfg),
+				      BT_AUDIO_CODEC_CFG_FREQ_16KHZ);
+			zassert_equal(bt_audio_codec_cfg_get_frame_dur(codec_cfg),
+				      BT_AUDIO_CODEC_CFG_DURATION_10);
+			/* verify bis specific codec data */
+			bt_audio_codec_cfg_get_chan_allocation(codec_cfg, &chan_allocation, false);
+			zassert_equal(chan_allocation,
+				      BT_AUDIO_LOCATION_FRONT_LEFT | BT_AUDIO_LOCATION_FRONT_RIGHT);
 			/* Since BAP doesn't care about the `buf` we can just provide NULL */
 			err = bt_bap_stream_send(bap_stream, NULL, 0);
 			zassert_equal(0, err,
@@ -306,7 +320,7 @@ ZTEST_F(bap_broadcast_source_test_suite, test_broadcast_source_create_inval_subg
 ZTEST_F(bap_broadcast_source_test_suite, test_broadcast_source_create_inval_qos_null)
 {
 	struct bt_bap_broadcast_source_param *create_param = fixture->param;
-	struct bt_audio_codec_qos *qos = create_param->qos;
+	struct bt_bap_qos_cfg *qos = create_param->qos;
 	int err;
 
 	create_param->qos = NULL;
@@ -745,7 +759,7 @@ ZTEST_F(bap_broadcast_source_test_suite,
 ZTEST_F(bap_broadcast_source_test_suite, test_broadcast_source_reconfigure_inval_qos_null)
 {
 	struct bt_bap_broadcast_source_param *param = fixture->param;
-	struct bt_audio_codec_qos *qos = param->qos;
+	struct bt_bap_qos_cfg *qos = param->qos;
 	int err;
 
 	printk("Creating broadcast source with %zu subgroups with %zu streams\n",
@@ -1220,6 +1234,8 @@ ZTEST_F(bap_broadcast_source_test_suite, test_broadcast_source_get_id_inval_stat
 	zassert_not_equal(0, err, "Did not fail with deleted broadcast source");
 }
 
+
+
 ZTEST_F(bap_broadcast_source_test_suite, test_broadcast_source_get_base_single_bis)
 {
 	struct bt_bap_broadcast_source_param *create_param = fixture->param;
@@ -1237,8 +1253,8 @@ ZTEST_F(bap_broadcast_source_test_suite, test_broadcast_source_get_base_single_b
 		0x04,                                           /* meta length */
 		0x03, 0x02, 0x01, 0x00,                         /* meta */
 		0x01,                                           /* bis index */
-		0x03,                                           /* bis cc length */
-		0x02, 0x03, 0x03                                /* bis cc length */
+		0x06,                                           /* bis cc length */
+		0x05, 0x03, 0x03, 0x00, 0x00, 0x00              /* bis cc length */
 	};
 
 	NET_BUF_SIMPLE_DEFINE(base_buf, 64);
@@ -1294,8 +1310,8 @@ ZTEST_F(bap_broadcast_source_test_suite, test_broadcast_source_get_base)
 		0x04,                                           /* meta length */
 		0x03, 0x02, 0x01, 0x00,                         /* meta */
 		0x01,                                           /* bis index */
-		0x03,                                           /* bis cc length */
-		0x02, 0x03, 0x03,                               /* bis cc length */
+		0x06,                                           /* bis cc length */
+		0x05, 0x03, 0x03, 0x00, 0x00, 0x00,             /* bis cc length */
 		0x01,                                           /* Subgroup 1: bis count */
 		0x06, 0x00, 0x00, 0x00, 0x00,                   /* LC3 codec_id*/
 		0x10,                                           /* cc length */
@@ -1304,8 +1320,8 @@ ZTEST_F(bap_broadcast_source_test_suite, test_broadcast_source_get_base)
 		0x04,                                           /* meta length */
 		0x03, 0x02, 0x01, 0x00,                         /* meta */
 		0x02,                                           /* bis index */
-		0x03,                                           /* bis cc length */
-		0x02, 0x03, 0x03                                /* bis cc length */
+		0x06,                                           /* bis cc length */
+		0x05, 0x03, 0x03, 0x00, 0x00, 0x00              /* bis cc length */
 	};
 
 	NET_BUF_SIMPLE_DEFINE(base_buf, 128);

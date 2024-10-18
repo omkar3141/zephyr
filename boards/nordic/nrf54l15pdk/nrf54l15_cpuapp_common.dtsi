@@ -6,7 +6,7 @@
 
 /* This file is common to the secure and non-secure domain */
 
-#include <nordic/nrf54l15_cpuapp.dtsi>
+#include <nordic/nrf54l15_enga_cpuapp.dtsi>
 #include "nrf54l15pdk_nrf54l15-common.dtsi"
 
 / {
@@ -14,13 +14,11 @@
 		zephyr,console = &uart20;
 		zephyr,shell-uart = &uart20;
 		zephyr,uart-mcumgr = &uart20;
+		zephyr,bt-mon-uart = &uart20;
+		zephyr,bt-c2h-uart = &uart20;
 		zephyr,flash-controller = &rram_controller;
 		zephyr,flash = &cpuapp_rram;
 		zephyr,ieee802154 = &ieee802154;
-	};
-
-	aliases {
-		spi-flash0 = &mx25r64;
 	};
 };
 
@@ -36,6 +34,15 @@
 &hfxo {
 	load-capacitors = "internal";
 	load-capacitance-femtofarad = <15000>;
+};
+
+&regulators {
+	status = "okay";
+};
+
+&vregmain {
+	status = "okay";
+	regulator-initial-mode = <NRF5X_REG_MODE_DCDC>;
 };
 
 &grtc {
@@ -80,7 +87,6 @@
 
 &uart20 {
 	status = "okay";
-	hw-flow-control;
 };
 
 &gpio0 {

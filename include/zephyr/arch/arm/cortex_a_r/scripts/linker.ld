@@ -26,6 +26,14 @@
 #endif
 #define RAMABLE_REGION RAM
 
+/* Region of the irq vectors and boot-vector SP/PC */
+#if defined(CONFIG_ROMSTART_RELOCATION_ROM)
+ #define ROMSTART_ADDR CONFIG_ROMSTART_REGION_ADDRESS
+ #define ROMSTART_SIZE (CONFIG_ROMSTART_REGION_SIZE * 1K)
+#else
+ #define ROMSTART_REGION ROMABLE_REGION
+#endif
+
 #if !defined(CONFIG_XIP) && (CONFIG_FLASH_SIZE == 0)
   #define ROM_ADDR RAM_ADDR
 #else
@@ -85,6 +93,9 @@ _region_min_align = 4;
 
 MEMORY
 {
+#if defined(CONFIG_ROMSTART_RELOCATION_ROM)
+    ROMSTART_REGION (rx) : ORIGIN = ROMSTART_ADDR, LENGTH = ROMSTART_SIZE
+#endif
     FLASH    (rx) : ORIGIN = ROM_ADDR, LENGTH = ROM_SIZE
     RAM      (wx) : ORIGIN = RAM_ADDR, LENGTH = RAM_SIZE
     LINKER_DT_REGIONS()
@@ -97,6 +108,10 @@ ENTRY(CONFIG_KERNEL_ENTRY)
 SECTIONS
 {
 #include <zephyr/linker/rel-sections.ld>
+
+#ifdef CONFIG_LLEXT
+#include <zephyr/linker/llext-sections.ld>
+#endif
 
     /*
      * .plt and .iplt are here according to 'arm-zephyr-elf-ld --verbose',
@@ -129,7 +144,7 @@ SECTIONS
  */
 #include <snippets-rom-start.ld>
 
-    } GROUP_LINK_IN(ROMABLE_REGION)
+    } GROUP_LINK_IN(ROMSTART_REGION)
 
 #ifdef CONFIG_CODE_DATA_RELOCATION
 
@@ -193,6 +208,10 @@ SECTIONS
     } GROUP_LINK_IN(ROMABLE_REGION)
 
 #include <zephyr/linker/common-rom.ld>
+/* Located in generated directory. This file is populated by calling
+ * zephyr_linker_sources(ROM_SECTIONS ...). Useful for grouping iterable RO structs.
+ */
+#include <snippets-rom-sections.ld>
 #include <zephyr/linker/thread-local-storage.ld>
 #include <zephyr/linker/cplusplus-rom.ld>
 

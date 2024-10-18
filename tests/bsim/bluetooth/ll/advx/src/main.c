@@ -185,7 +185,7 @@ static void test_advx_main(void)
 	printk("success.\n");
 
 	printk("Connectable advertising...");
-	err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), NULL, 0);
+	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_2, ad, ARRAY_SIZE(ad), NULL, 0);
 	if (err) {
 		printk("Advertising failed to start (err %d)\n", err);
 		return;
@@ -401,7 +401,7 @@ static void test_advx_main(void)
 	k_sleep(K_MSEC(1000));
 
 	printk("Create connectable advertising set...");
-	err = bt_le_ext_adv_create(BT_LE_ADV_CONN, &adv_callbacks, &adv);
+	err = bt_le_ext_adv_create(BT_LE_ADV_CONN_FAST_2, &adv_callbacks, &adv);
 	if (err) {
 		goto exit;
 	}
@@ -654,7 +654,7 @@ static void test_advx_main(void)
 		}
 	};
 	const struct bt_le_adv_param adv_param = {
-		.options = BT_LE_ADV_OPT_CONNECTABLE,
+		.options = BT_LE_ADV_OPT_CONN,
 		.peer = &direct_addr,
 	};
 	err = bt_le_adv_start(&adv_param, NULL, 0, NULL, 0);
@@ -1300,7 +1300,7 @@ static struct bt_le_per_adv_sync_cb sync_cb = {
 static void test_scanx_main(void)
 {
 	struct bt_le_scan_param scan_param = {
-		.type       = BT_HCI_LE_SCAN_ACTIVE,
+		.type       = BT_LE_SCAN_TYPE_ACTIVE,
 		.options    = BT_LE_SCAN_OPT_NONE,
 		.interval   = 0x0004,
 		.window     = 0x0004,
@@ -1838,14 +1838,14 @@ static const struct bst_test_instance test_def[] = {
 	{
 		.test_id = "advx",
 		.test_descr = "Extended Advertising",
-		.test_post_init_f = test_advx_init,
+		.test_pre_init_f = test_advx_init,
 		.test_tick_f = test_advx_tick,
 		.test_main_f = test_advx_main
 	},
 	{
 		.test_id = "scanx",
 		.test_descr = "Extended scanning",
-		.test_post_init_f = test_advx_init,
+		.test_pre_init_f = test_advx_init,
 		.test_tick_f = test_advx_tick,
 		.test_main_f = test_scanx_main
 	},

@@ -91,13 +91,9 @@
 #define VCNL36825T_MPS_PULSES_8	(4 << VCNL36825T_PS_MPS_POS)
 
 #define VCNL36825T_PS_IT_1T	(0 << VCNL36825T_PS_IT_POS)
-#define VCNL36825T_PS_IT_1_5T	(1 << VCNL36825T_PS_IT_POS)
-#define VCNL36825T_PS_IT_2T	(2 << VCNL36825T_PS_IT_POS)
-#define VCNL36825T_PS_IT_2_5T	(3 << VCNL36825T_PS_IT_POS)
-#define VCNL36825T_PS_IT_3T	(4 << VCNL36825T_PS_IT_POS)
-#define VCNL36825T_PS_IT_3_5T	(5 << VCNL36825T_PS_IT_POS)
-#define VCNL36825T_PS_IT_4T	(6 << VCNL36825T_PS_IT_POS)
-#define VCNL36825T_PS_IT_8T	(7 << VCNL36825T_PS_IT_POS)
+#define VCNL36825T_PS_IT_2T	(1 << VCNL36825T_PS_IT_POS)
+#define VCNL36825T_PS_IT_4T	(2 << VCNL36825T_PS_IT_POS)
+#define VCNL36825T_PS_IT_8T	(3 << VCNL36825T_PS_IT_POS)
 
 /* PS_CONF3 */
 #define VCNL36825T_PS_SP_INT_POS	2
@@ -109,6 +105,7 @@
 #define VCNL36825T_PS_SC_POS		13
 
 #define VCNL36825T_PS_TRIG_MSK	GENMASK(5, 5)
+#define VCNL36825T_PS_AF_MSK	GENMASK(6, 6)
 
 #define VCNL36825T_PS_SP_INT_DISABLED	(0 << VCNL36825T_PS_SP_INT_POS)
 #define VCNL36825T_PS_SP_INT_ENABLED	(1 << VCNL36825T_PS_SP_INT_POS)
@@ -143,6 +140,8 @@
 #define VCNL36825T_PS_AC_PERIOD_POS	6
 #define VCNL36825T_PS_LPEN_POS		8
 #define VCNL36825T_PS_LPPER_POS		9
+
+#define VCNL36825T_PS_LPEN_MSK	GENMASK(8, 8)
 
 #define VCNL36825T_PS_AC_INT_DISABLED	(0 << VCNL36825T_PS_AC_INT_POS)
 #define VCNL36825T_PS_AC_INT_ENABLED	(1 << VCNL36825T_PS_AC_INT_POS)
@@ -210,20 +209,35 @@
 #define VCNL36825T_AC_SUN_MSK		GENMASK(14, 14)
 #define VCNL36825T_AC_BUSY_MSK		GENMASK(15, 15)
 
-/* --- */
-
 #define VCNL36825T_PS_PERIOD_VALUE_MAX_MS	80
 #define VCNL36825T_PS_LPPER_VALUE_MIN_MS	40
+
+/* see application note "Designing the VCNL36825T Into an Application": power up takes 2500 us */
+#define VCNL36825T_POWER_UP_US	2500
 
 #define VCNL36825T_FORCED_FACTOR_TIME_TO_TRIGGER	0.5
 #define VCNL36825T_FORCED_FACTOR_DC_KILL_AMBIENT	3
 #define VCNL36825T_FORCED_FACTOR_MEASUREMENT		1
 #define VCNL36825T_FORCED_FACTOR_SHUTDOWN		1
-#define VCNL36825T_FORCED_FACTOR_SCALE		10
+#define VCNL36825T_FORCED_FACTOR_SCALE			10
+
+/* necessary time to wait before data of a "forced" measurement is available */
 #define VCNL36825T_FORCED_FACTOR_SUM                                                               \
 	((VCNL36825T_FORCED_FACTOR_TIME_TO_TRIGGER + VCNL36825T_FORCED_FACTOR_DC_KILL_AMBIENT +    \
 	  VCNL36825T_FORCED_FACTOR_MEASUREMENT + VCNL36825T_FORCED_FACTOR_SHUTDOWN) *              \
 	 VCNL36825T_FORCED_FACTOR_SCALE)
+
+#ifdef CONFIG_PM_DEVICE
+
+#define VCNL36825T_FORCED_WAKEUP_DELAY_MAX_US 1000
+#define VCNL36825T_FORCED_FACTOR_WAKEUP_DELAY 10
+
+/* necessary wait time before data for a "forced" measurement is available AFTER the device slept */
+#define VCNL36825T_FORCED_FACTOR_WAKEUP_SUM                                                        \
+	(VCNL36825T_FORCED_FACTOR_SUM +                                                            \
+	 (VCNL36825T_FORCED_FACTOR_WAKEUP_DELAY * VCNL36825T_FORCED_FACTOR_SCALE))
+
+#endif
 
 enum vcnl36825t_operation_mode {
 	VCNL36825T_OPERATION_MODE_AUTO,
@@ -241,11 +255,7 @@ enum vcnl36825t_measurement_period {
 
 enum vcnl36825t_proximity_integration_time {
 	VCNL36825T_PROXIMITY_INTEGRATION_1T,
-	VCNL36825T_PROXIMITY_INTEGRATION_1_5T,
 	VCNL36825T_PROXIMITY_INTEGRATION_2T,
-	VCNL36825T_PROXIMITY_INTEGRATION_2_5T,
-	VCNL36825T_PROXIMITY_INTEGRATION_3T,
-	VCNL36825T_PROXIMITY_INTEGRATION_3_5T,
 	VCNL36825T_PROXIMITY_INTEGRATION_4T,
 	VCNL36825T_PROXIMITY_INTEGRATION_8T,
 };
@@ -292,7 +302,12 @@ struct vcnl36825t_config {
 struct vcnl36825t_data {
 	uint16_t proximity;
 
-	int meas_timeout_us; /** wait time for finished measurement for "forced" operation mode */
+	unsigned int meas_timeout_us; /** wait time for finished measurement in "forced"-mode  */
+
+#ifdef CONFIG_PM_DEVICE
+	unsigned int meas_timeout_running_us;
+	unsigned int meas_timeout_wakeup_us;
+#endif
 };
 
 #endif

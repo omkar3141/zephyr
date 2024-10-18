@@ -750,10 +750,14 @@ struct espi_reg {
 #define NPCX_VWSWIRQ_EDGE_IRQ            28
 #define NPCX_VWEVMS_WIRE                 FIELD(0, 4)
 #define NPCX_VWEVMS_VALID                FIELD(4, 4)
+#define NPCX_VWEVMS_INDEX                FIELD(8, 7)
+#define NPCX_VWEVMS_INDEX_EN             15
 #define NPCX_VWEVMS_IE                   18
 #define NPCX_VWEVMS_WE                   20
 #define NPCX_VWEVSM_WIRE                 FIELD(0, 4)
 #define NPCX_VWEVSM_VALID                FIELD(4, 4)
+#define NPCX_VWEVSM_INDEX                FIELD(8, 7)
+#define NPCX_VWEVSM_INDEX_EN             15
 #define NPCX_VWEVSM_BIT_VALID(n)         (4+n)
 #define NPCX_VWEVSM_HW_WIRE              FIELD(24, 4)
 #define NPCX_VWGPSM_INDEX_EN             15
@@ -787,6 +791,9 @@ struct espi_reg {
 #define NPCX_FLASH_PRTR_HADDR            FIELD(12, 15)
 #define NPCX_FLASH_TAG_OVR_RPR           FIELD(16, 16)
 #define NPCX_FLASH_TAG_OVR_WPR           FIELD(0, 16)
+#define NPCX_FLASH_RPMC_CFG1_CNTR        FIELD(0, 4)
+#define NPCX_FLASH_RPMC_CFG1_OP1         FIELD(4, 8)
+#define NPCX_FLASH_RPMC_CFG1_TRGRPMCSUP  FIELD(26, 6)
 #define NPCX_ONLY_ESPI_REG1_UNLOCK_REG2         0x55
 #define NPCX_ONLY_ESPI_REG1_LOCK_REG2           0
 #define NPCX_ONLY_ESPI_REG2_TRANS_END_CONFIG    4

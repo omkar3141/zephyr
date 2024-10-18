@@ -4,19 +4,41 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#if defined(CONFIG_BT_GMAP)
+#include <errno.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <string.h>
 
-#include <zephyr/bluetooth/bluetooth.h>
-#include <zephyr/bluetooth/byteorder.h>
+#include <zephyr/autoconf.h>
+#include <zephyr/bluetooth/addr.h>
+#include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/cap.h>
 #include <zephyr/bluetooth/audio/bap.h>
+#include <zephyr/bluetooth/audio/csip.h>
 #include <zephyr/bluetooth/audio/gmap.h>
 #include <zephyr/bluetooth/audio/gmap_lc3_preset.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/byteorder.h>
+#include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/gap.h>
+#include <zephyr/bluetooth/gatt.h>
+#include <zephyr/bluetooth/hci_types.h>
+#include <zephyr/bluetooth/iso.h>
+#include <zephyr/bluetooth/uuid.h>
+#include <zephyr/kernel.h>
+#include <zephyr/net_buf.h>
 #include <zephyr/sys/byteorder.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/sys/util_macro.h>
+#include <zephyr/toolchain.h>
 
+#include "bstests.h"
 #include "common.h"
 #include "bap_common.h"
 
+#if defined(CONFIG_BT_GMAP)
 /* Zephyr Controller works best while Extended Advertising interval to be a multiple
  * of the ISO Interval minus 10 ms (max. advertising random delay). This is
  * required to place the AUX_ADV_IND PDUs in a non-overlapping interval with the
@@ -204,7 +226,7 @@ static void stream_sent_cb(struct bt_bap_stream *bap_stream)
 }
 
 static void stream_configured_cb(struct bt_bap_stream *stream,
-				 const struct bt_audio_codec_qos_pref *pref)
+				 const struct bt_bap_qos_cfg_pref *pref)
 {
 	printk("Configured stream %p\n", stream);
 
@@ -907,6 +929,7 @@ static void unicast_audio_stop(struct bt_bap_unicast_group *unicast_group)
 	param.type = BT_CAP_SET_TYPE_AD_HOC;
 	param.count = started_unicast_streams_cnt;
 	param.streams = started_unicast_streams;
+	param.release = true;
 
 	err = bt_cap_initiator_unicast_audio_stop(&param);
 	if (err != 0) {
@@ -1180,7 +1203,7 @@ static int test_gmap_ugg_broadcast_ac(const struct gmap_broadcast_ac_param *para
 		stream_params[GMAP_BROADCAST_AC_MAX_STREAM] = {0};
 	struct bt_cap_broadcast_source *broadcast_source;
 	struct bt_audio_codec_cfg codec_cfg;
-	struct bt_audio_codec_qos qos;
+	struct bt_bap_qos_cfg qos;
 	struct bt_le_ext_adv *adv;
 	int err;
 
@@ -1519,91 +1542,91 @@ static void test_args(int argc, char *argv[])
 static const struct bst_test_instance test_gmap_ugg[] = {
 	{
 		.test_id = "gmap_ugg_ac_1",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_1,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_2",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_2,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_3",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_3,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_4",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_4,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_5",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_5,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_6_i",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_6_i,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_6_ii",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_6_ii,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_7_ii",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_7_ii,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_8_i",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_8_i,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_8_ii",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_8_ii,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_11_i",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_11_i,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_11_ii",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_11_ii,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_12",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_12,
 		.test_args_f = test_args,
@@ -1611,7 +1634,7 @@ static const struct bst_test_instance test_gmap_ugg[] = {
 #if CONFIG_BT_BAP_BROADCAST_SRC_STREAM_COUNT >= GMAP_BROADCAST_AC_MAX_STREAM
 	{
 		.test_id = "gmap_ugg_ac_13",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_13,
 		.test_args_f = test_args,
@@ -1619,7 +1642,7 @@ static const struct bst_test_instance test_gmap_ugg[] = {
 #endif /* CONFIG_BT_BAP_BROADCAST_SRC_STREAM_COUNT >= GMAP_BROADCAST_AC_MAX_STREAM */
 	{
 		.test_id = "gmap_ugg_ac_14",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_14,
 		.test_args_f = test_args,
