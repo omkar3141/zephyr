@@ -7,6 +7,7 @@
 /dts-v1/;
 
 #include <nuvoton/npcx4m8f.dtsi>
+#include <nuvoton/npcx/npcx-espi-vws-ex-map.dtsi>
 #include "npcx4m8f_evb-pinctrl.dtsi"
 
 / {
@@ -26,7 +27,6 @@
 		i2c-0 = &i2c0_0;
 		watchdog0 = &twd0;
 		peci-0 = &peci0;
-		spi-flash0 = &int_flash;
 		kscan0 = &kscan_input;
 	};
 

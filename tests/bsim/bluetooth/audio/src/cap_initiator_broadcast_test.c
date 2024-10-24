@@ -3,18 +3,36 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#include <errno.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 
-#if defined(CONFIG_BT_CAP_INITIATOR) && defined(CONFIG_BT_BAP_BROADCAST_SOURCE)
-
-#include <zephyr/bluetooth/bluetooth.h>
-#include <zephyr/bluetooth/byteorder.h>
+#include <zephyr/autoconf.h>
+#include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/bap_lc3_preset.h>
 #include <zephyr/bluetooth/audio/cap.h>
 #include <zephyr/bluetooth/audio/bap.h>
 #include <zephyr/bluetooth/audio/lc3.h>
+#include <zephyr/bluetooth/audio/tbs.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/byteorder.h>
+#include <zephyr/bluetooth/gap.h>
+#include <zephyr/bluetooth/iso.h>
+#include <zephyr/bluetooth/uuid.h>
+#include <zephyr/kernel.h>
+#include <zephyr/net_buf.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/sys/util_macro.h>
+#include <zephyr/toolchain.h>
+
 #include "bap_common.h"
+#include "bstests.h"
 #include "common.h"
 
+#if defined(CONFIG_BT_CAP_INITIATOR) && defined(CONFIG_BT_BAP_BROADCAST_SOURCE)
 /* Zephyr Controller works best while Extended Advertising interval to be a multiple
  * of the ISO Interval minus 10 ms (max. advertising random delay). This is
  * required to place the AUX_ADV_IND PDUs in a non-overlapping interval with the
@@ -177,6 +195,27 @@ static void init(void)
 		broadcast_streams[i] =
 			cap_stream_from_audio_test_stream(&broadcast_source_streams[i]);
 		bt_cap_stream_ops_register(broadcast_streams[i], &broadcast_stream_ops);
+	}
+
+	if (IS_ENABLED(CONFIG_BT_TBS)) {
+		const struct bt_tbs_register_param gtbs_param = {
+			.provider_name = "Generic TBS",
+			.uci = "un000",
+			.uri_schemes_supported = "tel,skype",
+			.gtbs = true,
+			.authorization_required = false,
+			.technology = BT_TBS_TECHNOLOGY_3G,
+			.supported_features = CONFIG_BT_TBS_SUPPORTED_FEATURES,
+		};
+
+		err = bt_tbs_register_bearer(&gtbs_param);
+		if (err < 0) {
+			FAIL("Failed to register GTBS (err %d)\n", err);
+
+			return;
+		}
+
+		printk("Registered GTBS\n");
 	}
 }
 
@@ -433,14 +472,15 @@ static void test_broadcast_audio_start(struct bt_cap_broadcast_source *broadcast
 
 static void test_broadcast_audio_update_inval(struct bt_cap_broadcast_source *broadcast_source)
 {
-	const uint16_t mock_ccid = 0xAB;
 	const uint8_t new_metadata[] = {
 		BT_AUDIO_CODEC_DATA(BT_AUDIO_METADATA_TYPE_STREAM_CONTEXT,
 				    BT_BYTES_LIST_LE16(BT_AUDIO_CONTEXT_TYPE_MEDIA)),
-		BT_AUDIO_CODEC_DATA(BT_AUDIO_METADATA_TYPE_CCID_LIST, mock_ccid),
+		BT_AUDIO_CODEC_DATA(BT_AUDIO_METADATA_TYPE_PARENTAL_RATING,
+				    BT_AUDIO_PARENTAL_RATING_AGE_ANY),
 	};
 	const uint8_t invalid_metadata[] = {
-		BT_AUDIO_CODEC_DATA(BT_AUDIO_METADATA_TYPE_CCID_LIST, mock_ccid),
+		BT_AUDIO_CODEC_DATA(BT_AUDIO_METADATA_TYPE_PARENTAL_RATING,
+				    BT_AUDIO_PARENTAL_RATING_AGE_ANY),
 	};
 	int err;
 
@@ -687,7 +727,7 @@ static int test_cap_initiator_ac(const struct cap_initiator_ac_param *param)
 	struct bt_cap_initiator_broadcast_create_param create_param = {0};
 	struct bt_cap_broadcast_source *broadcast_source;
 	struct bt_audio_codec_cfg codec_cfg;
-	struct bt_audio_codec_qos qos;
+	struct bt_bap_qos_cfg qos;
 	struct bt_le_ext_adv *adv;
 	int err;
 
@@ -841,13 +881,13 @@ static void test_args(int argc, char *argv[])
 static const struct bst_test_instance test_cap_initiator_broadcast[] = {
 	{
 		.test_id = "cap_initiator_broadcast",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_main_cap_initiator_broadcast,
 	},
 	{
 		.test_id = "cap_initiator_ac_12",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_cap_initiator_ac_12,
 		.test_args_f = test_args,
@@ -855,7 +895,7 @@ static const struct bst_test_instance test_cap_initiator_broadcast[] = {
 #if BROADCAST_STREMT_CNT >= CAP_AC_MAX_STREAM
 	{
 		.test_id = "cap_initiator_ac_13",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_cap_initiator_ac_13,
 		.test_args_f = test_args,
@@ -863,7 +903,7 @@ static const struct bst_test_instance test_cap_initiator_broadcast[] = {
 #endif /* BROADCAST_STREMT_CNT >= CAP_AC_MAX_STREAM */
 	{
 		.test_id = "cap_initiator_ac_14",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_cap_initiator_ac_14,
 		.test_args_f = test_args,

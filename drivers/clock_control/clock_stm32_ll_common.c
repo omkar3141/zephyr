@@ -24,8 +24,13 @@
 #define z_hsi_divider(v) LL_RCC_HSI_DIV_ ## v
 #define hsi_divider(v) z_hsi_divider(v)
 
+#if defined(LL_RCC_HCLK_DIV_1)
+#define fn_ahb_prescaler(v) LL_RCC_HCLK_DIV_ ## v
+#define ahb_prescaler(v) fn_ahb_prescaler(v)
+#else
 #define fn_ahb_prescaler(v) LL_RCC_SYSCLK_DIV_ ## v
 #define ahb_prescaler(v) fn_ahb_prescaler(v)
+#endif
 
 #define fn_apb1_prescaler(v) LL_RCC_APB1_DIV_ ## v
 #define apb1_prescaler(v) fn_apb1_prescaler(v)
@@ -33,6 +38,28 @@
 #if DT_NODE_HAS_PROP(DT_NODELABEL(rcc), apb2_prescaler)
 #define fn_apb2_prescaler(v) LL_RCC_APB2_DIV_ ## v
 #define apb2_prescaler(v) fn_apb2_prescaler(v)
+#endif
+
+#if defined(RCC_CFGR_ADCPRE)
+#define z_adc12_prescaler(v) LL_RCC_ADC_CLKSRC_PCLK2_DIV_ ## v
+#define adc12_prescaler(v) z_adc12_prescaler(v)
+#elif defined(RCC_CFGR2_ADC1PRES)
+#define z_adc12_prescaler(v) \
+	COND_CODE_1(IS_EQ(v, 0), \
+		    LL_RCC_ADC1_CLKSRC_HCLK, \
+		    LL_RCC_ADC1_CLKSRC_PLL_DIV_ ## v)
+#define adc12_prescaler(v) z_adc12_prescaler(v)
+#else
+#define z_adc12_prescaler(v) \
+	COND_CODE_1(IS_EQ(v, 0), \
+		    (LL_RCC_ADC12_CLKSRC_HCLK), \
+		    (LL_RCC_ADC12_CLKSRC_PLL_DIV_ ## v))
+#define adc12_prescaler(v) z_adc12_prescaler(v)
+#define z_adc34_prescaler(v) \
+	COND_CODE_1(IS_EQ(v, 0), \
+		    (LL_RCC_ADC34_CLKSRC_HCLK), \
+		    (LL_RCC_ADC34_CLKSRC_PLL_DIV_ ## v))
+#define adc34_prescaler(v) z_adc34_prescaler(v)
 #endif
 
 #if DT_NODE_HAS_PROP(DT_NODELABEL(rcc), ahb4_prescaler)
@@ -91,8 +118,7 @@ static uint32_t get_msi_frequency(void)
 }
 
 /** @brief Verifies clock is part of active clock configuration */
-__unused
-static int enabled_clock(uint32_t src_clk)
+int enabled_clock(uint32_t src_clk)
 {
 	int r = 0;
 
@@ -110,6 +136,13 @@ static int enabled_clock(uint32_t src_clk)
 		if (!IS_ENABLED(STM32_HSE_ENABLED)) {
 			r = -ENOTSUP;
 		}
+		break;
+#endif /* STM32_SRC_HSE */
+#if defined(STM32_SRC_EXT_HSE)
+	case STM32_SRC_EXT_HSE:
+		/* EXT_HSE is the raw OSC_IN signal, so it is always
+		 * available, regardless of the clocks configuration.
+		 */
 		break;
 #endif /* STM32_SRC_HSE */
 #if defined(STM32_SRC_HSI)
@@ -189,6 +222,20 @@ static int enabled_clock(uint32_t src_clk)
 		}
 		break;
 #endif /* STM32_SRC_PLLI2S_R */
+#if defined(STM32_SRC_PLL2CLK)
+	case STM32_SRC_PLL2CLK:
+		if (!IS_ENABLED(STM32_PLL2_ENABLED)) {
+			r = -ENOTSUP;
+		}
+		break;
+#endif
+#if defined(STM32_SRC_PLL3CLK)
+	case STM32_SRC_PLL3CLK:
+		if (!IS_ENABLED(STM32_PLL3_ENABLED)) {
+			r = -ENOTSUP;
+		}
+		break;
+#endif
 	default:
 		return -ENOTSUP;
 	}
@@ -451,7 +498,7 @@ static enum clock_control_status stm32_clock_control_get_status(const struct dev
 	}
 }
 
-static struct clock_control_driver_api stm32_clock_control_api = {
+static const struct clock_control_driver_api stm32_clock_control_api = {
 	.on = stm32_clock_control_on,
 	.off = stm32_clock_control_off,
 	.get_rate = stm32_clock_control_get_subsys_rate,
@@ -495,7 +542,7 @@ static void set_up_plls(void)
 	 */
 	if (LL_RCC_GetSysClkSource() == LL_RCC_SYS_CLKSOURCE_STATUS_PLL) {
 		stm32_clock_switch_to_hsi();
-		LL_RCC_SetAHBPrescaler(LL_RCC_SYSCLK_DIV_1);
+		LL_RCC_SetAHBPrescaler(ahb_prescaler(1));
 	}
 	LL_RCC_PLL_Disable();
 
@@ -733,6 +780,7 @@ int stm32_clock_control_init(const struct device *dev)
 
 	/* Some clocks would be activated by default */
 	config_enable_default_clocks();
+	config_regulator_voltage(CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC);
 
 #if defined(FLASH_ACR_LATENCY)
 	uint32_t old_flash_freq;
@@ -757,9 +805,9 @@ int stm32_clock_control_init(const struct device *dev)
 	set_up_plls();
 
 	if (DT_PROP(DT_NODELABEL(rcc), undershoot_prevention) &&
-		(STM32_CORE_PRESCALER == LL_RCC_SYSCLK_DIV_1) &&
+		(ahb_prescaler(STM32_CORE_PRESCALER) == ahb_prescaler(1)) &&
 		(MHZ(80) < CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC)) {
-		LL_RCC_SetAHBPrescaler(LL_RCC_SYSCLK_DIV_2);
+		LL_RCC_SetAHBPrescaler(ahb_prescaler(2));
 	} else {
 		LL_RCC_SetAHBPrescaler(ahb_prescaler(STM32_CORE_PRESCALER));
 	}
@@ -784,7 +832,7 @@ int stm32_clock_control_init(const struct device *dev)
 #endif /* STM32_SYSCLK_SRC_... */
 
 	if (DT_PROP(DT_NODELABEL(rcc), undershoot_prevention) &&
-		(STM32_CORE_PRESCALER == LL_RCC_SYSCLK_DIV_1) &&
+		(ahb_prescaler(STM32_CORE_PRESCALER) == ahb_prescaler(1)) &&
 		(MHZ(80) < CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC)) {
 		LL_RCC_SetAHBPrescaler(ahb_prescaler(STM32_CORE_PRESCALER));
 	}
@@ -813,13 +861,13 @@ int stm32_clock_control_init(const struct device *dev)
 	LL_RCC_SetAHB4Prescaler(ahb_prescaler(STM32_AHB4_PRESCALER));
 #endif
 #if DT_NODE_HAS_PROP(DT_NODELABEL(rcc), adc_prescaler)
-	LL_RCC_SetADCClockSource(adc_prescaler(STM32_ADC_PRESCALER));
+	LL_RCC_SetADCClockSource(adc12_prescaler(STM32_ADC_PRESCALER));
 #endif
 #if DT_NODE_HAS_PROP(DT_NODELABEL(rcc), adc12_prescaler)
-	LL_RCC_SetADCClockSource(adc_prescaler(STM32_ADC12_PRESCALER));
+	LL_RCC_SetADCClockSource(adc12_prescaler(STM32_ADC12_PRESCALER));
 #endif
 #if DT_NODE_HAS_PROP(DT_NODELABEL(rcc), adc34_prescaler)
-	LL_RCC_SetADCClockSource(adc_prescaler(STM32_ADC34_PRESCALER));
+	LL_RCC_SetADCClockSource(adc34_prescaler(STM32_ADC34_PRESCALER));
 #endif
 
 	/* configure MCO1/MCO2 based on Kconfig */
@@ -838,12 +886,13 @@ void HAL_RCC_CSSCallback(void)
 }
 #endif
 
+void __weak config_regulator_voltage(uint32_t hclk_freq) {}
 /**
  * @brief RCC device, note that priority is intentionally set to 1 so
  * that the device init runs just after SOC init
  */
 DEVICE_DT_DEFINE(DT_NODELABEL(rcc),
-		    &stm32_clock_control_init,
+		    stm32_clock_control_init,
 		    NULL,
 		    NULL, NULL,
 		    PRE_KERNEL_1,

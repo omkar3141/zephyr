@@ -17,5 +17,9 @@ supported:
   - uart
   - clock_control
   - bluetooth
+  - watchdog
+  - spi
+  - i2c
+  - rtc
 
 vendor: infineon

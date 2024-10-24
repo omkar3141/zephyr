@@ -5,7 +5,7 @@
  */
 
 #include <string.h>
-#include <zephyr/net/buf.h>
+#include <zephyr/net_buf.h>
 
 #include "dns_pack.h"
 
@@ -449,7 +449,8 @@ int mdns_unpack_query_header(struct dns_msg_t *msg, uint16_t *src_id)
 
 	qdcount = dns_unpack_header_qdcount(dns_header);
 	if (qdcount < 1) {
-		return -EINVAL;
+		/* Discard the message if query count is 0. RFC 6804 ch. 2 */
+		return -ENOENT;
 	}
 
 	if (src_id) {
@@ -540,6 +541,30 @@ static int dns_unpack_name(const uint8_t *msg, int maxlen, const uint8_t *src,
 	return buf->len;
 }
 
+const char *dns_qtype_to_str(enum dns_rr_type qtype)
+{
+	switch (qtype) {
+	case DNS_RR_TYPE_A:
+		return "A";
+	case DNS_RR_TYPE_CNAME:
+		return "CNAME";
+	case DNS_RR_TYPE_PTR:
+		return "PTR";
+	case DNS_RR_TYPE_TXT:
+		return "TXT";
+	case DNS_RR_TYPE_AAAA:
+		return "AAAA";
+	case DNS_RR_TYPE_SRV:
+		return "SRV";
+	case DNS_RR_TYPE_ANY:
+		return "ANY";
+	default:
+		break;
+	}
+
+	return "<unknown>";
+}
+
 int dns_unpack_query(struct dns_msg_t *dns_msg, struct net_buf *buf,
 		     enum dns_rr_type *qtype, enum dns_class *qclass)
 {
@@ -560,12 +585,13 @@ int dns_unpack_query(struct dns_msg_t *dns_msg, struct net_buf *buf,
 	if (query_type != DNS_RR_TYPE_A && query_type != DNS_RR_TYPE_AAAA
 		&& query_type != DNS_RR_TYPE_PTR
 		&& query_type != DNS_RR_TYPE_SRV
-		&& query_type != DNS_RR_TYPE_TXT) {
+		&& query_type != DNS_RR_TYPE_TXT
+		&& query_type != DNS_RR_TYPE_ANY) {
 		return -EINVAL;
 	}
 
 	query_class = dns_unpack_query_qclass(end_of_label);
-	if (query_class != DNS_CLASS_IN) {
+	if ((query_class & DNS_CLASS_IN) != DNS_CLASS_IN) {
 		return -EINVAL;
 	}
 

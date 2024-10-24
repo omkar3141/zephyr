@@ -51,8 +51,10 @@ struct icmsg_data_t {
 
 	/* General */
 	const struct icmsg_config_t *cfg;
+#ifdef CONFIG_MULTITHREADING
 	struct k_work_delayable notify_work;
 	struct k_work mbox_work;
+#endif
 	atomic_t state;
 };
 
@@ -64,7 +66,7 @@ struct icmsg_data_t {
  *  completed.
  *  This function is intended to be called late in the initialization process,
  *  possibly from a thread which can be safely blocked while handshake with the
- *  remote instance is being pefromed.
+ *  remote instance is being performed.
  *
  *  @param[in] conf Structure containing configuration parameters for the icmsg
  *                  instance.
@@ -111,7 +113,7 @@ int icmsg_close(const struct icmsg_config_t *conf,
  *  @param[in] len Size of data in the @p msg buffer.
  *
  *
- *  @retval 0 on success.
+ *  @retval Number of sent bytes.
  *  @retval -EBUSY when the instance has not finished handshake with the remote
  *                 instance.
  *  @retval -ENODATA when the requested data to send is empty.

@@ -16,13 +16,14 @@ Commands
 
    bap --help
    Subcommands:
-      init
+      init                   : [ase_sink_count, ase_source_count]
       select_broadcast       : <stream>
       create_broadcast       : [preset <preset_name>] [enc <broadcast_code>]
       start_broadcast        :
       stop_broadcast         :
       delete_broadcast       :
       create_broadcast_sink  : 0x<broadcast_id>
+      create_sink_by_name    : <broadcast_name>
       sync_broadcast         : 0x<bis_index> [[[0x<bis_index>] 0x<bis_index>] ...]
                               [bcode <broadcast code> || bcode_str <broadcast code
                               as string>]
@@ -34,6 +35,7 @@ Commands
       stream_qos             : interval [framing] [latency] [pd] [sdu] [phy] [rtn]
       qos                    : Send QoS configure for Unicast Group
       enable                 : [context]
+      connect                : Connect the CIS of the stream
       stop
       list
       print_ase_info         : Print ASE info for default connection
@@ -53,7 +55,7 @@ Commands
                                     [pref_ctx <context>]
                                     [stream_ctx <context>]
                                     [program_info <program info>]
-                                    [stream_lang <ISO 639-3 lang>]
+                                    [lang <ISO 639-3 lang>]
                                     [ccid_list <ccids>]
                                     [parental_rating <rating>]
                                     [program_info_uri <URI>]
@@ -62,10 +64,8 @@ Commands
                                     [extended <meta>]
                                     [vendor <meta>]]
       send                   : Send to Audio Stream [data]
-      start_sine             : Start sending a LC3 encoded sine wave [all]
-      stop_sine              : Stop sending a LC3 encoded sine wave [all]
-      recv_stats             : Sets or gets the receive statistics reporting interval
-                              in # of packets
+      bap_stats              : Sets or gets the statistics reporting interval in # of
+                              packets
       set_location           : <direction: sink, source> <location bitmask>
       set_context            : <direction: sink, source><context bitmask> <type:
                               supported, available>
@@ -80,19 +80,19 @@ Commands
    "config","discover","idle/codec-configured/qos-configured","codec-configured"
    "qos","config","codec-configured/qos-configured","qos-configured"
    "enable","qos","qos-configured","enabling"
-   "[start]","enable","enabling","streaming"
+   "connect","qos/enable","qos-configured/enabling","qos-configured/enabling"
+   "[start]","enable/connect","enabling","streaming"
    "disable","enable", "enabling/streaming","disabling"
    "[stop]","disable","disabling","qos-configure/idle"
    "release","config","any","releasing/codec-configure/idle"
    "list","none","any","none"
    "select_unicast","none","any","none"
-   "connect","discover","idle/codec-configured/qos-configured","codec-configured"
    "send","enable","streaming","none"
 
 Example Central
 ***************
 
-Connect and establish a stream:
+Connect and establish a sink stream:
 
 .. code-block:: console
 
@@ -104,8 +104,9 @@ Connect and establish a stream:
    uart:~$ bap config sink 0
    uart:~$ bap qos
    uart:~$ bap enable
+   uart:~$ bap connect
 
-Or using connect command:
+Connect and establish a source stream:
 
 .. code-block:: console
 
@@ -113,8 +114,12 @@ Or using connect command:
    uart:~$ bap init
    uart:~$ bt connect <address>
    uart:~$ gatt exchange-mtu
-   uart:~$ bap discover sink
-   uart:~$ bap connect sink 0
+   uart:~$ bap discover source
+   uart:~$ bap config source 0
+   uart:~$ bap qos
+   uart:~$ bap enable
+   uart:~$ bap connect
+   uart:~$ bap start
 
 Disconnect and release:
 
@@ -177,6 +182,59 @@ ID before syncing to the BIG.
    Attempting to PA sync to the broadcaster
    PA synced to broadcast with broadcast ID 0xEF6716
    Attempting to sync to the BIG
+   Received BASE from sink 0x20019080:
+   Presentation delay: 40000
+   Subgroup count: 1
+   Subgroup 0x20024182:
+      Codec Format: 0x06
+      Company ID  : 0x0000
+      Vendor ID   : 0x0000
+      codec cfg id 0x06 cid 0x0000 vid 0x0000 count 16
+         Codec specific configuration:
+         Sampling frequency: 16000 Hz (3)
+         Frame duration: 10000 us (1)
+         Channel allocation:
+                  Front left (0x00000001)
+                  Front right (0x00000002)
+         Octets per codec frame: 40
+         Codec specific metadata:
+         Streaming audio contexts:
+            Unspecified (0x0001)
+         BIS index: 0x01
+            codec cfg id 0x06 cid 0x0000 vid 0x0000 count 6
+            Codec specific configuration:
+               Channel allocation:
+                  Front left (0x00000001)
+            Codec specific metadata:
+               None
+         BIS index: 0x02
+            codec cfg id 0x06 cid 0x0000 vid 0x0000 count 6
+            Codec specific configuration:
+               Channel allocation:
+                  Front right (0x00000002)
+            Codec specific metadata:
+               None
+   Possible indexes: 0x01 0x02
+   Sink 0x20019110 is ready to sync without encryption
+   uart:~$ bap sync_broadcast 0x01
+
+
+Scan for and establish a broadcast sink stream by broadcast name
+----------------------------------------------------------------
+
+The command :code:`bap create_sink_by_name` will start scanning and sync to the periodic
+advertising with the provided broadcast name before syncing to the BIG.
+
+.. code-block:: console
+
+   uart:~$ bap init
+   uart:~$ bap create_sink_by_name "Test Broadcast"
+   Starting scanning for broadcast_name
+   Found matched broadcast name 'Test Broadcast' with address 03:47:95:75:C0:08 (random)
+   Found broadcaster with ID 0xEF6716 and addr 03:47:95:75:C0:08 (random) and sid 0x00
+   Attempting to PA sync to the broadcaster
+   PA synced to broadcast with broadcast ID 0xEF6716
+   Attempting to create the sink
    Received BASE from sink 0x20019080:
    Presentation delay: 40000
    Subgroup count: 1
@@ -305,7 +363,7 @@ characteristics representing remote endpoints.
          Supported max codec frames per SDU: 1
       Codec capabilities metadata:
          Preferred audio contexts:
-            Converstation (0x0002)
+            Conversational (0x0002)
             Media (0x0004)
    ep 0x81754e0
    ep 0x81755d4
@@ -332,7 +390,7 @@ any stream previously configured.
                   [pref_ctx <context>]
                   [stream_ctx <context>]
                   [program_info <program info>]
-                  [stream_lang <ISO 639-3 lang>]
+                  [lang <ISO 639-3 lang>]
                   [ccid_list <ccids>]
                   [parental_rating <rating>]
                   [program_info_uri <URI>]
@@ -411,7 +469,7 @@ assigned numbers values.
    00000000: 08 00                                            |..               |
    QoS: interval 10000 framing 0x00 phy 0x02 sdu 80 rtn 2 latency 10 pd 40000
 
-   uart:~$ bap preset sink 32_2_1 config freq 10 meta stream_lang "eng" stream_ctx 4
+   uart:~$ bap preset sink 32_2_1 config freq 10 meta lang "eng" stream_ctx 4
    32_2_1
    codec cfg id 0x06 cid 0x0000 vid 0x0000 count 16
    data #0: type 0x01 value_len 1
@@ -479,8 +537,7 @@ parameters.
 Enable
 ******
 
-The :code:`enable` command attempts to enable the stream previously configured,
-if the remote peer accepts then the ISO connection procedure is also initiated.
+The :code:`enable` command attempts to enable the stream previously configured.
 
 .. csv-table:: State Machine Transitions
    :header: "Depends", "Allowed States", "Next States"
@@ -493,17 +550,33 @@ if the remote peer accepts then the ISO connection procedure is also initiated.
    uart:~$ bap enable [context]
    uart:~$ bap enable Media
 
-Start
-*****
+Connect
+*******
 
-The :code:`start` command is only necessary when acting as a sink as it
-indicates to the source the stack is ready to start receiving data.
+The :code:`connect` command attempts to connect the stream previously configured.
+Sink streams will have to be started by the unicast server, and source streams will have to be
+started by the unicast client.
 
 .. csv-table:: State Machine Transitions
    :header: "Depends", "Allowed States", "Next States"
    :widths: auto
 
-   "enable","enabling","streaming"
+   "qos/enable","qos-configured/enabling","qos-configured/enabling"
+
+.. code-block:: console
+
+   uart:~$ bap connect
+
+Start
+*****
+
+The :code:`start` command is only necessary when starting a source stream.
+
+.. csv-table:: State Machine Transitions
+   :header: "Depends", "Allowed States", "Next States"
+   :widths: auto
+
+   "enable/connect","enabling","streaming"
 
 .. code-block:: console
 

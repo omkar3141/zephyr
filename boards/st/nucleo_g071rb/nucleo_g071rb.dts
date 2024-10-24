@@ -94,6 +94,10 @@
 	clocks = <&rcc STM32_CLOCK_BUS_APB1 0x00000400>,
 		 <&rcc STM32_SRC_LSI RTC_SEL(2)>;
 	status = "okay";
+
+	backup_regs {
+		status = "okay";
+	};
 };
 
 &iwdg {
@@ -139,6 +143,8 @@
 };
 
 &adc1 {
+	clocks = <&rcc STM32_CLOCK_BUS_APB1_2 0x00100000>,
+		 <&rcc STM32_SRC_SYSCLK ADC_SEL(0)>;
 	pinctrl-0 = <&adc1_in0_pa0 &adc1_in1_pa1>;
 	pinctrl-names = "default";
 	st,adc-clock-source = <ASYNC>;

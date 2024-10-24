@@ -30,17 +30,10 @@ include(extensions)
 # Merge in variables from other sources (e.g. sysbuild)
 zephyr_get(FILE_SUFFIX SYSBUILD GLOBAL)
 
-zephyr_get(APPLICATION_CONFIG_DIR)
-if(DEFINED APPLICATION_CONFIG_DIR)
-  string(CONFIGURE ${APPLICATION_CONFIG_DIR} APPLICATION_CONFIG_DIR)
-  if(NOT IS_ABSOLUTE ${APPLICATION_CONFIG_DIR})
-    get_filename_component(APPLICATION_CONFIG_DIR ${APPLICATION_CONFIG_DIR} ABSOLUTE)
-  endif()
-else()
-  # Application config dir is not set, so we default to the  application
-  # source directory as configuration directory.
-  set(APPLICATION_CONFIG_DIR ${APPLICATION_SOURCE_DIR})
-endif()
+zephyr_get(APPLICATION_CONFIG_DIR SYSBUILD GLOBAL)
+zephyr_file(APPLICATION_ROOT APPLICATION_CONFIG_DIR)
+set_ifndef(APPLICATION_CONFIG_DIR ${APPLICATION_SOURCE_DIR})
+string(CONFIGURE ${APPLICATION_CONFIG_DIR} APPLICATION_CONFIG_DIR)
 
 zephyr_get(CONF_FILE SYSBUILD LOCAL)
 if(NOT DEFINED CONF_FILE)
@@ -63,7 +56,7 @@ else()
   endif()
 endif()
 
-set(APPLICATION_CONFIG_DIR ${APPLICATION_CONFIG_DIR} CACHE INTERNAL "The application configuration folder" FORCE)
+set(APPLICATION_CONFIG_DIR ${APPLICATION_CONFIG_DIR} CACHE PATH "The application configuration folder" FORCE)
 set(CONF_FILE ${CONF_FILE} CACHE STRING "If desired, you can build the application using\
 the configuration settings specified in an alternate .conf file using this parameter. \
 These settings will override the settings in the application’s .config file or its default .conf file.\
@@ -106,3 +99,5 @@ zephyr_boilerplate_watch(DTC_OVERLAY_FILE)
 zephyr_get(EXTRA_CONF_FILE SYSBUILD LOCAL VAR EXTRA_CONF_FILE OVERLAY_CONFIG MERGE REVERSE)
 zephyr_get(EXTRA_DTC_OVERLAY_FILE SYSBUILD LOCAL MERGE REVERSE)
 zephyr_get(DTS_EXTRA_CPPFLAGS SYSBUILD LOCAL MERGE REVERSE)
+build_info(application source-dir VALUE ${APPLICATION_SOURCE_DIR})
+build_info(application configuration-dir VALUE ${APPLICATION_CONFIG_DIR})

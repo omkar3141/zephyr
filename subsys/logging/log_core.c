@@ -114,6 +114,7 @@ static log_timestamp_t proc_latency;
 static log_timestamp_t prev_timestamp;
 static atomic_t unordered_cnt;
 static uint64_t last_failure_report;
+static struct k_spinlock process_lock;
 
 static STRUCT_SECTION_ITERABLE(log_msg_ptr, log_msg_ptr);
 static STRUCT_SECTION_ITERABLE_ALTERNATE(log_mpsc_pbuf, mpsc_pbuf_buffer, log_buffer);
@@ -163,7 +164,6 @@ static void z_log_msg_post_finalize(void)
 	atomic_val_t cnt = atomic_inc(&buffered_cnt);
 
 	if (panic_mode) {
-		static struct k_spinlock process_lock;
 		k_spinlock_key_t key = k_spin_lock(&process_lock);
 		(void)log_process();
 
@@ -458,7 +458,7 @@ void z_vrfy_log_panic(void)
 {
 	z_impl_log_panic();
 }
-#include <syscalls/log_panic_mrsh.c>
+#include <zephyr/syscalls/log_panic_mrsh.c>
 #endif
 
 static bool msg_filter_check(struct log_backend const *backend,
@@ -594,7 +594,7 @@ bool z_vrfy_log_process(void)
 {
 	return z_impl_log_process();
 }
-#include <syscalls/log_process_mrsh.c>
+#include <zephyr/syscalls/log_process_mrsh.c>
 #endif
 
 uint32_t z_impl_log_buffered_cnt(void)
@@ -607,7 +607,7 @@ uint32_t z_vrfy_log_buffered_cnt(void)
 {
 	return z_impl_log_buffered_cnt();
 }
-#include <syscalls/log_buffered_cnt_mrsh.c>
+#include <zephyr/syscalls/log_buffered_cnt_mrsh.c>
 #endif
 
 void z_log_dropped(bool buffered)
@@ -615,6 +615,11 @@ void z_log_dropped(bool buffered)
 	atomic_inc(&dropped_cnt);
 	if (buffered) {
 		atomic_dec(&buffered_cnt);
+	}
+
+	if (IS_ENABLED(CONFIG_LOG_PROCESS_THREAD)) {
+		k_timer_stop(&log_process_thread_timer);
+		k_sem_give(&log_process_thread_sem);
 	}
 }
 
@@ -659,7 +664,17 @@ static void msg_commit(struct mpsc_pbuf_buffer *buffer, struct log_msg *msg)
 	union log_msg_generic *m = (union log_msg_generic *)msg;
 
 	if (IS_ENABLED(CONFIG_LOG_MODE_IMMEDIATE)) {
+		k_spinlock_key_t key;
+
+		if (IS_ENABLED(CONFIG_LOG_IMMEDIATE_CLEAN_OUTPUT)) {
+			key = k_spin_lock(&process_lock);
+		}
+
 		msg_process(m);
+
+		if (IS_ENABLED(CONFIG_LOG_IMMEDIATE_CLEAN_OUTPUT)) {
+			k_spin_unlock(&process_lock, key);
+		}
 
 		return;
 	}

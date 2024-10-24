@@ -1,7 +1,4 @@
-.. _frdm_rw612:
-
-NXP FRDM_RW612
-##############
+.. zephyr:board:: frdm_rw612
 
 Overview
 ********
@@ -39,13 +36,55 @@ Supported Features
 +-----------+------------+-----------------------------------+
 | USART     | on-chip    | serial                            |
 +-----------+------------+-----------------------------------+
-
+| BLE       | on-chip    | Bluetooth                         |
++-----------+------------+-----------------------------------+
+| DMA       | on-chip    | dma                               |
++-----------+------------+-----------------------------------+
+| SPI       | on-chip    | spi                               |
++-----------+------------+-----------------------------------+
+| I2C       | on-chip    | i2c                               |
++-----------+------------+-----------------------------------+
+| TRNG      | on-chip    | entropy                           |
++-----------+------------+-----------------------------------+
+| WWDT      | on-chip    | watchdog                          |
++-----------+------------+-----------------------------------+
+| USBOTG    | on-chip    | usb                               |
++-----------+------------+-----------------------------------+
+| CTIMER    | on-chip    | counter                           |
++-----------+------------+-----------------------------------+
+| SCTIMER   | on-chip    | pwm                               |
++-----------+------------+-----------------------------------+
+| MRT       | on-chip    | counter                           |
++-----------+------------+-----------------------------------+
+| OS_TIMER  | on-chip    | os timer                          |
++-----------+------------+-----------------------------------+
+| PM        | on-chip    | power management; uses SoC Power  |
+|           |            | Modes 1 and 2                     |
++-----------+------------+-----------------------------------+
+| BLE       | on-chip    | Bluetooth                         |
++-----------+------------+-----------------------------------+
+| ADC       | on-chip    | adc                               |
++-----------+------------+-----------------------------------+
+| DAC       | on-chip    | dac                               |
++-----------+------------+-----------------------------------+
+| ENET      | on-chip    | ethernet                          |
++-----------+------------+-----------------------------------+
 
 The default configuration can be found in the defconfig file:
 
    :zephyr_file:`boards/nxp/frdm_rw612/frdm_rw612_defconfig`
 
 Other hardware features are not currently supported
+
+Fetch Binary Blobs
+******************
+
+To support Bluetooth, frdm_rw612 requires fetching binary blobs, which can be
+achieved by running the following command:
+
+.. code-block:: console
+
+   west blobs fetch hal_nxp
 
 Programming and Debugging
 *************************
@@ -73,7 +112,7 @@ Connect a USB cable from your PC to J10, and use the serial terminal of your cho
 Flashing
 ========
 
-Here is an example for the :ref:`hello_world` application. This example uses the
+Here is an example for the :zephyr:code-sample:`hello_world` application. This example uses the
 :ref:`jlink-debug-host-tools` as default.
 
 .. zephyr-app-commands::
@@ -92,7 +131,7 @@ see the following message in the terminal:
 Debugging
 =========
 
-Here is an example for the :ref:`hello_world` application. This example uses the
+Here is an example for the :zephyr:code-sample:`hello_world` application. This example uses the
 :ref:`jlink-debug-host-tools` as default.
 
 .. zephyr-app-commands::
@@ -108,6 +147,15 @@ should see the following message in the terminal:
    ***** Booting Zephyr OS zephyr-v3.6.0 *****
    Hello World! frdm_rw612
 
+Bluetooth
+=========
+
+BLE functionality requires to fetch binary blobs, so make sure to follow
+the ``Fetch Binary Blobs`` section first.
+
+frdm_rw612 platform supports the monolithic feature. The required binary blob
+``<zephyr workspace>/modules/hal/nxp/zephyr/blobs/rw61x_sb_ble_a2.bin`` will be linked
+with the application image directly, forming one single monolithic image.
 
 Resources
 =========

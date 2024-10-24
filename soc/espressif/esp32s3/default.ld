@@ -15,18 +15,18 @@
  * If no bootloader is used, we can extend it to gain more user ram.
  */
 #ifdef CONFIG_ESP_SIMPLE_BOOT
-user_iram_end = (DRAM_BUFFERS_START + IRAM_DRAM_OFFSET);
+user_iram_end = (BOOTLOADER_USER_DRAM_END + IRAM_DRAM_OFFSET);
 #else
 user_iram_end = BOOTLOADER_IRAM_LOADER_SEG_START;
 #endif
 
 /* User available SRAM memory segments */
 user_dram_seg_org = SRAM1_DRAM_START;
-user_iram_seg_org = (SRAM0_IRAM_START + CONFIG_ESP32S3_INSTRUCTION_CACHE_SIZE);
-user_dram_end = (user_iram_end - IRAM_DRAM_OFFSET);
-user_idram_size = (user_dram_end - SRAM1_DRAM_START);
-sram0_iram_size = (SRAM0_SIZE - CONFIG_ESP32S3_INSTRUCTION_CACHE_SIZE);
-user_iram_seg_len = (user_idram_size + sram0_iram_size);
+user_iram_seg_org = SRAM0_IRAM_START + CONFIG_ESP32S3_INSTRUCTION_CACHE_SIZE;
+user_dram_end = BOOTLOADER_IRAM_LOADER_SEG_START - IRAM_DRAM_OFFSET;
+user_idram_size = user_dram_end - SRAM1_DRAM_START;
+sram0_iram_size = SRAM0_SIZE - CONFIG_ESP32S3_INSTRUCTION_CACHE_SIZE;
+user_iram_seg_len = user_idram_size + sram0_iram_size;
 user_dram_seg_len = user_idram_size;
 
 /* Aliases */
@@ -36,10 +36,23 @@ user_dram_seg_len = user_idram_size;
 #define RAMABLE_REGION     dram0_0_seg
 #define ROMABLE_REGION     FLASH
 
+#undef GROUP_DATA_LINK_IN
+#define GROUP_DATA_LINK_IN(vregion, lregion) > vregion AT > lregion
+
+#undef GROUP_NOLOAD_LINK_IN
+#define GROUP_NOLOAD_LINK_IN(vregion, lregion) > vregion
+
 /* Flash segments (rodata and text) should be mapped in the virtual address spaces.
  * Executing directly from LMA is not possible. */
 #undef GROUP_ROM_LINK_IN
 #define GROUP_ROM_LINK_IN(vregion, lregion) > RODATA_REGION AT > lregion
+
+/* Make sure new sections have consistent alignment between input and output sections */
+#undef SECTION_DATA_PROLOGUE
+#define SECTION_DATA_PROLOGUE(name, options, align) name options : ALIGN_WITH_INPUT
+
+#undef SECTION_PROLOGUE
+#define SECTION_PROLOGUE SECTION_DATA_PROLOGUE
 
 MEMORY
 {
@@ -88,7 +101,7 @@ MEMORY
 ENTRY(CONFIG_KERNEL_ENTRY)
 
 /* Used as a pointer to the heap end */
-_heap_sentry = DRAM_BUFFERS_START;
+_heap_sentry = DRAM_RESERVED_START;
 
 SECTIONS
 {
@@ -134,6 +147,10 @@ SECTIONS
 
 /* Virtual non-loadable sections */
 #include <zephyr/linker/rel-sections.ld>
+
+#ifdef CONFIG_LLEXT
+#include <zephyr/linker/llext-sections.ld>
+#endif
 
   /* --- START OF RTC --- */
 
@@ -371,6 +388,10 @@ SECTIONS
     /* [mapping:esp_mm] */
     *libzephyr.a:esp_cache.*(.literal .literal.* .text .text.*)
 
+    *libzephyr.a:bootloader_soc.*(.literal .text .literal.* .text.*)
+    *libzephyr.a:bootloader_random*.*(.literal.bootloader_random_disable .text.bootloader_random_disable)
+    *libzephyr.a:bootloader_random*.*(.literal.bootloader_random_enable .text.bootloader_random_enable)
+
 #if defined(CONFIG_ESP32_WIFI_IRAM_OPT)
     *libnet80211.a:(.wifi0iram  .wifi0iram.* .wifislpiram .wifislpiram.*)
     *libpp.a:(.wifi0iram  .wifi0iram.* .wifislpiram .wifislpiram.* .wifiorslpiram .wifiorslpiram.*)
@@ -399,7 +420,6 @@ SECTIONS
   {
     . =  ALIGN(4);
     _loader_text_start = ABSOLUTE(.);
-    *libzephyr.a:bootloader_soc.*(.literal .text .literal.* .text.*)
     *libzephyr.a:bootloader_init.*(.literal .text .literal.* .text.*)
     *libzephyr.a:bootloader_esp32s3.*(.literal .text .literal.* .text.*)
     *libzephyr.a:bootloader_clock_init.*(.literal .text .literal.* .text.*)
@@ -410,8 +430,6 @@ SECTIONS
     *libzephyr.a:bootloader_common_loader.*(.literal .text .literal.* .text.*)
     *libzephyr.a:bootloader_mem.*(.literal .text .literal.* .text.*)
     *libzephyr.a:bootloader_random.*(.literal .text .literal.* .text.*)
-    *libzephyr.a:bootloader_random*.*(.literal.bootloader_random_disable .text.bootloader_random_disable)
-    *libzephyr.a:bootloader_random*.*(.literal.bootloader_random_enable .text.bootloader_random_enable)
     *libzephyr.a:bootloader_efuse.*(.literal .text .literal.* .text.*)
     *libzephyr.a:bootloader_utility.*(.literal .text .literal.* .text.*)
     *libzephyr.a:bootloader_sha.*(.literal .text .literal.* .text.*)
@@ -422,6 +440,7 @@ SECTIONS
     *libzephyr.a:flash_encrypt.*(.literal .text .literal.* .text.*)
     *libzephyr.a:flash_encryption_secure_features.*(.literal .text .literal.* .text.*)
     *libzephyr.a:flash_partitions.*(.literal .text .literal.* .text.*)
+    *libzephyr.a:flash_qio_mode.*(.literal .text .literal.* .text.*)
     *libzephyr.a:spi_flash_hal.*(.literal .literal.* .text .text.*)
     *libzephyr.a:spi_flash_hal_common.*(.literal .literal.* .text .text.*)
     *libzephyr.a:esp_flash_api.*(.literal .text .literal.* .text.*)
@@ -569,6 +588,7 @@ SECTIONS
     *libzephyr.a:spi_flash_wrap.*(.rodata .rodata.*)
     *libzephyr.a:spi_flash_hpm_enable.*(.rodata .rodata.*)
     *libzephyr.a:spi_flash_oct_flash_init.*(.rodata .rodata.*)
+    *libzephyr.a:flash_qio_mode.*(.rodata .rodata.*)
 
     /* [mapping:esp_mm] */
     *libzephyr.a:esp_cache.*(.rodata .rodata.*)
@@ -671,14 +691,6 @@ SECTIONS
     _data_end = ABSOLUTE(.);
   } GROUP_DATA_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
 
-  .dram0.noinit (NOLOAD):
-  {
-    . = ALIGN(4);
-    *(.noinit)
-    *(.noinit.*)
-    . = ALIGN(4) ;
-  } GROUP_LINK_IN(RAMABLE_REGION)
-
   /* Shared RAM */
   .dram0.bss (NOLOAD) :
   {
@@ -711,18 +723,19 @@ SECTIONS
     __bss_end = ABSOLUTE(.);
   } GROUP_LINK_IN(RAMABLE_REGION)
 
-  .dram0.heap_start (NOLOAD) :
+  .dram0.noinit (NOLOAD):
   {
-    . = ALIGN (8);
-    /* Lowest possible start address for the heap */
-    _heap_start = ABSOLUTE(.);
+    . = ALIGN(4);
+    *(.noinit)
+    *(.noinit.*)
+    . = ALIGN(4) ;
   } GROUP_LINK_IN(RAMABLE_REGION)
 
   /* Provide total SRAM usage, including IRAM and DRAM */
   _image_ram_start = _iram_start - IRAM_DRAM_OFFSET;
   #include <zephyr/linker/ram-end.ld>
 
-  ASSERT(((__bss_end - ORIGIN(dram0_0_seg)) <= LENGTH(dram0_0_seg)), "DRAM segment data does not fit.")
+  ASSERT(((_end - ORIGIN(dram0_0_seg)) <= LENGTH(dram0_0_seg)), "DRAM segment data does not fit.")
 
   /* --- END OF DRAM --- */
 
@@ -745,6 +758,7 @@ SECTIONS
     _instruction_reserved_start = ABSOLUTE(.);
     _text_start = ABSOLUTE(.);
     __text_region_start = ABSOLUTE(.);
+    __rom_region_start = ABSOLUTE(.);
 
 #if !defined(CONFIG_ESP32_WIFI_IRAM_OPT)
     *libnet80211.a:( .wifi0iram  .wifi0iram.* .wifislpiram .wifislpiram.*)
@@ -773,6 +787,7 @@ SECTIONS
     _text_end = ABSOLUTE(.);
     _instruction_reserved_end = ABSOLUTE(.);  /* This is a symbol marking the flash.text end, this can be used for mmu driver to maintain virtual address */
     __text_region_end = ABSOLUTE(.);
+    __rom_region_end = ABSOLUTE(.);
     _etext = .;
 
   } GROUP_DATA_LINK_IN(FLASH_CODE_REGION, ROMABLE_REGION)
@@ -839,7 +854,7 @@ SECTIONS
   } GROUP_DATA_LINK_IN(RODATA_REGION, ROMABLE_REGION)
 
   #include <zephyr/linker/cplusplus-rom.ld>
-  #include <zephyr/linker/common-rom/common-rom-cpp.ld>
+  #include <zephyr/linker/common-rom/common-rom-init.ld>
   #include <zephyr/linker/common-rom/common-rom-kernel-devices.ld>
   #include <zephyr/linker/common-rom/common-rom-ztest.ld>
   #include <zephyr/linker/common-rom/common-rom-net.ld>
@@ -886,6 +901,7 @@ SECTIONS
 
 #endif /* CONFIG_ESP_SPIRAM */
 
+  /* --- XTENSA GLUE AND DEBUG BEGIN --- */
 
 #ifdef CONFIG_GEN_ISR_TABLES
 #include <zephyr/linker/intlist.ld>
@@ -929,11 +945,7 @@ SECTIONS
 
 }
 
-ASSERT(((_iram_end - ORIGIN(iram0_0_seg)) <= LENGTH(iram0_0_seg)),
-          "IRAM0 segment data does not fit.")
-
-ASSERT(((_heap_start - ORIGIN(dram0_0_seg)) <= LENGTH(dram0_0_seg)),
-          "DRAM segment data does not fit.")
+  /* --- XTENSA GLUE AND DEBUG END --- */
 
 #if defined(CONFIG_ESP_SPIRAM)
 ASSERT(((_ext_ram_bss_end - _ext_ram_bss_start) <= CONFIG_ESP_SPIRAM_SIZE),

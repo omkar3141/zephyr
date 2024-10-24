@@ -20,9 +20,9 @@ based on the :ref:`nrf52840dk_nrf52840` board and memory layout):
 .. code-block:: devicetree
 
 	/ {
-		sram@2003F000 {
+		sram@2003FC00 {
 			compatible = "zephyr,memory-region", "mmio-sram";
-			reg = <0x2003F000 DT_SIZE_K(1)>;
+			reg = <0x2003FC00 DT_SIZE_K(1)>;
 			zephyr,memory-region = "RetainedMem";
 			status = "okay";
 
@@ -122,7 +122,7 @@ this mode:
 
 	#include <bootutil/boot_status.h>
 	#include <bootutil/image.h>
-	#include <mcuboot_version.h>
+	#include <zephyr/mcuboot_version.h>
 	#include <zephyr/settings/settings.h>
 
 API Reference

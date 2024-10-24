@@ -49,9 +49,13 @@ properties:
       - 64
       - 128
 
+  no-power-level:
+    type: boolean
+    description: |
+      There is no power level selection function.
+
   power-level:
     type: int
-    required: true
     description: |
       Power level selection. Corresponds to the value of
       register field CFG[PWRSEL] (see chip specific manual).
@@ -71,8 +75,8 @@ properties:
     required: true
     description: Offset value B to use if CONFIG_LPADC_DO_OFFSET_CALIBRATION is false
 
-  nxp,reference-supply:
-    type: phandles
+  nxp,references:
+    type: phandle-array
     description: References to required regulators which must be enabled for LPADC to function
 
   "#io-channel-cells":

@@ -7,9 +7,10 @@
 #define ZEPHYR_INCLUDE_POSIX_DIRENT_H_
 
 #include <limits.h>
-#include "posix_types.h"
 
-#ifdef CONFIG_POSIX_FS
+#include <zephyr/posix/posix_types.h>
+
+#ifdef CONFIG_POSIX_FILE_SYSTEM
 #include <zephyr/fs/fs.h>
 
 #ifdef __cplusplus
@@ -27,11 +28,13 @@ struct dirent {
 DIR *opendir(const char *dirname);
 int closedir(DIR *dirp);
 struct dirent *readdir(DIR *dirp);
+int readdir_r(DIR *ZRESTRICT dirp, struct dirent *ZRESTRICT entry,
+	      struct dirent **ZRESTRICT result);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* CONFIG_POSIX_FS */
+#endif /* CONFIG_POSIX_FILE_SYSTEM */
 
 #endif	/* ZEPHYR_INCLUDE_POSIX_DIRENT_H_ */

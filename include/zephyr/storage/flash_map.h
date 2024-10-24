@@ -45,11 +45,6 @@
 extern "C" {
 #endif
 
-/** Provided for compatibility with MCUboot */
-#define SOC_FLASH_0_ID 0
-/** Provided for compatibility with MCUboot */
-#define SPI_FLASH_0_ID 1
-
 /**
  * @brief Flash partition
  *
@@ -186,6 +181,29 @@ int flash_area_write(const struct flash_area *fa, off_t off, const void *src,
  * @return  0 on success, negative errno code on fail.
  */
 int flash_area_erase(const struct flash_area *fa, off_t off, size_t len);
+
+/**
+ * @brief Erase flash area or fill with erase-value
+ *
+ * On program-erase devices this function behaves exactly like flash_area_erase.
+ * On RAM non-volatile device it will call erase, if driver provides such
+ * callback, or will fill given range with erase-value defined by driver.
+ * This function should be only used by code that has not been written
+ * to directly support devices that do not require erase and rely on
+ * device being erased prior to some operations.
+ * Note that emulated erase, on devices that do not require, is done
+ * via write, which affects endurance of device.
+ *
+ * @see flash_area_erase()
+ * @see flash_flatten()
+ *
+ * @param[in] fa  Flash area
+ * @param[in] off Offset relative from beginning of flash area.
+ * @param[in] len Number of bytes to be erase
+ *
+ * @return  0 on success, negative errno code on fail.
+ */
+int flash_area_flatten(const struct flash_area *fa, off_t off, size_t len);
 
 /**
  * @brief Get write block size of the flash area

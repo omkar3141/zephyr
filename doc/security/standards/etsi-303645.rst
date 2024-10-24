@@ -4,7 +4,7 @@ ETSI 303-645
 ############
 
 
-`ETSI EN 303 645`, also known as "Cyber Security for Consumer Internet
+**ETSI EN 303 645**, also known as "Cyber Security for Consumer Internet
 of Things: Baseline Requirements," is a standard developed by the
 European Telecommunications Standards Institute (ETSI).
 
@@ -177,9 +177,13 @@ Provisions Assessment
     * - N/A
       - The provision is not applicable to Zephyr or it is product makers responsibility
 
+.. raw:: latex
+
+    \begin{landscape}
+
 .. list-table:: ETSI 303645 provisions assessment using table B.1
     :header-rows: 1
-    :widths: 17 63 17 63 63
+    :widths: 25 80 15 15 60
 
     * - Provision
       - Description
@@ -323,7 +327,8 @@ Provisions Assessment
       - The device should verify the authenticity and integrity of software updates.
       - R C
       - Y
-      - Functionality provided by `MCUboot <https://github.com/zephyrproject-rtos/mcuboot>`. Also see :ref:`Device Firwmware Upgrade  <dfu>`
+      - Functionality provided by `MCUboot <https://github.com/zephyrproject-rtos/mcuboot>`_.
+        Also see :ref:`Device Firwmware Upgrade  <dfu>`.
 
         .. _ETSI_Provision_5_3_10:
     * - Provision 5.3-10
@@ -553,7 +558,8 @@ Provisions Assessment
       - The consumer IoT device should verify its software using secure boot mechanisms.
       - R
       - Y
-      - Functionality provided by `MCUboot <https://github.com/zephyrproject-rtos/mcuboot>`. Also see :ref:`Security Overview  <west-sign>`
+      - Functionality provided by `MCUboot <https://github.com/zephyrproject-rtos/mcuboot>`_.
+        Also see :ref:`Security Overview  <west-sign>`.
 
         .. _ETSI_Provision_5_7_2:
     * - Provision 5.7-2
@@ -587,7 +593,7 @@ Provisions Assessment
         way that is clear and transparent for the user.
       - M
       - Y
-      - :ref:`Sensing Subsystem <sensing_api>`
+      - :ref:`sensing`
 
         .. _ETSI_Provision_5_9_1:
     * - Provision 5.9-1
@@ -729,3 +735,7 @@ Provisions Assessment
       - M C
       - N/A
       -
+
+.. raw:: latex
+
+    \end{landscape}

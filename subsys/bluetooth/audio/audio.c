@@ -6,11 +6,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/bluetooth/att.h>
-#include <zephyr/bluetooth/conn.h>
-#include <zephyr/bluetooth/hci.h>
+#include <errno.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <sys/types.h>
+
+#include <zephyr/autoconf.h>
 #include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/bap.h>
+#include <zephyr/bluetooth/att.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/gatt.h>
+#include <zephyr/bluetooth/hci.h>
+#include <zephyr/bluetooth/hci_types.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/check.h>
 
@@ -85,6 +95,17 @@ uint8_t bt_audio_get_chan_count(enum bt_audio_location chan_allocation)
 
 	return cnt;
 #endif
+}
+
+static bool valid_ltv_cb(struct bt_data *data, void *user_data)
+{
+	/* just return true to continue parsing as bt_data_parse will validate for us */
+	return true;
+}
+
+bool bt_audio_valid_ltv(const uint8_t *data, uint8_t data_len)
+{
+	return bt_audio_data_parse(data, data_len, valid_ltv_cb, NULL) == 0;
 }
 
 #if defined(CONFIG_BT_CONN)

@@ -9,12 +9,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <errno.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include <zephyr/bluetooth/audio/tmap.h>
+#include <zephyr/bluetooth/conn.h>
 #include <zephyr/kernel.h>
 #include <zephyr/shell/shell.h>
 #include <zephyr/sys/util.h>
 
-#include "shell/bt.h"
+#include "host/shell/bt.h"
 
 static int cmd_tmap_init(const struct shell *sh, size_t argc, char **argv)
 {

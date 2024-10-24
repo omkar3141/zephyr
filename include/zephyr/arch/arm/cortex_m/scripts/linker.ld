@@ -113,6 +113,10 @@ SECTIONS
 
 #include <zephyr/linker/rel-sections.ld>
 
+#ifdef CONFIG_LLEXT
+#include <zephyr/linker/llext-sections.ld>
+#endif
+
     /*
      * .plt and .iplt are here according to 'arm-zephyr-elf-ld --verbose',
      * before text section.
@@ -170,7 +174,7 @@ SECTIONS
 
 	__text_region_end = .;
 
-#if defined (CONFIG_CPP)
+#if defined (CONFIG_CPP) || defined(CONFIG_RUST)
 	SECTION_PROLOGUE(.ARM.extab,,)
 	{
 	/*
@@ -198,6 +202,10 @@ SECTIONS
 	__rodata_region_start = .;
 
 #include <zephyr/linker/common-rom.ld>
+/* Located in generated directory. This file is populated by calling
+ * zephyr_linker_sources(ROM_SECTIONS ...). Useful for grouping iterable RO structs.
+ */
+#include <snippets-rom-sections.ld>
 #include <zephyr/linker/thread-local-storage.ld>
 
     SECTION_PROLOGUE(_RODATA_SECTION_NAME,,)
@@ -281,6 +289,7 @@ SECTIONS
 	_app_smem_size = _app_smem_end - _app_smem_start;
 	_app_smem_rom_start = LOADADDR(_APP_SMEM_SECTION_NAME);
 
+	__kernel_ram_start = .;
     SECTION_DATA_PROLOGUE(_BSS_SECTION_NAME,(NOLOAD),)
 	{
         /*
@@ -289,7 +298,6 @@ SECTIONS
          */
         . = ALIGN(4);
 	__bss_start = .;
-	__kernel_ram_start = .;
 
 	*(.bss)
 	*(".bss.*")
@@ -350,6 +358,7 @@ SECTIONS
     __data_region_end = .;
 
 #ifndef CONFIG_USERSPACE
+   __kernel_ram_start = .;
    SECTION_DATA_PROLOGUE(_BSS_SECTION_NAME,(NOLOAD),)
 	{
         /*
@@ -358,7 +367,6 @@ SECTIONS
          */
         . = ALIGN(4);
 	__bss_start = .;
-	__kernel_ram_start = .;
 
 	*(.bss)
 	*(".bss.*")

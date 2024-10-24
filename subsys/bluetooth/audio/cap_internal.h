@@ -1,18 +1,26 @@
 /*  Bluetooth Audio Common Audio Profile internal header */
 
 /*
- * Copyright (c) 2022-2023 Nordic Semiconductor ASA
+ * Copyright (c) 2022-2024 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/types.h>
-#include <zephyr/bluetooth/conn.h>
-#include <zephyr/bluetooth/gatt.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdint.h>
+
+#include <zephyr/autoconf.h>
 #include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/bap.h>
 #include <zephyr/bluetooth/audio/cap.h>
+#include <zephyr/bluetooth/audio/csip.h>
+#include <zephyr/bluetooth/addr.h>
+#include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/gatt.h>
 #include <zephyr/sys/atomic.h>
+#include <zephyr/types.h>
 
 bool bt_cap_acceptor_ccid_exist(const struct bt_conn *conn, uint8_t ccid);
 
@@ -20,9 +28,14 @@ void bt_cap_initiator_codec_configured(struct bt_cap_stream *cap_stream);
 void bt_cap_initiator_qos_configured(struct bt_cap_stream *cap_stream);
 void bt_cap_initiator_enabled(struct bt_cap_stream *cap_stream);
 void bt_cap_initiator_started(struct bt_cap_stream *cap_stream);
+void bt_cap_initiator_connected(struct bt_cap_stream *cap_stream);
 void bt_cap_initiator_metadata_updated(struct bt_cap_stream *cap_stream);
+void bt_cap_initiator_disabled(struct bt_cap_stream *cap_stream);
+void bt_cap_initiator_stopped(struct bt_cap_stream *cap_stream);
 void bt_cap_initiator_released(struct bt_cap_stream *cap_stream);
 void bt_cap_stream_ops_register_bap(struct bt_cap_stream *cap_stream);
+void bt_cap_initiator_cp_cb(struct bt_cap_stream *cap_stream, enum bt_bap_ascs_rsp_code rsp_code,
+			    enum bt_bap_ascs_reason reason);
 
 enum bt_cap_common_proc_state {
 	BT_CAP_COMMON_PROC_STATE_ACTIVE,
@@ -37,6 +50,7 @@ enum bt_cap_common_proc_type {
 	BT_CAP_COMMON_PROC_TYPE_UPDATE,
 	BT_CAP_COMMON_PROC_TYPE_STOP,
 	BT_CAP_COMMON_PROC_TYPE_BROADCAST_RECEPTION_START,
+	BT_CAP_COMMON_PROC_TYPE_BROADCAST_RECEPTION_STOP,
 	BT_CAP_COMMON_PROC_TYPE_VOLUME_CHANGE,
 	BT_CAP_COMMON_PROC_TYPE_VOLUME_OFFSET_CHANGE,
 	BT_CAP_COMMON_PROC_TYPE_VOLUME_MUTE_CHANGE,
@@ -49,8 +63,11 @@ enum bt_cap_common_subproc_type {
 	BT_CAP_COMMON_SUBPROC_TYPE_CODEC_CONFIG,
 	BT_CAP_COMMON_SUBPROC_TYPE_QOS_CONFIG,
 	BT_CAP_COMMON_SUBPROC_TYPE_ENABLE,
+	BT_CAP_COMMON_SUBPROC_TYPE_CONNECT,
 	BT_CAP_COMMON_SUBPROC_TYPE_START,
 	BT_CAP_COMMON_SUBPROC_TYPE_META_UPDATE,
+	BT_CAP_COMMON_SUBPROC_TYPE_DISABLE,
+	BT_CAP_COMMON_SUBPROC_TYPE_STOP,
 	BT_CAP_COMMON_SUBPROC_TYPE_RELEASE,
 };
 
@@ -61,6 +78,7 @@ struct bt_cap_initiator_proc_param {
 			struct bt_conn *conn;
 			struct bt_bap_ep *ep;
 			struct bt_audio_codec_cfg *codec_cfg;
+			bool connected;
 		} start;
 		struct {
 			/** Codec Specific Capabilities Metadata count */
@@ -68,7 +86,11 @@ struct bt_cap_initiator_proc_param {
 			/** Codec Specific Capabilities Metadata */
 			uint8_t meta[CONFIG_BT_AUDIO_CODEC_CFG_MAX_METADATA_SIZE];
 		} meta_update;
+		struct {
+			bool release;
+		} stop;
 	};
+	bool in_progress;
 };
 
 #if defined(CONFIG_BT_BAP_BROADCAST_ASSISTANT)
@@ -78,6 +100,12 @@ struct cap_broadcast_reception_start {
 	uint8_t adv_sid;
 	uint32_t broadcast_id;
 	uint16_t pa_interval;
+	uint8_t num_subgroups;
+	struct bt_bap_bass_subgroup subgroups[CONFIG_BT_BAP_BASS_MAX_SUBGROUPS];
+};
+
+struct cap_broadcast_reception_stop {
+	uint8_t src_id;
 	uint8_t num_subgroups;
 	struct bt_bap_bass_subgroup subgroups[CONFIG_BT_BAP_BASS_MAX_SUBGROUPS];
 };
@@ -102,6 +130,7 @@ struct bt_cap_commander_proc_param {
 #endif /* CONFIG_BT_VCP_VOL_CTLR_VOCS */
 #if defined(CONFIG_BT_BAP_BROADCAST_ASSISTANT)
 		struct cap_broadcast_reception_start broadcast_reception_start;
+		struct cap_broadcast_reception_stop broadcast_reception_stop;
 #endif /* CONFIG_BT_BAP_BROADCAST_ASSISTANT */
 #if defined(CONFIG_BT_MICP_MIC_CTLR)
 		struct {
@@ -156,13 +185,13 @@ struct bt_cap_common_client {
 	bt_cap_common_discover_func_t discover_cb_func;
 	uint16_t csis_start_handle;
 	const struct bt_csip_set_coordinator_csis_inst *csis_inst;
-	bool cas_found;
 };
 
 struct bt_cap_common_proc *bt_cap_common_get_active_proc(void);
 void bt_cap_common_clear_active_proc(void);
 void bt_cap_common_start_proc(enum bt_cap_common_proc_type proc_type, size_t proc_cnt);
 void bt_cap_common_set_subproc(enum bt_cap_common_subproc_type subproc_type);
+bool bt_cap_common_proc_is_type(enum bt_cap_common_proc_type proc_type);
 bool bt_cap_common_subproc_is_type(enum bt_cap_common_subproc_type subproc_type);
 struct bt_conn *bt_cap_common_get_member_conn(enum bt_cap_set_type type,
 					      const union bt_cap_set_member *member);
@@ -177,6 +206,4 @@ void bt_cap_common_disconnected(struct bt_conn *conn, uint8_t reason);
 struct bt_cap_common_client *bt_cap_common_get_client_by_acl(const struct bt_conn *acl);
 struct bt_cap_common_client *
 bt_cap_common_get_client_by_csis(const struct bt_csip_set_coordinator_csis_inst *csis_inst);
-struct bt_cap_common_client *bt_cap_common_get_client(enum bt_cap_set_type type,
-						      const union bt_cap_set_member *member);
 int bt_cap_common_discover(struct bt_conn *conn, bt_cap_common_discover_func_t func);

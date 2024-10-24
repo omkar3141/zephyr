@@ -32,7 +32,7 @@
 #endif
 
 #ifdef CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC
-#if defined(CONFIG_SOC_SERIES_NRF91X) || defined(CONFIG_SOC_SERIES_NRF53X)
+#if defined(CONFIG_SOC_SERIES_NRF91X) || defined(CONFIG_SOC_COMPATIBLE_NRF53X)
 #define NRFX_CLOCK_CONFIG_LF_SRC 1
 #else
 #define NRFX_CLOCK_CONFIG_LF_SRC 0
@@ -40,7 +40,7 @@
 #endif // CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC
 
 #ifdef CONFIG_CLOCK_CONTROL_NRF_K32SRC_XTAL
-#if defined(CONFIG_SOC_SERIES_NRF91X) || defined(CONFIG_SOC_SERIES_NRF53X)
+#if defined(CONFIG_SOC_SERIES_NRF91X) || defined(CONFIG_SOC_COMPATIBLE_NRF53X)
 #define NRFX_CLOCK_CONFIG_LF_SRC 2
 #else
 #define NRFX_CLOCK_CONFIG_LF_SRC 1
@@ -48,7 +48,7 @@
 #endif // CONFIG_CLOCK_CONTROL_NRF_K32SRC_XTAL
 
 #ifdef CONFIG_CLOCK_CONTROL_NRF_K32SRC_SYNTH
-#ifdef CONFIG_SOC_SERIES_NRF53X
+#ifdef CONFIG_SOC_COMPATIBLE_NRF53X
 #define NRFX_CLOCK_CONFIG_LF_SRC 3
 #else
 #define NRFX_CLOCK_CONFIG_LF_SRC 2
@@ -109,8 +109,17 @@
 #ifdef CONFIG_NRFX_EGU5
 #define NRFX_EGU5_ENABLED 1
 #endif
+#ifdef CONFIG_NRFX_EGU10
+#define NRFX_EGU10_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_EGU20
+#define NRFX_EGU20_ENABLED 1
+#endif
 #ifdef CONFIG_NRFX_EGU020
 #define NRFX_EGU020_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_EGU130
+#define NRFX_EGU130_ENABLED 1
 #endif
 
 #ifdef CONFIG_NRFX_GRTC
@@ -118,6 +127,16 @@
 #endif
 #ifdef CONFIG_NRFX_GRTC_LOG
 #define NRFX_GRTC_CONFIG_LOG_ENABLED 1
+#endif
+
+#ifdef CONFIG_NRF_GRTC_TIMER_CLOCK_MANAGEMENT
+#define NRF_GRTC_HAS_EXTENDED 1
+#endif
+#ifdef CONFIG_NRF_GRTC_TIMER_AUTO_KEEP_ALIVE
+#define NRFX_GRTC_CONFIG_AUTOEN 1
+#endif
+#ifdef CONFIG_NRF_GRTC_START_SYSCOUNTER
+#define NRFX_GRTC_CONFIG_AUTOSTART 1
 #endif
 
 #ifdef CONFIG_NRFX_GPIOTE
@@ -192,6 +211,15 @@
 #endif
 #ifdef CONFIG_NRFX_PDM_LOG
 #define NRFX_PDM_CONFIG_LOG_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_PDM0
+#define NRFX_PDM0_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_PDM20
+#define NRFX_PDM20_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_PDM21
+#define NRFX_PDM21_ENABLED 1
 #endif
 
 #ifdef CONFIG_NRFX_POWER
@@ -505,6 +533,10 @@
 #define NRFX_SYSTICK_CONFIG_LOG_ENABLED 1
 #endif
 
+#ifdef CONFIG_NRFX_TBM
+#define NRFX_TBM_ENABLED 1
+#endif
+
 #ifdef CONFIG_NRFX_TEMP
 #define NRFX_TEMP_ENABLED 1
 #endif
@@ -813,6 +845,9 @@
 #ifdef CONFIG_NRFX_WDT
 #define NRFX_WDT_ENABLED 1
 #endif
+#ifdef CONFIG_WDT_NRFX_NO_IRQ
+#define NRFX_WDT_CONFIG_NO_IRQ 1
+#endif
 #ifdef CONFIG_NRFX_WDT_LOG
 #define NRFX_WDT_CONFIG_LOG_ENABLED 1
 #endif
@@ -971,7 +1006,7 @@
 
 #define NRFX_IPCT_PUB_OR_SUB_MASK(inst_num) \
 	COND_CODE_1(IS_EMPTY(inst_num), \
-		(DT_NODE_HAS_STATUS(NRFX_CONFIG_IPCT_LOCAL_NODE, okay)), \
+		(DT_NODE_HAS_STATUS_OKAY(NRFX_CONFIG_IPCT_LOCAL_NODE)), \
 		(DT_NODE_HAS_PROP(DT_NODELABEL(_CONCAT(ipct, inst_num)), owned_channels)))
 
 /* Variables names generation. */
@@ -1013,20 +1048,30 @@
     #include <nrfx_config_nrf5340_application.h>
 #elif defined(NRF5340_XXAA_NETWORK)
     #include <nrfx_config_nrf5340_network.h>
-#elif defined(NRF54H20_XXAA) && defined(NRF_APPLICATION)
+#elif (defined(NRF54H20_XXAA) || defined(NRF54H20_ENGB_XXAA)) && defined(NRF_APPLICATION)
     #include <nrfx_config_nrf54h20_application.h>
-#elif defined(NRF54H20_XXAA) && defined(NRF_RADIOCORE)
+#elif (defined(NRF54H20_XXAA) || defined(NRF54H20_ENGB_XXAA)) && defined(NRF_RADIOCORE)
     #include <nrfx_config_nrf54h20_radiocore.h>
-#elif defined(NRF54H20_XXAA) && defined(NRF_PPR)
+#elif (defined(NRF54H20_XXAA) || defined(NRF54H20_ENGB_XXAA)) && defined(NRF_PPR)
     #include <nrfx_config_nrf54h20_ppr.h>
-#elif (defined(NRF54L15_XXAA) || defined(NRF54L15_ENGA_XXAA)) && defined(NRF_APPLICATION)
-    #include <nrfx_config_nrf54l15_enga_application.h>
-#elif (defined(NRF54L15_XXAA) || defined(NRF54L15_ENGA_XXAA)) && defined(NRF_FLPR)
-    #include <nrfx_config_nrf54l15_enga_flpr.h>
+#elif (defined(NRF54H20_XXAA) || defined(NRF54H20_ENGB_XXAA)) && defined(NRF_FLPR)
+    #include <nrfx_config_nrf54h20_flpr.h>
+#elif defined(NRF54L15_XXAA) && defined(NRF_APPLICATION)
+    #include <nrfx_config_nrf54l15_application.h>
+#elif defined(NRF54L15_XXAA) && defined(NRF_FLPR)
+    #include <nrfx_config_nrf54l15_flpr.h>
+#elif (defined(NRF54L20_XXAA) || defined(NRF54L20_ENGA_XXAA)) && defined(NRF_APPLICATION)
+    #include <nrfx_config_nrf54l20_enga_application.h>
 #elif defined(NRF9120_XXAA) || defined(NRF9160_XXAA)
     #include <nrfx_config_nrf91.h>
+#elif defined(NRF9230_ENGB_XXAA) && defined(NRF_APPLICATION)
+    #include <nrfx_config_nrf9230_engb_application.h>
+#elif defined(NRF9230_ENGB_XXAA) && defined(NRF_RADIOCORE)
+    #include <nrfx_config_nrf9230_engb_radiocore.h>
+#elif defined(NRF9230_ENGB_XXAA) && defined(NRF_PPR)
+    #include <nrfx_config_nrf9230_engb_ppr.h>
 #else
-    #error "Unknown device."
+    #include <nrfx_config_ext.h>
 #endif
 
 #endif // NRFX_CONFIG_H__

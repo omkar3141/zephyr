@@ -5,6 +5,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#if defined(CONFIG_SOC_COMPATIBLE_NRF54LX)
+#define NRF_DPPIC NRF_DPPIC10
+#endif /* CONFIG_SOC_COMPATIBLE_NRF54LX */
+
 static inline void hal_radio_nrf_ppi_channels_enable(uint32_t mask)
 {
 	nrf_dppi_channels_enable(NRF_DPPIC, mask);
@@ -96,7 +100,27 @@ static inline void hal_radio_end_time_capture_ppi_config(void)
  */
 static inline void hal_event_timer_start_ppi_config(void)
 {
-	nrf_rtc_publish_set(NRF_RTC0, NRF_RTC_EVENT_COMPARE_2, HAL_EVENT_TIMER_START_PPI);
+#if defined(CONFIG_BT_CTLR_NRF_GRTC)
+	/* Publish GRTC compare */
+	nrf_grtc_publish_set(NRF_GRTC, HAL_CNTR_GRTC_EVENT_COMPARE_RADIO,
+			     HAL_EVENT_TIMER_START_PPI);
+
+	/* Enable same DPPI in Global domain */
+	nrf_dppi_channels_enable(NRF_DPPIC20,
+				 BIT(HAL_EVENT_TIMER_START_PPI));
+
+	/* Setup PPIB send subscribe */
+	nrf_ppib_subscribe_set(NRF_PPIB21, HAL_PPIB_SEND_EVENT_TIMER_START_PPI,
+			       HAL_EVENT_TIMER_START_PPI);
+
+	/* Setup PPIB receive publish */
+	nrf_ppib_publish_set(NRF_PPIB11, HAL_PPIB_RECEIVE_EVENT_TIMER_START_PPI,
+			     HAL_EVENT_TIMER_START_PPI);
+
+#else /* !CONFIG_BT_CTLR_NRF_GRTC */
+	nrf_rtc_publish_set(NRF_RTC, NRF_RTC_EVENT_COMPARE_2, HAL_EVENT_TIMER_START_PPI);
+#endif  /* !CONFIG_BT_CTLR_NRF_GRTC */
+
 	nrf_timer_subscribe_set(EVENT_TIMER, NRF_TIMER_TASK_START, HAL_EVENT_TIMER_START_PPI);
 }
 
@@ -113,6 +137,7 @@ static inline void hal_radio_ready_time_capture_ppi_config(void)
 				NRF_TIMER_TASK_CAPTURE0, HAL_RADIO_READY_TIME_CAPTURE_PPI);
 }
 
+#if defined(CONFIG_BT_CTLR_LE_ENC) || defined(CONFIG_BT_CTLR_BROADCAST_ISO_ENC)
 /*******************************************************************************
  * Trigger encryption task upon address reception:
  * wire the RADIO EVENTS_ADDRESS event to the CCM TASKS_CRYPT task.
@@ -124,7 +149,7 @@ static inline void hal_trigger_crypt_ppi_config(void)
 {
 	nrf_radio_publish_set(NRF_RADIO,
 			      NRF_RADIO_EVENT_ADDRESS, HAL_RADIO_RECV_TIMEOUT_CANCEL_PPI);
-	nrf_ccm_subscribe_set(NRF_CCM, NRF_CCM_TASK_CRYPT, HAL_RADIO_RECV_TIMEOUT_CANCEL_PPI);
+	nrf_ccm_subscribe_set(NRF_CCM, NRF_CCM_TASK_START, HAL_RADIO_RECV_TIMEOUT_CANCEL_PPI);
 }
 
 /*******************************************************************************
@@ -132,8 +157,33 @@ static inline void hal_trigger_crypt_ppi_config(void)
  */
 static inline void hal_trigger_crypt_ppi_disable(void)
 {
-	nrf_ccm_subscribe_clear(NRF_CCM, NRF_CCM_TASK_CRYPT);
+	nrf_ccm_subscribe_clear(NRF_CCM, NRF_CCM_TASK_START);
 }
+
+/*******************************************************************************
+ * Trigger automatic address resolution on Bit counter match:
+ * wire the RADIO EVENTS_BCMATCH event to the AAR TASKS_START task.
+ */
+static inline void hal_trigger_aar_ppi_config(void)
+{
+	nrf_radio_publish_set(NRF_RADIO, NRF_RADIO_EVENT_BCMATCH, HAL_TRIGGER_AAR_PPI);
+	nrf_aar_subscribe_set(NRF_AAR, NRF_AAR_TASK_START, HAL_TRIGGER_AAR_PPI);
+}
+
+/* When hardware does not support Coded PHY we still allow the Controller
+ * implementation to accept Coded PHY flags, but the Controller will use 1M
+ * PHY on air. This is implementation specific feature.
+ */
+#if defined(CONFIG_BT_CTLR_PHY_CODED) && defined(CONFIG_HAS_HW_NRF_RADIO_BLE_CODED)
+/*******************************************************************************
+ * Trigger Radio Rate override upon Rateboost event.
+ */
+static inline void hal_trigger_rateoverride_ppi_config(void)
+{
+	nrf_radio_publish_set(NRF_RADIO, NRF_RADIO_EVENT_RATEBOOST, HAL_TRIGGER_RATEOVERRIDE_PPI);
+	nrf_ccm_subscribe_set(NRF_CCM, NRF_CCM_TASK_RATEOVERRIDE, HAL_TRIGGER_RATEOVERRIDE_PPI);
+}
+#endif /* CONFIG_BT_CTLR_PHY_CODED && CONFIG_HAS_HW_NRF_RADIO_BLE_CODED */
 
 #if defined(CONFIG_BT_CTLR_DF_CONN_CTE_RX)
 /*******************************************************************************
@@ -157,30 +207,10 @@ static inline void hal_trigger_crypt_by_bcmatch_ppi_config(void)
 	 */
 	nrf_radio_publish_set(NRF_RADIO,
 			      NRF_RADIO_EVENT_BCMATCH, HAL_TRIGGER_CRYPT_DELAY_PPI);
-	nrf_ccm_subscribe_set(NRF_CCM, NRF_CCM_TASK_CRYPT, HAL_TRIGGER_CRYPT_DELAY_PPI);
+	nrf_ccm_subscribe_set(NRF_CCM, NRF_CCM_TASK_START, HAL_TRIGGER_CRYPT_DELAY_PPI);
 }
 #endif /* CONFIG_BT_CTLR_DF_CONN_CTE_RX */
-
-/*******************************************************************************
- * Trigger automatic address resolution on Bit counter match:
- * wire the RADIO EVENTS_BCMATCH event to the AAR TASKS_START task.
- */
-static inline void hal_trigger_aar_ppi_config(void)
-{
-	nrf_radio_publish_set(NRF_RADIO, NRF_RADIO_EVENT_BCMATCH, HAL_TRIGGER_AAR_PPI);
-	nrf_aar_subscribe_set(NRF_AAR, NRF_AAR_TASK_START, HAL_TRIGGER_AAR_PPI);
-}
-
-#if defined(CONFIG_BT_CTLR_PHY_CODED) && defined(CONFIG_HAS_HW_NRF_RADIO_BLE_CODED)
-/*******************************************************************************
- * Trigger Radio Rate override upon Rateboost event.
- */
-static inline void hal_trigger_rateoverride_ppi_config(void)
-{
-	nrf_radio_publish_set(NRF_RADIO, NRF_RADIO_EVENT_RATEBOOST, HAL_TRIGGER_RATEOVERRIDE_PPI);
-	nrf_ccm_subscribe_set(NRF_CCM, NRF_CCM_TASK_RATEOVERRIDE, HAL_TRIGGER_RATEOVERRIDE_PPI);
-}
-#endif /* CONFIG_BT_CTLR_PHY_CODED && CONFIG_HAS_HW_NRF_RADIO_BLE_CODED */
+#endif /* CONFIG_BT_CTLR_LE_ENC || CONFIG_BT_CTLR_BROADCAST_ISO_ENC */
 
 /******************************************************************************/
 #if !defined(CONFIG_BT_CTLR_TIFS_HW)
@@ -189,10 +219,10 @@ static inline void hal_trigger_rateoverride_ppi_config(void)
 #define NRF_RADIO_PUBLISH_PDU_END_EVT PUBLISH_PHYEND
 /* Wrappenr for EVENTS_END event name used by nRFX API */
 #define NRFX_RADIO_TXRX_END_EVENT NRF_RADIO_EVENT_PHYEND
-#else
+#else /* CONFIG_BT_CTLR_SW_SWITCH_SINGLE_TIMER */
 #define NRF_RADIO_PUBLISH_PDU_END_EVT PUBLISH_END
 #define NRFX_RADIO_TXRX_END_EVENT NRF_RADIO_EVENT_END
-#endif /* !CONFIG_BT_CTLR_SW_SWITCH_SINGLE_TIMER */
+#endif /* CONFIG_BT_CTLR_SW_SWITCH_SINGLE_TIMER */
 
 /* DPPI setup used for SW-based auto-switching during TIFS. */
 
@@ -451,6 +481,11 @@ static inline void hal_radio_sw_switch_disable(void)
 		HAL_SW_DPPI_TASK_EN_FROM_IDX(SW_SWITCH_TIMER_TASK_GROUP(0)));
 	nrf_dppi_subscribe_clear(NRF_DPPIC,
 		HAL_SW_DPPI_TASK_EN_FROM_IDX(SW_SWITCH_TIMER_TASK_GROUP(1)));
+
+	/* Invalidation of subscription of S2 timer Compare used when
+	 * RXing on LE Coded PHY is not needed, as other DPPI subscription
+	 * is disable on each sw_switch call already.
+	 */
 }
 
 static inline void hal_radio_sw_switch_b2b_tx_disable(uint8_t compare_reg_index)
@@ -508,16 +543,20 @@ static inline void hal_radio_sw_switch_coded_tx_config_set(uint8_t ppi_en,
 	HAL_SW_SWITCH_TIMER_S8_DISABLE_PPI_REGISTER_EVT =
 		HAL_SW_SWITCH_TIMER_S8_DISABLE_PPI_EVT;
 	nrf_timer_subscribe_set(SW_SWITCH_TIMER,
-				nrf_timer_capture_task_get(SW_SWITCH_TIMER_EVTS_COMP(group_index)),
+				nrf_timer_capture_task_get(cc_s2),
 				HAL_SW_SWITCH_TIMER_S8_DISABLE_PPI);
 
 	nrf_dppi_channels_enable(NRF_DPPIC,
 				 BIT(HAL_SW_SWITCH_TIMER_S8_DISABLE_PPI));
 }
 
+/* When hardware does not support Coded PHY we still allow the Controller
+ * implementation to accept Coded PHY flags, but the Controller will use 1M
+ * PHY on air. This is implementation specific feature.
+ */
 #if defined(CONFIG_BT_CTLR_PHY_CODED) && defined(CONFIG_HAS_HW_NRF_RADIO_BLE_CODED)
 static inline void hal_radio_sw_switch_coded_config_clear(uint8_t ppi_en,
-	uint8_t ppi_dis, uint8_t cc_reg, uint8_t group_index)
+	uint8_t ppi_dis, uint8_t cc_s2, uint8_t group_index)
 {
 	/* Invalidate subscription of S2 timer Compare used when
 	 * RXing on LE Coded PHY.
@@ -525,8 +564,7 @@ static inline void hal_radio_sw_switch_coded_config_clear(uint8_t ppi_en,
 	 * Note: we do not un-subscribe the Radio enable task because
 	 * we use the same PPI for both SW Switch Timer compare events.
 	 */
-	HAL_SW_SWITCH_RADIO_ENABLE_PPI_REGISTER_EVT(
-		SW_SWITCH_TIMER_S2_EVTS_COMP(group_index)) = 0;
+	HAL_SW_SWITCH_RADIO_ENABLE_PPI_REGISTER_EVT(cc_s2) = 0U;
 }
 #endif /* CONFIG_BT_CTLR_PHY_CODED && CONFIG_HAS_HW_NRF_RADIO_BLE_CODED */
 
@@ -569,6 +607,32 @@ static inline void hal_radio_sw_switch_ppi_group_setup(void)
 		HAL_SW_DPPI_TASK_DIS_FROM_IDX(SW_SWITCH_TIMER_TASK_GROUP(1)));
 
 	/* Include the appropriate PPI channels in the two PPI Groups. */
+#if defined(CONFIG_BT_CTLR_PHY_CODED)
+	nrf_dppi_group_clear(NRF_DPPIC,
+		SW_SWITCH_TIMER_TASK_GROUP(0));
+	nrf_dppi_channels_include_in_group(NRF_DPPIC,
+		BIT(HAL_SW_SWITCH_GROUP_TASK_DISABLE_PPI(0)) |
+		BIT(HAL_SW_SWITCH_RADIO_ENABLE_S2_PPI(0)) |
+		BIT(HAL_SW_SWITCH_RADIO_ENABLE_PPI(0)),
+		SW_SWITCH_TIMER_TASK_GROUP(0));
+	nrf_dppi_group_clear(NRF_DPPIC,
+		SW_SWITCH_TIMER_TASK_GROUP(1));
+	nrf_dppi_channels_include_in_group(NRF_DPPIC,
+		BIT(HAL_SW_SWITCH_GROUP_TASK_DISABLE_PPI(1)) |
+		BIT(HAL_SW_SWITCH_RADIO_ENABLE_S2_PPI(1)) |
+		BIT(HAL_SW_SWITCH_RADIO_ENABLE_PPI(1)),
+		SW_SWITCH_TIMER_TASK_GROUP(1));
+
+	/* NOTE: HAL_SW_SWITCH_RADIO_ENABLE_S2_PPI_BASE is equal to
+	 *       HAL_SW_SWITCH_RADIO_ENABLE_PPI_BASE.
+	 */
+	BUILD_ASSERT(
+		!IS_ENABLED(CONFIG_BT_CTLR_PHY_CODED) ||
+		(HAL_SW_SWITCH_RADIO_ENABLE_S2_PPI_BASE ==
+		 HAL_SW_SWITCH_RADIO_ENABLE_PPI_BASE),
+		"Radio enable and Group disable not on the same PPI channels.");
+
+#else /* !CONFIG_BT_CTLR_PHY_CODED */
 	nrf_dppi_group_clear(NRF_DPPIC,
 		SW_SWITCH_TIMER_TASK_GROUP(0));
 	nrf_dppi_channels_include_in_group(NRF_DPPIC,
@@ -581,6 +645,7 @@ static inline void hal_radio_sw_switch_ppi_group_setup(void)
 		BIT(HAL_SW_SWITCH_GROUP_TASK_DISABLE_PPI(1)) |
 		BIT(HAL_SW_SWITCH_RADIO_ENABLE_PPI(1)),
 		SW_SWITCH_TIMER_TASK_GROUP(1));
+#endif /* !CONFIG_BT_CTLR_PHY_CODED */
 
 	/* Sanity build-time check that RADIO Enable and Group Disable
 	 * tasks are going to be subscribed on the same PPIs.
@@ -632,9 +697,9 @@ static inline void hal_radio_group_task_disable_ppi_setup(void)
  * Radio peripheral. The EVENTS_CTEPRESENT event is wired to cancel EVENTS_COMPARE setup for
  * handling delayed EVENTS_PHYEND.
  *
- * Disable of the group of PPIs responsbile for handling of software based switch is done by
+ * Disable of the group of PPIs responsible for handling of software based switch is done by
  * timeout of regular EVENTS_PHYEND event. The EVENTS_PHYEND delay is short enough (16 us) that
- * the same EVENT COMPARE may be used to trigger disable task for the sotfware switch group.
+ * the same EVENT COMPARE may be used to trigger disable task for the software switch group.
  * In case the EVENTS_COMPARE for delayed EVENTS_PHYEND event timeouts, the group will be disabled
  * within the Radio TX rampup period.
  *
