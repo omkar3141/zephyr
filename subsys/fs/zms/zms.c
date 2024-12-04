@@ -883,6 +883,8 @@ static int zms_find_ate_with_id(struct zms_fs *fs, uint32_t id, uint64_t start_a
 
 	wlk_addr = start_addr;
 
+	static int i = 0;
+
 	do {
 		wlk_prev_addr = wlk_addr;
 		rc = zms_prev_ate(fs, &wlk_addr, &wlk_ate);
@@ -903,6 +905,11 @@ static int zms_find_ate_with_id(struct zms_fs *fs, uint32_t id, uint64_t start_a
 				break;
 			}
 			previous_sector_num = SECTOR_NUM(wlk_prev_addr);
+		}
+
+		i++;
+		if (i % (64*3) == 0) {
+			k_yield();
 		}
 	} while (wlk_addr != end_addr);
 
