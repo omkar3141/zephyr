@@ -4,6 +4,7 @@ tests:
       - CONFIG_SETTINGS_ZMS=y
       - CONFIG_ZMS_LOOKUP_CACHE=y
       - CONFIG_ZMS_LOOKUP_CACHE_SIZE=512
+      - CONFIG_PM_PARTITION_SIZE_SETTINGS_STORAGE=0x8000
     platform_allow:
       - nrf52840dk/nrf52840
       - nrf54l15dk/nrf54l15/cpuapp
@@ -20,6 +21,7 @@ tests:
       - CONFIG_NVS_LOOKUP_CACHE_SIZE=512
       - CONFIG_SETTINGS_NVS_NAME_CACHE=y
       - CONFIG_SETTINGS_NVS_NAME_CACHE_SIZE=512
+      - CONFIG_PM_PARTITION_SIZE_SETTINGS_STORAGE=0x8000
     platform_allow:
       - nrf52840dk/nrf52840
       - nrf54l15dk/nrf54l15/cpuapp
@@ -36,7 +38,10 @@ tests:
       - CONFIG_SETTINGS_ZMS=y
       - CONFIG_ZMS_LOOKUP_CACHE=y
       - CONFIG_ZMS_LOOKUP_CACHE_SIZE=512
-    platform_allow: nrf52840dk/nrf52840
+      - CONFIG_PM_PARTITION_SIZE_SETTINGS_STORAGE=0x8000
+    platform_allow:
+      - nrf52840dk/nrf52840
+      - nrf54l15dk/nrf54l15/cpuapp
     platform_exclude:
       - native_sim
       - qemu_x86
@@ -56,7 +61,10 @@ tests:
       - CONFIG_NVS_LOOKUP_CACHE_SIZE=512
       - CONFIG_SETTINGS_NVS_NAME_CACHE=y
       - CONFIG_SETTINGS_NVS_NAME_CACHE_SIZE=512
-    platform_allow: nrf52840dk/nrf52840
+      - CONFIG_PM_PARTITION_SIZE_SETTINGS_STORAGE=0x8000
+    platform_allow:
+      - nrf52840dk/nrf52840
+      - nrf54l15dk/nrf54l15/cpuapp
     platform_exclude:
       - native_sim
       - qemu_x86

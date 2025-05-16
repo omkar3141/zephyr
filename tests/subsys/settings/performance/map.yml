@@ -1,0 +1,8 @@
+- baud: 115200
+  connected: true
+  flash_timeout: 60
+  id: 001057749744
+  platform: nrf54l15dk/nrf54l15/cpuapp
+  product: J-Link
+  runner: nrfutil
+  serial: /dev/ttyACM1
