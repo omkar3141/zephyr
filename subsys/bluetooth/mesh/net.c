@@ -38,6 +38,8 @@
 #include "sar_cfg_internal.h"
 #include "brg_cfg.h"
 
+#include <zephyr/timing/timing.h>
+
 #define LOG_LEVEL CONFIG_BT_MESH_NET_LOG_LEVEL
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(bt_mesh_net);
@@ -660,8 +662,17 @@ static bool net_decrypt(struct bt_mesh_net_rx *rx, struct net_buf_simple *in,
 
 	LOG_DBG("src 0x%04x", rx->ctx.addr);
 
-	return bt_mesh_net_decrypt(&cred->enc, out, BT_MESH_NET_IVI_RX(rx),
-				   proxy) == 0;
+	timing_init(); timing_start();
+	uint64_t t0 = timing_counter_get();
+	int err = bt_mesh_net_decrypt(&cred->enc, out, BT_MESH_NET_IVI_RX(rx),
+				   proxy);
+	uint64_t t1 = timing_counter_get();
+	uint64_t t2 = timing_cycles_get(&t0, &t1);
+	uint64_t t3 = timing_cycles_to_ns(t2);
+	timing_stop();
+	LOG_INF("t0: %llu, t1: %llu, t2: %llu, Decryption time: %llu ns", t0, t1, t2, t3);
+
+	return err == 0;
 }
 
 /* Relaying from advertising to the advertising bearer should only happen
@@ -824,10 +835,17 @@ int bt_mesh_net_decode(struct net_buf_simple *in, enum bt_mesh_net_if net_if,
 
 	rx->net_if = net_if;
 
+	// timing_init(); timing_start();
+	// uint64_t t0 = timing_counter_get();
 	if (!bt_mesh_net_cred_find(rx, in, out, net_decrypt)) {
 		LOG_DBG("Unable to find matching net for packet");
 		return -ENOENT;
 	}
+	// uint64_t t1 = timing_counter_get();
+	// uint64_t t2 = timing_cycles_get(&t0, &t1);
+	// uint64_t t3 = timing_cycles_to_ns(t2);
+	// timing_stop();
+	// LOG_INF("t0: %llu, t1: %llu, t2: %llu, Decryption time: %llu ns", t0, t1, t2, t3);
 
 	/* Initialize AppIdx to a sane value */
 	rx->ctx.app_idx = BT_MESH_KEY_UNUSED;
