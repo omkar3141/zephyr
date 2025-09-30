@@ -242,6 +242,8 @@ static void key_refresh(struct bt_mesh_subnet *sub, uint8_t new_phase)
 		LOG_DBG("Storing Updated NetKey persistently");
 		bt_mesh_subnet_store(sub->net_idx);
 	}
+
+	update_nid_collisions();
 }
 
 void bt_mesh_kr_update(struct bt_mesh_subnet *sub, bool kr_flag, bool new_key)
@@ -296,6 +298,8 @@ static void subnet_del(struct bt_mesh_subnet *sub)
 	subnet_evt(sub, BT_MESH_KEY_DELETED);
 	(void)memset(sub, 0, sizeof(*sub));
 	sub->net_idx = BT_MESH_KEY_UNUSED;
+
+	update_nid_collisions();
 }
 
 static int msg_cred_create(struct bt_mesh_net_cred *cred, const uint8_t *p,
@@ -409,6 +413,8 @@ uint8_t bt_mesh_subnet_add(uint16_t net_idx, const uint8_t key[16])
 		bt_mesh_subnet_store(sub->net_idx);
 	}
 
+	update_nid_collisions();
+
 	return STATUS_SUCCESS;
 }
 
@@ -499,13 +505,19 @@ int bt_mesh_friend_cred_create(struct bt_mesh_net_cred *cred, uint16_t lpn_addr,
 		return err;
 	}
 
-	return msg_cred_create(cred, p, sizeof(p), raw_key);
+	err = msg_cred_create(cred, p, sizeof(p), raw_key);
+	if (!err) {
+		update_nid_collisions();
+	}
+	return err;
 }
 
 void bt_mesh_friend_cred_destroy(struct bt_mesh_net_cred *cred)
 {
 	bt_mesh_key_destroy(&cred->enc);
 	bt_mesh_key_destroy(&cred->privacy);
+
+	update_nid_collisions();
 }
 
 uint8_t bt_mesh_subnet_kr_phase_set(uint16_t net_idx, uint8_t *phase)
@@ -806,6 +818,8 @@ int bt_mesh_subnet_set(uint16_t net_idx, uint8_t kr_phase, const struct bt_mesh_
 	/* Make sure we have valid beacon data to be sent */
 	bt_mesh_beacon_update(sub);
 
+	update_nid_collisions();
+
 	return 0;
 }
 
@@ -877,6 +891,8 @@ void bt_mesh_net_keys_reset(void)
 			subnet_del(sub);
 		}
 	}
+
+	update_nid_collisions();
 }
 
 bool bt_mesh_net_cred_find(struct bt_mesh_net_rx *rx, struct net_buf_simple *in,

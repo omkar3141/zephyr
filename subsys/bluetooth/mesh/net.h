@@ -327,6 +327,8 @@ void bt_mesh_net_store(void);
 void bt_mesh_net_clear(void);
 void bt_mesh_net_settings_commit(void);
 
+void update_nid_collisions(void);
+
 static inline void send_cb_finalize(const struct bt_mesh_send_cb *cb,
 				    void *cb_data)
 {

@@ -83,7 +83,15 @@ struct iv_val {
 static struct {
 	uint32_t src : 15, /* MSb of source is always 0 */
 	      seq : 17;
+	uint8_t nid; 		    /* 7 bits */
+	uint16_t net_idx : 12, 	    /* 12 bits */
+	uint8_t decision_flag : 2;  /* 2 bits */
 } msg_cache[CONFIG_BT_MESH_MSG_CACHE_SIZE];
+
+#define BT_MESH_NET_MSG_CACHE_VALID			BIT(0)
+#define BT_MESH_NET_MSG_CACHE_NID_COLLISION_EXIST	BIT(1)
+#define BT_MESH_NET_MSG_CACHE_PENDING	                BIT(2)
+
 static uint16_t msg_cache_next;
 
 /* Singleton network context (the implementation only supports one) */
@@ -116,6 +124,38 @@ K_MEM_SLAB_DEFINE(loopback_buf_pool,
 		  sizeof(struct loopback_buf),
 		  CONFIG_BT_MESH_LOOPBACK_BUFS, __alignof__(struct loopback_buf));
 
+/* Each bit represents a NID value, 1 if collision exists, 0 if not */
+uint8_t nid_collision_tracker[16];
+
+static void nid_set_collision(uint8_t nid, bool collision)
+{
+	if (collision) {
+		nid_collision_mask[nid >> 3] |= BIT(nid & 0x07);
+		return;
+	}
+
+	nid_collision_mask[nid >> 3] &= ~BIT(nid & 0x07);
+}
+
+static bool nid_has_collision(uint8_t nid)
+{
+	return !!(nid_collision_mask[nid >> 3] & BIT(nid & 0x07));
+}
+
+struct temp_cache_idxs {
+	uint16_t cache_idx[CONFIG_BT_MESH_MSG_CACHE_SIZE];
+	uint8_t count;
+	bool collision;
+};
+
+static struct temp_cache_idxs temp_cache_idxs_ctx;
+
+static void temp_collisions_clear(void)
+{
+	temp_cache_idxs_ctx.count = 0;
+	temp_cache_idxs_ctx.collision = false;
+}
+
 static uint32_t dup_cache[CONFIG_BT_MESH_MSG_CACHE_SIZE];
 static int   dup_cache_next;
 
@@ -145,20 +185,63 @@ static bool check_dup(struct net_buf_simple *data)
 	return false;
 }
 
-static bool msg_cache_match(struct net_buf_simple *pdu)
+
+static bool check_cache_match(uint16_t idx, uint16_t src, uint32_t seq, uint8_t nid,
+			      bool nid_col, bool *exact_match_found)
+{
+	struct bt_mesh_msg_cache_entry *entry = &msg_cache[idx];
+
+	if (!(entry->flags & BT_MESH_NET_MSG_CACHE_VALID)) {
+		return false; /* Entry not valid, continue searching */
+	}
+
+	if (entry->src != src || entry->seq != seq || entry->nid != nid) {
+		return false; /* No match, continue searching */
+	}
+
+	if (!nid_col) {
+		return true;
+	}
+
+	//... prepare list of candidates in temp_cache_idxs_ctx
+	if (temp_cache_idxs_ctx.count < ARRAY_SIZE(temp_cache_idxs_ctx.indices)) {
+		temp_cache_idxs_ctx.indices[temp_cache_idxs_ctx.count++] = idx;
+		temp_cache_idxs_ctx.has_collision = true;
+	}
+
+	/* If this entry has a resolved NetKey index, it's an exact match */
+	if (!(entry->flags & BT_MESH_NET_MSG_CACHE_PENDING)) {
+		*exact_match_found = true;
+	}
+
+	return true;
+}
+
+static bool msg_cache_match(struct net_buf_simple *pdu, uint8_t nid)
 {
 	uint16_t i;
+	uint16_t src = SRC(pdu->data);
+	uint32_t seq = SEQ(pdu->data) & BIT_MASK(17);
+	bool nid_c = nid_has_collision(nid);
+	bool exact_match = false;
+
+	temp_collisions_clear();
 
 	for (i = msg_cache_next; i > 0U;) {
-		if (msg_cache[--i].src == SRC(pdu->data) &&
-		    msg_cache[i].seq == (SEQ(pdu->data) & BIT_MASK(17))) {
+		if (check_cache_match(--i, src, seq, nid, nid_c, &exact_match)) {
 			return true;
 		}
 	}
 
 	for (i = ARRAY_SIZE(msg_cache); i > msg_cache_next;) {
-		if (msg_cache[--i].src == SRC(pdu->data) &&
-		    msg_cache[i].seq == (SEQ(pdu->data) & BIT_MASK(17))) {
+		if (check_cache_match(--i, src, seq, nid, nid_c, &exact_match)) {
+			return true;
+		}
+	}
+
+	/* Case when NID has collisions */
+	if (temp_cache_idxs_ctx.collision) {
+		if (exact_match) {
 			return true;
 		}
 	}
@@ -166,12 +249,91 @@ static bool msg_cache_match(struct net_buf_simple *pdu)
 	return false;
 }
 
-static void msg_cache_add(struct bt_mesh_net_rx *rx)
+static void msg_cache_add(struct bt_mesh_net_rx *rx, uint8_t nid)
 {
+	struct bt_mesh_msg_cache_entry *entry;
+
 	msg_cache_next %= ARRAY_SIZE(msg_cache);
-	msg_cache[msg_cache_next].src = rx->ctx.addr;
-	msg_cache[msg_cache_next].seq = rx->seq;
+	entry = &msg_cache[msg_cache_next];
+
+	entry->src = rx->ctx.addr;
+	entry->seq = rx->seq & BIT_MASK(17);
+	entry->nid = nid;
+	entry->net_idx = rx->ctx.net_idx;
+	entry->flags = BT_MESH_CACHE_FLAG_VALID;
+
+	if (nid_has_collision(nid)) {
+		entry->flags |= BT_MESH_NET_MSG_CACHE_NID_COLLISION_EXIST;
+	}
+
 	msg_cache_next++;
+}
+
+static bool msg_cache_check_after_decrypt(struct bt_mesh_net_rx *rx)
+{
+	struct bt_mesh_msg_cache_entry *entry;
+	int i;
+	bool found_duplicate = false;
+
+	if (!temp_cache_idxs_ctx.collision) {
+		return false;
+	}
+
+	for (i = 0; i < temp_cache_idxs_ctx.count; i++) {
+		int idx = temp_cache_idxs_ctx.cache_idx[i];
+
+		if (idx >= ARRAY_SIZE(msg_cache)) {
+			continue;
+		}
+
+		entry = &msg_cache[idx];
+
+		if (entry->src != rx->ctx.addr || entry->seq != (rx->seq & BIT_MASK(17))) {
+			continue;
+		}
+
+		if (entry->net_idx == rx->ctx.net_idx) {
+			found_duplicate = true;
+			continue;
+		}
+
+		if (entry->flags & BT_MESH_NET_MSG_CACHE_PENDING) {
+			entry->net_idx = rx->ctx.net_idx;
+			entry->flags &= ~BT_MESH_NET_MSG_CACHE_PENDING;
+			continue;
+		}
+	}
+
+	temp_collisions_clear();
+
+	return found_duplicate;
+}
+
+static bool bt_mesh_subnet_check_nid_collision_cb(struct bt_mesh_subnet *sub)
+{
+	//...
+	return;
+}
+
+/* It is best to iterate over all keys once the key modification is done instead of creating complex
+* logic that spans across multiple functions trying to track "seen" NIDs and their collisions. */
+void update_nid_collisions(void)
+{
+	//...
+
+	/* For all registered subnets, including KR procedures */
+	bt_mesh_subnet_foreach(bt_mesh_subnet_check_nid_collision_cb)
+
+	/* Check for NID collisions on friend credentials, as NID for Friend TX/RX credential
+	 * can be same as NID for normal TX/RX credentials
+	 */
+
+	//...
+
+	/* Same - Check for NID collisions on LPN credentials */
+	/* Same - Check for LPN credentials */
+
+	//...
 }
 
 static void store_iv(bool only_duration)
@@ -856,7 +1018,11 @@ int bt_mesh_net_decode(struct net_buf_simple *in, enum bt_mesh_net_if net_if,
 	LOG_DBG("src 0x%04x dst 0x%04x ttl %u", rx->ctx.addr, rx->ctx.recv_dst, rx->ctx.recv_ttl);
 	LOG_DBG("PDU: %s", bt_hex(out->data, out->len));
 
-	msg_cache_add(rx);
+	if (msg_cache_check_after_decrypt(rx)) {
+		return -EALREADY;
+	}
+
+	msg_cache_add(rx, NID(out->data));
 
 	return 0;
 }
