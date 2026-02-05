@@ -10,3 +10,9 @@ config MESH_PROVISIONER_USE_SW0
 	depends on $(dt_alias_enabled,sw0)
 	select GPIO
 	default y
+
+config MESH_PROVISIONER_SCAN_ON_SW3
+	bool "Use sw3 button to start scanning for unprovisioned beacons (unique UUID list)"
+	depends on $(dt_alias_enabled,sw3)
+	select GPIO
+	default y if BOARD_NRF54L15DK_NRF54L15_CPUAPP
