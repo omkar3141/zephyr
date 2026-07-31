@@ -339,6 +339,6 @@ static inline void send_cb_finalize(const struct bt_mesh_send_cb *cb,
 	}
 
 	if (cb->end) {
-		cb->end(0, cb_data);
+		cb->end(0, 0, cb_data);
 	}
 }

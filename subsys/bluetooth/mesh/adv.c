@@ -79,7 +79,7 @@ void bt_mesh_adv_send_start(uint16_t duration, int err, struct bt_mesh_adv_ctx *
 void bt_mesh_adv_send_end(int err, struct bt_mesh_adv_ctx const *ctx)
 {
 	if (ctx->started && ctx->cb && ctx->cb->end) {
-		ctx->cb->end(err, ctx->cb_data);
+		ctx->cb->end(err, ctx->num_sent, ctx->cb_data);
 	}
 }
 

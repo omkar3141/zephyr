@@ -123,9 +123,11 @@ static void beacon_start(uint16_t duration, int err, void *user_data)
 	}
 }
 
-static void beacon_complete(int err, void *user_data)
+static void beacon_complete(int err, uint8_t num_sent, void *user_data)
 {
 	struct bt_mesh_beacon *beacon = user_data;
+
+	ARG_UNUSED(num_sent);
 
 	LOG_DBG("err %d", err);
 	beacon->sent = k_uptime_get_32();

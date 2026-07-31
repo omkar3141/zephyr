@@ -56,8 +56,10 @@ static int64_t sub_remaining(void)
 	return rem_ms / MSEC_PER_SEC;
 }
 
-static void hb_publish_end_cb(int err, void *cb_data)
+static void hb_publish_end_cb(int err, uint8_t num_sent, void *cb_data)
 {
+	ARG_UNUSED(num_sent);
+
 	if (pub.period && pub.count > 1) {
 		k_work_reschedule(&pub_timer, K_SECONDS(pub.period));
 	}
@@ -154,7 +156,7 @@ static int heartbeat_send(const struct bt_mesh_send_cb *cb, void *cb_data)
 static void hb_publish_start_cb(uint16_t duration, int err, void *cb_data)
 {
 	if (err) {
-		hb_publish_end_cb(err, cb_data);
+		hb_publish_end_cb(err, 0, cb_data);
 	}
 }
 
@@ -183,7 +185,7 @@ static void hb_publish(struct k_work *work)
 
 	err = heartbeat_send(&publish_cb, NULL);
 	if (err) {
-		hb_publish_end_cb(err, NULL);
+		hb_publish_end_cb(err, 0, NULL);
 	}
 }
 
@@ -354,8 +356,10 @@ void bt_mesh_hb_sub_get(struct bt_mesh_hb_sub *get)
 	get->remaining = sub_remaining();
 }
 
-static void hb_unsolicited_pub_end_cb(int err, void *cb_data)
+static void hb_unsolicited_pub_end_cb(int err, uint8_t num_sent, void *cb_data)
 {
+	ARG_UNUSED(num_sent);
+
 	if (!err) {
 		notify_pub_sent();
 	}

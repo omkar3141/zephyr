@@ -517,6 +517,10 @@ static void adv_sent(struct bt_le_ext_adv *instance,
 		return;
 	}
 
+	if (ext_adv->adv) {
+		ext_adv->adv->ctx.num_sent = info ? info->num_sent : 0;
+	}
+
 	atomic_set_bit(ext_adv->flags, ADV_FLAG_SENT);
 
 	bt_mesh_wq_submit(&ext_adv->work);

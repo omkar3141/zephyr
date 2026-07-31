@@ -8,6 +8,8 @@
  *
  * Sends a model message with the given context. If the message context is NULL, this
  * updates the publish message, and publishes with the configured publication parameters.
+ * If the message context contains a send callback, the callback data points to the model
+ * sending the message.
  *
  * @param model Model to send the message on.
  * @param ctx Message context, or NULL to send with the configured publish parameters.

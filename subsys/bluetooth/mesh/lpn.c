@@ -183,9 +183,11 @@ static inline void group_clear(atomic_t *target, atomic_t *source)
 
 static void clear_friendship(bool force, bool disable);
 
-static void friend_clear_sent(int err, void *user_data)
+static void friend_clear_sent(int err, uint8_t num_sent, void *user_data)
 {
 	struct bt_mesh_lpn *lpn = &bt_mesh.lpn;
+
+	ARG_UNUSED(num_sent);
 
 	bt_mesh_scan_enable();
 
@@ -312,9 +314,11 @@ static void clear_friendship(bool force, bool disable)
 	}
 }
 
-static void friend_req_send_end(int err, void *user_data)
+static void friend_req_send_end(int err, uint8_t num_sent, void *user_data)
 {
 	struct bt_mesh_lpn *lpn = &bt_mesh.lpn;
+
+	ARG_UNUSED(num_sent);
 
 	if (lpn->state != BT_MESH_LPN_ENABLED) {
 		return;
@@ -344,7 +348,7 @@ static void friend_req_send_start(uint16_t duration, int err, void *user_data)
 	lpn->adv_start_time = k_uptime_get_32();
 
 	if (err) {
-		friend_req_send_end(err, user_data);
+		friend_req_send_end(err, 0, user_data);
 	}
 }
 
@@ -393,10 +397,12 @@ static int send_friend_req(struct bt_mesh_lpn *lpn)
 				sizeof(req), &friend_req_send_cb, NULL);
 }
 
-static void req_send_end(int err, void *user_data)
+static void req_send_end(int err, uint8_t num_sent, void *user_data)
 {
 	struct bt_mesh_lpn *lpn = &bt_mesh.lpn;
 	bool retry;
+
+	ARG_UNUSED(num_sent);
 
 	if (lpn->state == BT_MESH_LPN_DISABLED) {
 		return;
@@ -446,7 +452,7 @@ static void req_send_start(uint16_t duration, int err, void *user_data)
 	lpn->adv_start_time = k_uptime_get_32();
 
 	if (err) {
-		req_send_end(err, user_data);
+		req_send_end(err, 0, user_data);
 	}
 }
 

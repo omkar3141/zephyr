@@ -95,7 +95,7 @@ int bt_mesh_msg_send(const struct bt_mesh_model *model, struct bt_mesh_msg_ctx *
 	}
 
 	if (ctx) {
-		return bt_mesh_model_send(model, ctx, buf, NULL, 0);
+		return bt_mesh_model_send(model, ctx, buf, ctx->cb, (void *)model);
 	}
 
 	net_buf_simple_reset(model->pub->msg);

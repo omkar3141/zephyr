@@ -800,10 +800,12 @@ static int32_t next_period(const struct bt_mesh_model *mod)
 	return period - elapsed;
 }
 
-static void publish_sent(int err, void *user_data)
+static void publish_sent(int err, uint8_t num_sent, void *user_data)
 {
 	const struct bt_mesh_model *mod = user_data;
 	int32_t delay;
+
+	ARG_UNUSED(num_sent);
 
 	LOG_DBG("err %d, time %u", err, k_uptime_get_32());
 
@@ -822,7 +824,7 @@ static void publish_start(uint16_t duration, int err, void *user_data)
 {
 	if (err) {
 		LOG_ERR("Failed to publish: err %d", err);
-		publish_sent(err, user_data);
+		publish_sent(err, 0, user_data);
 		return;
 	}
 }
@@ -866,7 +868,7 @@ static int pub_period_start(struct bt_mesh_model_pub *pub)
 		/* Skip this publish attempt. */
 		LOG_DBG("Update failed, skipping publish (err: %d)", err);
 		pub->count = 0;
-		publish_sent(err, (void *)pub->mod);
+		publish_sent(err, 0, (void *)pub->mod);
 		return err;
 	}
 
@@ -931,7 +933,7 @@ static void mod_publish(struct k_work *work)
 		    bt_mesh_model_pub_is_retransmission(pub->mod)) {
 			err = pub->update(pub->mod);
 			if (err) {
-				publish_sent(err, (void *)pub->mod);
+				publish_sent(err, 0, (void *)pub->mod);
 				return;
 			}
 		}
@@ -953,7 +955,7 @@ static void mod_publish(struct k_work *work)
 	err = publish_transmit(pub->mod);
 	if (err) {
 		LOG_ERR("Failed to publish (err %d)", err);
-		publish_sent(err, (void *)pub->mod);
+		publish_sent(err, 0, (void *)pub->mod);
 	}
 }
 

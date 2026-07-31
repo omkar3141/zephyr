@@ -198,10 +198,12 @@ static void send_reliable(void)
 	tx_schedule();
 }
 
-static void delayed_adv_send_end(int err, void *user_data)
+static void delayed_adv_send_end(int err, uint8_t num_sent, void *user_data)
 {
 	bool unacked = (bool)user_data;
 	struct unacked_adv_ctx *unacked_adv = &link.tx.unacked[link.tx.last_unacked];
+
+	ARG_UNUSED(num_sent);
 
 	if (unacked && unacked_adv->adv != NULL) {
 		if (unacked_adv->cb) {
@@ -219,7 +221,7 @@ static void delayed_adv_send_end(int err, void *user_data)
 static void delayed_adv_send_start(uint16_t duration, int err, void *user_data)
 {
 	if (err) {
-		delayed_adv_send_end(err, user_data);
+		delayed_adv_send_end(err, 0, user_data);
 	}
 }
 

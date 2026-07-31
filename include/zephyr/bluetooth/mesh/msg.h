@@ -25,6 +25,7 @@ extern "C" {
 #endif
 
 struct bt_mesh_model;
+struct bt_mesh_send_cb;
 
 /** Length of a short Mesh MIC. */
 #define BT_MESH_MIC_SHORT 4
@@ -103,6 +104,13 @@ struct bt_mesh_msg_ctx {
 
 	/** TTL, or BT_MESH_TTL_DEFAULT for default TTL. */
 	uint8_t  send_ttl;
+
+	/** Optional callbacks for monitoring model message sending.
+	 *
+	 * The callback data points to the model sending the message. The callback
+	 * structure must remain valid until the transmission completes.
+	 */
+	const struct bt_mesh_send_cb *cb;
 };
 
 /**

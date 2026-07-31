@@ -274,7 +274,7 @@ static inline void seg_tx_complete(struct seg_tx *tx, int err)
 	seg_tx_reset(tx);
 
 	if (cb && cb->end) {
-		cb->end(err, cb_data);
+		cb->end(err, 0, cb_data);
 	}
 }
 
@@ -323,10 +323,12 @@ static void seg_send_start(uint16_t duration, int err, void *user_data)
 	}
 }
 
-static void seg_sent(int err, void *user_data)
+static void seg_sent(int err, uint8_t num_sent, void *user_data)
 {
 	struct seg_tx *tx = user_data;
 	uint32_t delta_ms = (uint32_t)(k_uptime_get() - tx->adv_start_timestamp);
+
+	ARG_UNUSED(num_sent);
 
 	if (!tx->seg_send_started) {
 		return;

@@ -2044,8 +2044,10 @@ static void reset_send_start(uint16_t duration, int err, void *cb_data)
 	}
 }
 
-static void reset_send_end(int err, void *cb_data)
+static void reset_send_end(int err, uint8_t num_sent, void *cb_data)
 {
+	ARG_UNUSED(num_sent);
+
 	k_work_submit(&node_reset_pending);
 }
 

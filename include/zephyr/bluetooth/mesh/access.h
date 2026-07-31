@@ -949,10 +949,12 @@ struct bt_mesh_send_cb {
 	void (*start)(uint16_t duration, int err, void *cb_data);
 	/** @brief Handler called at the end of the transmission.
 	 *
-	 *  @param err     Error occurring during sending.
-	 *  @param cb_data Callback data, as passed to the send API.
+	 *  @param err      Error occurring during sending.
+	 *  @param num_sent Number of completed advertising events reported by the
+	 *                  extended advertiser, or 0 if unavailable.
+	 *  @param cb_data  Callback data, as passed to the send API.
 	 */
-	void (*end)(int err, void *cb_data);
+	void (*end)(int err, uint8_t num_sent, void *cb_data);
 };
 
 

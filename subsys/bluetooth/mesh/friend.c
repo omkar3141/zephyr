@@ -793,9 +793,11 @@ static struct bt_mesh_friend *find_clear(uint16_t prev_friend)
 	return NULL;
 }
 
-static void friend_clear_sent(int err, void *user_data)
+static void friend_clear_sent(int err, uint8_t num_sent, void *user_data)
 {
 	struct bt_mesh_friend *frnd = user_data;
+
+	ARG_UNUSED(num_sent);
 
 	k_work_reschedule(&frnd->clear.timer,
 			  K_SECONDS(frnd->clear.repeat_sec));
@@ -1175,9 +1177,11 @@ static void buf_send_start(uint16_t duration, int err, void *user_data)
 	}
 }
 
-static void buf_send_end(int err, void *user_data)
+static void buf_send_end(int err, uint8_t num_sent, void *user_data)
 {
 	struct bt_mesh_friend *frnd = user_data;
+
+	ARG_UNUSED(num_sent);
 
 	LOG_DBG("err %d", err);
 
