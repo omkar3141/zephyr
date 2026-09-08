@@ -6,8 +6,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef H_FS_MGMT_
-#define H_FS_MGMT_
+/**
+ * @file
+ * @brief Header file for the MCUmgr file system management group API.
+ * @ingroup mcumgr_fs_mgmt
+ */
+
+#ifndef ZEPHYR_INCLUDE_MGMT_MCUMGR_GRP_FS_MGMT_FS_MGMT_H_
+#define ZEPHYR_INCLUDE_MGMT_MCUMGR_GRP_FS_MGMT_FS_MGMT_H_
 
 /**
  * @brief MCUmgr File System Management API
@@ -93,6 +99,9 @@ enum fs_mgmt_err_code_t {
 
 	/** The operation cannot be performed because the file is empty with no contents. */
 	FS_MGMT_ERR_FILE_EMPTY,
+
+	/** Error occurred whilst attempting to close a file. */
+	FS_MGMT_ERR_FILE_CLOSE_FAILED,
 };
 
 #ifdef __cplusplus
@@ -103,4 +112,4 @@ enum fs_mgmt_err_code_t {
  * @}
  */
 
-#endif
+#endif /* ZEPHYR_INCLUDE_MGMT_MCUMGR_GRP_FS_MGMT_FS_MGMT_H_ */

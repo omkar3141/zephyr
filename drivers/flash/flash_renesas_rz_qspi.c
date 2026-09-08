@@ -22,12 +22,6 @@
 
 LOG_MODULE_REGISTER(renesas_rz_qspi, CONFIG_FLASH_LOG_LEVEL);
 
-#if defined(CONFIG_FLASH_RENESAS_RZ_QSPI_XSPI)
-#define QSPI_DEFAULT_SR     (0x40)
-#define QSPI_UPDATE_CR      (0xC0) /* Configuration register (DC0=1, DC1=1 (Dummy cycle = 10)) */
-#define QSPI_DATA_CR_UPDATE (QSPI_UPDATE_CR << 8 | QSPI_DEFAULT_SR)
-#endif /* CONFIG_FLASH_RENESAS_RZ_QSPI_XSPI */
-
 #define FLASH_RZ_BASE_ADDRESS (CONFIG_FLASH_BASE_ADDRESS - CONFIG_FLASH_RENESAS_RZ_MIRROR_OFFSET)
 
 /* QSPI COMMANDS */
@@ -396,48 +390,20 @@ static const struct flash_parameters *qspi_flash_rz_get_parameters(const struct 
 	return &config->flash_param;
 }
 
-#if CONFIG_FLASH_RENESAS_RZ_QSPI_XSPI
-static int spi_flash_direct_write(const struct device *dev, uint8_t command, uint32_t tx_data,
-				  uint8_t data_length)
-{
-	const struct flash_renesas_rz_config *config = dev->config;
-	struct flash_renesas_rz_data *data = dev->data;
-	int ret;
-
-	spi_flash_direct_transfer_t trans = {
-		.command = command,
-		.address = 0U,
-		.data = tx_data,
-		.command_length = 1U,
-		.address_length = 0U,
-		.data_length = data_length,
-		.dummy_cycles = 0U,
-	};
-
-	ret = config->fsp_api->directTransfer(data->fsp_ctrl, &trans,
-					      SPI_FLASH_DIRECT_TRANSFER_DIR_WRITE);
-	if (FSP_SUCCESS != (fsp_err_t)ret) {
-		LOG_ERR("Failed to write command");
-		return -EIO;
-	};
-
-	return ret;
-}
-#endif
-
 static int flash_renesas_rz_init(const struct device *dev)
 {
 	const struct flash_renesas_rz_config *config = dev->config;
 	struct flash_renesas_rz_data *data = dev->data;
 	int ret = 0;
 
-#if CONFIG_FLASH_RENESAS_RZ_QSPI_XSPI
-	ret = pinctrl_apply_state(config->pin_cfg, PINCTRL_STATE_DEFAULT);
-	if (ret) {
-		LOG_ERR("Failed to configure pins for QSPI with code: %d", ret);
-		return -EIO;
+	if (config->pin_cfg != NULL) {
+		ret = pinctrl_apply_state(config->pin_cfg, PINCTRL_STATE_DEFAULT);
+		if (ret) {
+			LOG_ERR("Failed to configure pins for QSPI with code: %d", ret);
+			return -EIO;
+		}
 	}
-#endif
+
 	k_sem_init(&data->sem, 1, 1);
 
 	ret = config->fsp_api->open(data->fsp_ctrl, data->fsp_cfg);
@@ -446,20 +412,6 @@ static int flash_renesas_rz_init(const struct device *dev)
 		return -EIO;
 	}
 
-#if CONFIG_FLASH_RENESAS_RZ_QSPI_XSPI
-	/* Write Enable Command */
-	ret = spi_flash_direct_write(dev, data->fsp_cfg->write_enable_command, 0U,
-				     DATA_LENGTH_DEFAULT_BYTE);
-	if (ret) {
-		return ret;
-	}
-
-	/* Write Status Command */
-	ret = spi_flash_direct_write(dev, SPI_NOR_CMD_WRSR, QSPI_DATA_CR_UPDATE, TWO_BYTE);
-	if (ret) {
-		return ret;
-	}
-#endif
 	return ret;
 }
 
@@ -481,6 +433,14 @@ static DEVICE_API(flash, flash_renesas_rz_qspi_driver_api) = {
 #define DT_DRV_COMPAT renesas_rz_qspi_xspi
 
 #if DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT)
+#define XSPI_QSPI_MEMORY_SIZE(size_bytes)                                                          \
+	((xspi_qspi_memory_size_t)(((size_bytes) / (1 * 1024 * 1024)) - 1))
+
+#define RZ_QSPI_XSPI_SOC_NV_FLASH_COMPAT(node_id)                                                  \
+	COND_CODE_1(DT_NODE_HAS_COMPAT(node_id, soc_nv_flash), (node_id), ())
+#define RZ_QSPI_XSPI_SOC_NV_FLASH_NODE(n)                                                          \
+	DT_INST_FOREACH_CHILD_STATUS_OKAY(n, RZ_QSPI_XSPI_SOC_NV_FLASH_COMPAT)
+
 #define FLASH_RENESAS_RZ_QSPI_XSPI_DEFINE(n)                                                       \
 	PINCTRL_DT_DEFINE(DT_INST_PARENT(n));                                                      \
 	static xspi_qspi_timing_setting_t g_qspi##n##_timing_settings = {                          \
@@ -496,9 +456,10 @@ static DEVICE_API(flash, flash_renesas_rz_qspi_driver_api) = {
 		.unit1_cs1_end_address = XSPI_QSPI_CFG_UNIT_1_CS_1_END_ADDRESS,                    \
 	};                                                                                         \
 	static const xspi_qspi_extended_cfg_t g_qspi##n##_extended_cfg = {                         \
-		.unit = n,                                                                         \
+		.unit = DT_PROP(DT_INST_PARENT(n), unit),                                          \
 		.chip_select = XSPI_QSPI_CHIP_SELECT_##n,                                          \
-		.memory_size = XSPI_QSPI_MEMORY_SIZE_64MB,                                         \
+		.memory_size =                                                                     \
+			XSPI_QSPI_MEMORY_SIZE(DT_REG_SIZE(RZ_QSPI_XSPI_SOC_NV_FLASH_NODE(n))),     \
 		.p_timing_settings = &g_qspi##n##_timing_settings,                                 \
 		.prefetch_en =                                                                     \
 			(xspi_qspi_prefetch_function_t)XSPI_QSPI_CFG_UNIT_##n##_PREFETCH_FUNCTION, \
@@ -508,7 +469,7 @@ static DEVICE_API(flash, flash_renesas_rz_qspi_driver_api) = {
 		.spi_protocol = SPI_FLASH_PROTOCOL_1S_1S_1S,                                       \
 		.read_mode = SPI_FLASH_READ_MODE_FAST_READ,                                        \
 		.address_bytes = SPI_FLASH_ADDRESS_BYTES_3,                                        \
-		.dummy_clocks = SPI_FLASH_DUMMY_CLOCKS_10,                                         \
+		.dummy_clocks = SPI_FLASH_DUMMY_CLOCKS_8,                                          \
 		.read_command = SPI_NOR_CMD_READ_FAST,                                             \
 		.page_program_command = SPI_NOR_CMD_PP,                                            \
 		.page_program_address_lines = SPI_FLASH_DATA_LINES_4,                              \
@@ -530,18 +491,23 @@ static DEVICE_API(flash, flash_renesas_rz_qspi_driver_api) = {
 	static const struct flash_renesas_rz_config flash_renesas_rz_config_##n = {                \
 		.pin_cfg = PINCTRL_DT_DEV_CONFIG_GET(DT_INST_PARENT(n)),                           \
 		.fsp_api = &g_spi_flash_on_xspi_qspi,                                              \
-		.flash_size = DT_INST_REG_SIZE(n),                                                 \
-		.erase_block_size = DT_INST_PROP_OR(n, erase_block_size, 4096),                    \
+		.flash_size = DT_REG_SIZE(RZ_QSPI_XSPI_SOC_NV_FLASH_NODE(n)),                      \
+		.erase_block_size =                                                                \
+			DT_PROP_OR(RZ_QSPI_XSPI_SOC_NV_FLASH_NODE(n), erase_block_size, 4096),     \
 		.flash_param =                                                                     \
 			{                                                                          \
-				.write_block_size = DT_INST_PROP(n, write_block_size),             \
+				.write_block_size = DT_PROP(RZ_QSPI_XSPI_SOC_NV_FLASH_NODE(n),     \
+							    write_block_size),                     \
 				.erase_value = QSPI_ERASE_VALUE,                                   \
 			},                                                                         \
 		IF_ENABLED(CONFIG_FLASH_PAGE_LAYOUT,	\
 		(.layout = {                                                                       \
 			.pages_count =                                                             \
-				DT_INST_REG_SIZE(n) / DT_INST_PROP_OR(n, erase_block_size, 4096),  \
-			.pages_size = DT_INST_PROP_OR(n, erase_block_size, 4096),                  \
+				DT_REG_SIZE(RZ_QSPI_XSPI_SOC_NV_FLASH_NODE(n)) /                   \
+				DT_PROP_OR(RZ_QSPI_XSPI_SOC_NV_FLASH_NODE(n),                      \
+					   erase_block_size, 4096),                                \
+			.pages_size = DT_PROP_OR(RZ_QSPI_XSPI_SOC_NV_FLASH_NODE(n),                \
+						  erase_block_size, 4096),                         \
 		},))};               \
 	DEVICE_DT_INST_DEFINE(n, flash_renesas_rz_init, NULL, &flash_renesas_rz_data_##n,          \
 			      &flash_renesas_rz_config_##n, POST_KERNEL,                           \
@@ -554,6 +520,11 @@ DT_INST_FOREACH_STATUS_OKAY(FLASH_RENESAS_RZ_QSPI_XSPI_DEFINE)
 #define DT_DRV_COMPAT renesas_rz_qspi_spibsc
 
 #if DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT)
+#define RZ_QSPI_SPIBSC_SOC_NV_FLASH_COMPAT(node_id)                                                \
+	COND_CODE_1(DT_NODE_HAS_COMPAT(node_id, soc_nv_flash), (node_id), ())
+#define RZ_QSPI_SPIBSC_SOC_NV_FLASH_NODE(n)                                                        \
+	DT_INST_FOREACH_CHILD_STATUS_OKAY(n, RZ_QSPI_SPIBSC_SOC_NV_FLASH_COMPAT)
+
 #define FLASH_RENESAS_RZ_QSPI_SPIBSC_DEFINE(n)                                                     \
 	static const spibsc_extended_cfg_t g_qspi##n##_extended_cfg = {                            \
 		.delay =                                                                           \
@@ -591,18 +562,23 @@ DT_INST_FOREACH_STATUS_OKAY(FLASH_RENESAS_RZ_QSPI_XSPI_DEFINE)
 	static const struct flash_renesas_rz_config flash_renesas_rz_config_##n = {                \
 		.pin_cfg = NULL,                                                                   \
 		.fsp_api = &g_spi_flash_on_spibsc,                                                 \
-		.flash_size = DT_INST_REG_SIZE(n),                                                 \
-		.erase_block_size = DT_INST_PROP_OR(n, erase_block_size, 4096),                    \
+		.flash_size = DT_REG_SIZE(RZ_QSPI_SPIBSC_SOC_NV_FLASH_NODE(n)),                    \
+		.erase_block_size =                                                                \
+			DT_PROP_OR(RZ_QSPI_SPIBSC_SOC_NV_FLASH_NODE(n), erase_block_size, 4096),   \
 		.flash_param =                                                                     \
 			{                                                                          \
-				.write_block_size = DT_INST_PROP(n, write_block_size),             \
+				.write_block_size = DT_PROP(RZ_QSPI_SPIBSC_SOC_NV_FLASH_NODE(n),   \
+							    write_block_size),                     \
 				.erase_value = QSPI_ERASE_VALUE,                                   \
 			},                                                                         \
 		IF_ENABLED(CONFIG_FLASH_PAGE_LAYOUT,	\
 		(.layout = {                                                                       \
 			.pages_count =                                                             \
-				DT_INST_REG_SIZE(n) / DT_INST_PROP_OR(n, erase_block_size, 4096),  \
-			.pages_size = DT_INST_PROP_OR(n, erase_block_size, 4096),                  \
+				DT_REG_SIZE(RZ_QSPI_SPIBSC_SOC_NV_FLASH_NODE(n)) /                 \
+				DT_PROP_OR(RZ_QSPI_SPIBSC_SOC_NV_FLASH_NODE(n),                    \
+					   erase_block_size, 4096),                                \
+			.pages_size = DT_PROP_OR(RZ_QSPI_SPIBSC_SOC_NV_FLASH_NODE(n),              \
+						  erase_block_size, 4096),                         \
 		},))};               \
 	DEVICE_DT_INST_DEFINE(n, flash_renesas_rz_init, NULL, &flash_renesas_rz_data_##n,          \
 			      &flash_renesas_rz_config_##n, POST_KERNEL,                           \

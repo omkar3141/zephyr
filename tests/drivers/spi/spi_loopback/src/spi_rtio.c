@@ -27,7 +27,7 @@ LOG_MODULE_REGISTER(spi_rtio_loopback);
 #define MODE_LOOP 0
 #endif
 
-#define SPI_OP SPI_OP_MODE_MASTER | SPI_MODE_CPOL | MODE_LOOP | \
+#define SPI_OP SPI_OP_MODE_CONTROLLER | SPI_MODE_CPOL | MODE_LOOP | \
 	       SPI_MODE_CPHA | SPI_WORD_SET(8) | SPI_LINES_SINGLE
 
 static SPI_DT_IODEV_DEFINE(spi_fast, SPI_FAST_DEV, SPI_OP);
@@ -35,7 +35,7 @@ static SPI_DT_IODEV_DEFINE(spi_slow, SPI_FAST_DEV, SPI_OP);
 
 RTIO_DEFINE(r, 8, 8);
 
-/* to run this test, connect MOSI pin to the MISO of the SPI */
+/* to run this test, connect the SDO pin to the SDI of the SPI */
 
 #define STACK_SIZE (512 + CONFIG_TEST_EXTRA_STACK_SIZE)
 #define BUF_SIZE 17
@@ -262,6 +262,11 @@ static int spi_rx_half_end(struct rtio_iodev *spi_iodev)
 		return 0;
 	}
 
+	if (IS_ENABLED(CONFIG_SPI_MAX32_DMA)) {
+		LOG_INF("Skip half end");
+		return 0;
+	}
+
 	sqe = rtio_sqe_acquire(&r);
 	rtio_sqe_prep_write(sqe, spi_iodev, RTIO_PRIO_NORM,
 				 buffer_tx, 8, NULL);
@@ -318,6 +323,11 @@ static int spi_rx_every_4(struct rtio_iodev *spi_iodev)
 	}
 
 	if (IS_ENABLED(CONFIG_DSPI_MCUX_EDMA)) {
+		LOG_INF("Skip every 4");
+		return 0;
+	}
+
+	if (IS_ENABLED(CONFIG_SPI_MAX32_DMA)) {
 		LOG_INF("Skip every 4");
 		return 0;
 	}

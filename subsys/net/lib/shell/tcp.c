@@ -102,8 +102,10 @@ static void tcp_connect(const struct shell *sh, char *host, uint16_t port,
 			struct net_context **ctx)
 {
 	struct net_if *iface = net_if_get_default();
-	struct net_sockaddr myaddr;
-	struct net_sockaddr addr;
+	struct net_sockaddr_storage myaddr = { 0 };
+	struct net_sockaddr_storage addr = { 0 };
+	struct net_sockaddr *my_sa = net_sad(&myaddr);
+	struct net_sockaddr *sa = net_sad(&addr);
 	struct net_nbr *nbr;
 	int addrlen;
 	int family;
@@ -111,73 +113,73 @@ static void tcp_connect(const struct shell *sh, char *host, uint16_t port,
 
 	if (IS_ENABLED(CONFIG_NET_IPV6) && !IS_ENABLED(CONFIG_NET_IPV4)) {
 		ret = net_addr_pton(NET_AF_INET6, host,
-				    &net_sin6(&addr)->sin6_addr);
+				    &net_sin6(sa)->sin6_addr);
 		if (ret < 0) {
 			PR_WARNING("Invalid IPv6 address\n");
 			return;
 		}
 
-		net_sin6(&addr)->sin6_port = net_htons(port);
+		net_sin6(sa)->sin6_port = net_htons(port);
 		addrlen = sizeof(struct net_sockaddr_in6);
 
-		nbr = net_ipv6_nbr_lookup(NULL, &net_sin6(&addr)->sin6_addr);
+		nbr = net_ipv6_nbr_lookup(NULL, &net_sin6(sa)->sin6_addr);
 		if (nbr) {
 			iface = nbr->iface;
 		}
 
-		get_my_ipv6_addr(iface, &myaddr);
-		family = addr.sa_family = myaddr.sa_family = NET_AF_INET6;
+		get_my_ipv6_addr(iface, my_sa);
+		family = sa->sa_family = my_sa->sa_family = NET_AF_INET6;
 
 	} else if (IS_ENABLED(CONFIG_NET_IPV4) &&
 		   !IS_ENABLED(CONFIG_NET_IPV6)) {
 		ARG_UNUSED(nbr);
 
-		ret = net_addr_pton(NET_AF_INET, host, &net_sin(&addr)->sin_addr);
+		ret = net_addr_pton(NET_AF_INET, host, &net_sin(sa)->sin_addr);
 		if (ret < 0) {
 			PR_WARNING("Invalid IPv4 address\n");
 			return;
 		}
 
-		get_my_ipv4_addr(iface, &myaddr);
-		net_sin(&addr)->sin_port = net_htons(port);
+		get_my_ipv4_addr(iface, my_sa);
+		net_sin(sa)->sin_port = net_htons(port);
 		addrlen = sizeof(struct net_sockaddr_in);
-		family = addr.sa_family = myaddr.sa_family = NET_AF_INET;
+		family = sa->sa_family = my_sa->sa_family = NET_AF_INET;
 	} else if (IS_ENABLED(CONFIG_NET_IPV6) &&
 		   IS_ENABLED(CONFIG_NET_IPV4)) {
 		ret = net_addr_pton(NET_AF_INET6, host,
-				    &net_sin6(&addr)->sin6_addr);
+				    &net_sin6(sa)->sin6_addr);
 		if (ret < 0) {
 			ret = net_addr_pton(NET_AF_INET, host,
-					    &net_sin(&addr)->sin_addr);
+					    &net_sin(sa)->sin_addr);
 			if (ret < 0) {
 				PR_WARNING("Invalid IP address\n");
 				return;
 			}
 
-			net_sin(&addr)->sin_port = net_htons(port);
+			net_sin(sa)->sin_port = net_htons(port);
 			addrlen = sizeof(struct net_sockaddr_in);
 
-			get_my_ipv4_addr(iface, &myaddr);
-			family = addr.sa_family = myaddr.sa_family = NET_AF_INET;
+			get_my_ipv4_addr(iface, my_sa);
+			family = sa->sa_family = my_sa->sa_family = NET_AF_INET;
 		} else {
-			net_sin6(&addr)->sin6_port = net_htons(port);
+			net_sin6(sa)->sin6_port = net_htons(port);
 			addrlen = sizeof(struct net_sockaddr_in6);
 
 			nbr = net_ipv6_nbr_lookup(NULL,
-						  &net_sin6(&addr)->sin6_addr);
+						  &net_sin6(sa)->sin6_addr);
 			if (nbr) {
 				iface = nbr->iface;
 			}
 
-			get_my_ipv6_addr(iface, &myaddr);
-			family = addr.sa_family = myaddr.sa_family = NET_AF_INET6;
+			get_my_ipv6_addr(iface, my_sa);
+			family = sa->sa_family = my_sa->sa_family = NET_AF_INET6;
 		}
 	} else {
 		PR_WARNING("No IPv6 nor IPv4 is enabled\n");
 		return;
 	}
 
-	print_connect_info(sh, family, &myaddr, &addr);
+	print_connect_info(sh, family, my_sa, sa);
 
 	ret = net_context_get(family, NET_SOCK_STREAM, NET_IPPROTO_TCP, ctx);
 	if (ret < 0) {
@@ -185,7 +187,7 @@ static void tcp_connect(const struct shell *sh, char *host, uint16_t port,
 		return;
 	}
 
-	ret = net_context_bind(*ctx, &myaddr, addrlen);
+	ret = net_context_bind(*ctx, my_sa, addrlen);
 	if (ret < 0) {
 		PR_WARNING("Cannot bind TCP (%d)\n", ret);
 		return;
@@ -205,7 +207,7 @@ static void tcp_connect(const struct shell *sh, char *host, uint16_t port,
 
 	net_context_ref(*ctx);
 
-	ret = net_context_connect(*ctx, &addr, addrlen, tcp_connected,
+	ret = net_context_connect(*ctx, sa, addrlen, tcp_connected,
 				  CONNECT_TIMEOUT, NULL);
 	if (ret < 0) {
 		PR_WARNING("Connect failed!\n");
@@ -258,8 +260,6 @@ static void tcp_recv_cb(struct net_context *context, struct net_pkt *pkt,
 static int cmd_net_tcp_connect(const struct shell *sh, size_t argc, char *argv[])
 {
 #if defined(CONFIG_NET_TCP) && defined(CONFIG_NET_NATIVE_TCP)
-	int arg = 0;
-
 	/* tcp connect <ip> port */
 	char *endptr;
 	char *ip;
@@ -271,21 +271,21 @@ static int cmd_net_tcp_connect(const struct shell *sh, size_t argc, char *argv[]
 		return -ENOEXEC;
 	}
 
-	if (!argv[++arg]) {
+	if (argv[1] == NULL) {
 		PR_WARNING("Peer IP address missing.\n");
 		return -ENOEXEC;
 	}
 
-	ip = argv[arg];
+	ip = argv[1];
 
-	if (!argv[++arg]) {
+	if (argv[2] == NULL) {
 		PR_WARNING("Peer port missing.\n");
 		return -ENOEXEC;
 	}
 
-	port = strtol(argv[arg], &endptr, 10);
+	port = strtol(argv[2], &endptr, 10);
 	if (*endptr != '\0') {
-		PR_WARNING("Invalid port %s\n", argv[arg]);
+		PR_WARNING("Invalid port %s\n", argv[2]);
 		return -ENOEXEC;
 	}
 
@@ -301,7 +301,6 @@ static int cmd_net_tcp_connect(const struct shell *sh, size_t argc, char *argv[]
 static int cmd_net_tcp_send(const struct shell *sh, size_t argc, char *argv[])
 {
 #if defined(CONFIG_NET_TCP) && defined(CONFIG_NET_NATIVE_TCP)
-	int arg = 0;
 	int ret;
 	struct net_shell_user_data user_data;
 
@@ -311,15 +310,15 @@ static int cmd_net_tcp_send(const struct shell *sh, size_t argc, char *argv[])
 		return -ENOEXEC;
 	}
 
-	if (!argv[++arg]) {
+	if (argv[1] == NULL) {
 		PR_WARNING("No data to send.\n");
 		return -ENOEXEC;
 	}
 
 	user_data.sh = sh;
 
-	ret = net_context_send(tcp_ctx, (uint8_t *)argv[arg],
-			       strlen(argv[arg]), tcp_sent_cb,
+	ret = net_context_send(tcp_ctx, (uint8_t *)argv[1],
+			       strlen(argv[1]), tcp_sent_cb,
 			       TCP_TIMEOUT, &user_data);
 	if (ret < 0) {
 		PR_WARNING("Cannot send msg (%d)\n", ret);
@@ -399,16 +398,17 @@ static int cmd_net_tcp(const struct shell *sh, size_t argc, char *argv[])
 
 SHELL_STATIC_SUBCMD_SET_CREATE(net_cmd_tcp,
 	SHELL_CMD(connect, NULL,
-		  "'net tcp connect <address> <port>' connects to TCP peer.",
+		  SHELL_HELP("Connects to TCP peer", "<address> <port>"),
 		  cmd_net_tcp_connect),
 	SHELL_CMD(send, NULL,
-		  "'net tcp send <data>' sends data to peer using TCP.",
+		  SHELL_HELP("Sends data to peer using TCP", "<data>"),
 		  cmd_net_tcp_send),
 	SHELL_CMD(recv, NULL,
-		  "'net tcp recv' receives data using TCP.",
+		  SHELL_HELP("Receives data using TCP", ""),
 		  cmd_net_tcp_recv),
 	SHELL_CMD(close, NULL,
-		  "'net tcp close' closes TCP connection.", cmd_net_tcp_close),
+		  SHELL_HELP("Closes TCP connection", ""),
+		  cmd_net_tcp_close),
 	SHELL_SUBCMD_SET_END
 );
 

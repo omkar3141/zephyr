@@ -22,7 +22,6 @@
 #include "common/bt_str.h"
 
 #include "crypto.h"
-#include "mesh.h"
 #include "net.h"
 #include "lpn.h"
 #include "friend.h"
@@ -203,7 +202,7 @@ static void subnet_keys_destroy(struct bt_mesh_subnet_keys *key)
 #if defined(CONFIG_BT_MESH_GATT_PROXY)
 	bt_mesh_key_destroy(&key->identity);
 #endif
-#if defined(CONFIG_BT_MESH_V1d1)
+#if defined(CONFIG_BT_MESH_PRIV_BEACONS)
 	bt_mesh_key_destroy(&key->priv_beacon);
 #endif
 }

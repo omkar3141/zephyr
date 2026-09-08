@@ -54,8 +54,7 @@
 		device_type = "memory";
 		reg = <0xd0000000 DT_SIZE_M(16)>;
 		zephyr,memory-region = "SDRAM2";
-		/* Frame buffer memory cache will cause screen flickering. */
-		zephyr,memory-attr = <DT_MEM_ARM(ATTR_MPU_RAM_NOCACHE)>;
+		zephyr,memory-attr = <DT_MEM_ARM(ATTR_MPU_RAM)>;
 	};
 
 	octo_nor: memory@90000000 {
@@ -74,7 +73,7 @@
 	};
 
 	dcmi_camera_connector: connector_dcmi_camera {
-		compatible = "st,stm32-dcmi-camera-fpu-330zh";
+		compatible = "st,dvp-cam-zif-30-connector";
 		#gpio-cells = <2>;
 		gpio-map-mask = <0xffffffff 0xffffffc0>;
 		gpio-map-pass-thru = <0 0x3f>;
@@ -96,8 +95,8 @@
 	};
 
 	aliases {
-		led0 = &blue_led;
-		led1 = &red_led;
+		led0 = &red_led;
+		led1 = &blue_led;
 		sw0 = &user_button;
 	};
 };
@@ -165,6 +164,8 @@
 st_cam_i2c: &i2c4 {
 	pinctrl-0 = <&i2c4_scl_pd12 &i2c4_sda_pd13>;
 	pinctrl-names = "default";
+	scl-gpios = <&gpiod 12 GPIO_ACTIVE_HIGH>;
+	sda-gpios = <&gpiod 13 GPIO_ACTIVE_HIGH>;
 	clock-frequency = <I2C_BITRATE_FAST>;
 	status = "okay";
 
@@ -313,4 +314,8 @@ st_cam_dvp: &dcmi {
 		     &dcmi_d0_pc6 &dcmi_d1_pc7 &dcmi_d2_pg10 &dcmi_d3_pc9
 		     &dcmi_d4_pc11 &dcmi_d5_pd3 &dcmi_d6_pb8 &dcmi_d7_pb9>;
 	pinctrl-names = "default";
+};
+
+zephyr_jpegenc: &jpeg {
+	status = "okay";
 };

@@ -1105,9 +1105,9 @@ uint8_t ull_cp_periodic_sync(struct ll_conn *conn, struct ll_sync_set *sync,
 		sid = adv->sid;
 
 		/* Pull AdvA from pdu */
-		adv_pdu = lll_adv_sync_data_curr_get(&adv_sync->lll);
+		/* Zephyr Controller by design always places BDADDR in the auxiliary channel PDU */
+		adv_pdu = lll_adv_aux_data_peek(adv->lll.aux);
 		addr_type = adv_pdu->tx_addr;
-		/* Note: AdvA is mandatory for AUX_SYNC_IND and at the start of the ext. header */
 		adva = adv_pdu->adv_ext_ind.ext_hdr.data;
 	}
 
@@ -1552,20 +1552,19 @@ void ull_lp_past_offset_calc_reply(struct ll_conn *conn, uint32_t offset_us,
 
 			/* Update offset_us */
 			offset_us = offset_us - (conn_event_offset * conn_interval_us);
-
-			ctx->data.periodic_sync.conn_event_count = ull_conn_event_counter(conn) +
-								   conn_event_offset;
 		}
 
 		llcp_pdu_fill_sync_info_offset(&ctx->data.periodic_sync.sync_info, offset_us);
+
 #if defined(CONFIG_BT_PERIPHERAL)
 		/* Save the result for later use */
 		ctx->data.periodic_sync.offset_us = offset_us;
 #endif /* CONFIG_BT_PERIPHERAL */
 
-		ctx->data.periodic_sync.sync_conn_event_count = ull_conn_event_counter(conn);
-		ctx->data.periodic_sync.conn_event_count = ull_conn_event_counter(conn) +
-							   conn_event_offset;
+		ctx->data.periodic_sync.sync_conn_event_count =
+			ull_conn_event_counter_at_prepare(conn) - 1U;
+		ctx->data.periodic_sync.conn_event_count =
+			ull_conn_event_counter_at_prepare(conn) + conn_event_offset - 1U;
 
 		ctx->data.periodic_sync.sync_info.evt_cntr = pa_event_counter;
 

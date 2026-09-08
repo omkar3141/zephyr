@@ -9,7 +9,13 @@ if(CONFIG_FILE_SYSTEM_LIB_LINK)
     zephyr_library_sources(fs.c fs_impl.c)
     zephyr_library_sources_ifdef(CONFIG_FAT_FILESYSTEM_ELM   fat_fs.c)
     zephyr_library_sources_ifdef(CONFIG_FILE_SYSTEM_LITTLEFS littlefs_fs.c)
+    zephyr_library_sources_ifdef(CONFIG_FILE_SYSTEM_RPMSGFS  rpmsgfs_fs.c)
     zephyr_library_sources_ifdef(CONFIG_FILE_SYSTEM_SHELL    shell.c)
+
+    if(CONFIG_FILE_SYSTEM_NATIVE_MOUNT)
+      zephyr_library_sources(native_mount.c)
+      target_sources(native_simulator INTERFACE native_mount_bottom.c)
+    endif()
 
     zephyr_library_compile_definitions_ifdef(CONFIG_FILE_SYSTEM_LITTLEFS
                                             LFS_CONFIG=zephyr_lfs_config.h
@@ -30,8 +36,6 @@ if(CONFIG_FILE_SYSTEM_LIB_LINK)
 endif()
 
 add_subdirectory_ifdef(CONFIG_FCB  ./fcb)
-add_subdirectory_ifdef(CONFIG_NVS  ./nvs)
-add_subdirectory_ifdef(CONFIG_ZMS  ./zms)
 
 if(CONFIG_FUSE_FS_ACCESS)
   zephyr_library_named(FS_FUSE)

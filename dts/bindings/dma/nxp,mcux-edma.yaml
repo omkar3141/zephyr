@@ -5,9 +5,12 @@ description: NXP MCUX EDMA controller
 
 compatible: "nxp,mcux-edma"
 
-include: dma-controller.yaml
+include: [dma-controller.yaml, reset-device.yaml]
 
 properties:
+  clocks:
+    type: phandle-array
+
   reg:
     required: true
     description: |
@@ -30,6 +33,12 @@ properties:
       Indicates the maximum value of the DMA request sources (slots) index supported by
       DMAMUX. This value is used to validate the request source index provided in the
       DMA specifier.
+
+  has-dmamux:
+    type: boolean
+    description: |
+      Indicates whether the DMA controller has an integrated DMAMUX.
+      If present, the controller includes DMAMUX functionality.
 
   dmamux-reg-offset:
     type: int

@@ -13,7 +13,8 @@
 	compatible = "seeed,xiao-esp32c6";
 
 	chosen {
-		zephyr,sram = &sramlp;
+		zephyr,flash = &flash0;
+		zephyr,sram = &ulp_ram;
 		zephyr,code-partition = &slot0_lpcore_partition;
 	};
 };

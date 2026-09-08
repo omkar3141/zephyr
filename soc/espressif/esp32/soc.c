@@ -6,15 +6,18 @@
  */
 
 #include <soc.h>
+#include <esp_rom_serial_output.h>
 #include <soc_init.h>
 #include <flash_init.h>
 #include <esp_private/cache_utils.h>
 #include <esp_private/system_internal.h>
 #include <esp_timer.h>
+#include <esp_memory_utils.h>
 #include <efuse_virtual.h>
 #include <psram.h>
 #include <zephyr/drivers/interrupt_controller/intc_esp32.h>
 #include <zephyr/sys/printk.h>
+#include <zephyr/arch/xtensa/xtensa_ptr.h>
 
 extern FUNC_NORETURN void z_prep_c(void);
 extern void esp_reset_reason_init(void);
@@ -58,13 +61,23 @@ void IRAM_ATTR __esp_platform_mcuboot_start(void)
 int IRAM_ATTR arch_printk_char_out(int c)
 {
 	if (c == '\n') {
-		esp_rom_uart_tx_one_char('\r');
+		esp_rom_output_tx_one_char('\r');
 	}
-	esp_rom_uart_tx_one_char(c);
+	esp_rom_output_tx_one_char(c);
 	return 0;
 }
 
 void sys_arch_reboot(int type)
 {
 	esp_restart();
+}
+
+bool xtensa_soc_ptr_executable(const void *p)
+{
+	return esp_ptr_executable(p);
+}
+
+bool xtensa_soc_stack_ptr_is_sane(uint32_t sp)
+{
+	return esp_stack_ptr_is_sane(sp);
 }

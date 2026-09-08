@@ -111,8 +111,7 @@ static void hf_sco_disconnected(struct bt_conn *sco_conn, uint8_t reason)
 		return;
 	}
 
-	bt_conn_unref(active_sco_conn);
-	active_sco_conn = NULL;
+	bt_conn_drop(&active_sco_conn);
 
 	err = pcm_rx_stop();
 	if (err != 0) {
@@ -247,7 +246,7 @@ static void bt_ready(int err)
 
 	printk("Bluetooth initialized\n");
 
-	err = bt_br_set_connectable(true);
+	err = bt_br_set_connectable(true, NULL);
 	if (err) {
 		printk("BR/EDR set/rest connectable failed (err %d)\n", err);
 		return;

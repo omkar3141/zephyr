@@ -27,8 +27,8 @@
 			reg = <0x20078000 0x4000>;
 		};
 
-		sram_ipc1_tx: memory@2007C000 {
-			reg = <0x2007C000 0x4000>;
+		sram_ipc1_tx: memory@2007c000 {
+			reg = <0x2007c000 0x4000>;
 		};
 	};
 
@@ -50,7 +50,7 @@
 			compatible = "zephyr,ipc-icbmsg";
 			tx-region = <&sram_ipc1_tx>;
 			rx-region = <&sram_ipc1_rx>;
-			tx-blocks = <48>;
+			tx-blocks = <32>;
 			rx-blocks = <32>;
 			mboxes = <&mbox 2>, <&mbox 3>;
 			mbox-names = "rx", "tx";

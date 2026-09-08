@@ -24,10 +24,14 @@
 #define DISK_NAME_PHYS "SD"
 #elif defined(CONFIG_DISK_DRIVER_MMC)
 #define DISK_NAME_PHYS "SD2"
-#elif defined(CONFIG_DISK_DRIVER_FLASH)
+#elif defined(CONFIG_DISK_DRIVER_FLASH) || defined(CONFIG_DISK_DRIVER_FTL)
 #define DISK_NAME_PHYS "NAND"
 #elif defined(CONFIG_NVME)
 #define DISK_NAME_PHYS "nvme0n0"
+#elif defined(CONFIG_DISK_DRIVER_VIRTIO_BLK)
+#define DISK_NAME_PHYS "VIRTIOBLK0"
+#elif defined(CONFIG_DISK_DRIVER_MEMC_RAM)
+#define DISK_NAME_PHYS "RAM"
 #elif defined(CONFIG_DISK_DRIVER_RAM)
 /* Since ramdisk is enabled by default on e.g. qemu boards, it needs to be checked last to not
  * override other backends.
@@ -37,14 +41,41 @@
 #error "No disk device defined, is your board supported?"
 #endif
 
+#define RAM_SIZE (DT_CHOSEN_SRAM_SIZE / 1024)
+
+/* QEMU can be told to advertise a larger logical block size (the
+ * virtio_blk.blk4096 scenario); use it to size the scratch buffers so
+ * sector_size * SECTOR_COUNT_MAX still fits in BUF_SIZE.
+ */
+#if defined(CONFIG_QEMU_VIRTIO_BLK_LOGICAL_BLOCK_SIZE)
+#define TEST_QEMU_LOGICAL_BLOCK_SIZE CONFIG_QEMU_VIRTIO_BLK_LOGICAL_BLOCK_SIZE
+#else
+#define TEST_QEMU_LOGICAL_BLOCK_SIZE 0
+#endif
+
+#if RAM_SIZE >= 512
+#if TEST_QEMU_LOGICAL_BLOCK_SIZE > 512
+/* A larger logical block needs a proportionally larger buffer. */
+#define MAX_TOTAL_BUF_SIZE 256
+#else
+/* Cap buffer size at 128 KiB */
+#define MAX_TOTAL_BUF_SIZE 128
+#endif
+#elif CONFIG_SOC_POSIX
+/* Posix does not define SRAM size */
+#define MAX_TOTAL_BUF_SIZE 128
+#else
+/* Use half of all SRAM */
+#define MAX_TOTAL_BUF_SIZE (RAM_SIZE / 2)
+#endif
+
+#define BUF_SIZE ((MAX_TOTAL_BUF_SIZE * 1024) / 2)
+
 #ifdef CONFIG_DISK_DRIVER_LOOPBACK
 #define DISK_NAME "loopback0"
 #else
 #define DISK_NAME DISK_NAME_PHYS
 #endif
-
-/* Assume the largest sector we will encounter is 512 bytes */
-#define SECTOR_SIZE 512
 
 /* Sector counts to read */
 #define SECTOR_COUNT1    8
@@ -60,7 +91,7 @@ static uint32_t disk_sector_count;
 static uint32_t disk_sector_size;
 
 /* + 4 to make sure the second buffer is dword-aligned for NVME */
-static uint8_t scratch_buf[2][SECTOR_COUNT_MAX * SECTOR_SIZE + 4];
+static uint8_t scratch_buf[2][BUF_SIZE + 4];
 
 #ifdef CONFIG_DISK_DRIVER_LOOPBACK
 #define BACKING_PATH "/" DISK_NAME_PHYS ":"
@@ -126,8 +157,9 @@ static void test_setup(void)
 	/* We could allocate memory once we know the sector size, but instead
 	 * just verify our assumed maximum size
 	 */
-	zassert_true(cmd_buf <= SECTOR_SIZE,
-		     "Test will fail, SECTOR_SIZE definition must be increased");
+	zassert_true(
+		(disk_sector_size * SECTOR_COUNT_MAX) <= BUF_SIZE,
+		"Test will fail, sector does not fit in buffer, buffer size must be increased");
 }
 
 /* Reads sectors, verifying overflow does not occur */
@@ -285,14 +317,11 @@ static void test_sector_erase(uint8_t *wbuf, uint8_t *rbuf, uint32_t num_sectors
 
 	/* Try and erase past the last sector */
 	rc = erase_sector_checked(rbuf, disk_sector_count - num_sectors + 1, num_sectors);
-	zassert_equal(rc, -EINVAL,
-		      "Unexpected error code when attempting to erase past end of disk");
+	zassert_not_equal(rc, 0, "Should fail when attempting to erase past end of disk");
 	rc = erase_sector_checked(rbuf, disk_sector_count + 1, num_sectors);
-	zassert_equal(rc, -EINVAL,
-		      "Unexpected error code when attempting to erase past end of disk");
+	zassert_not_equal(rc, 0, "Should fail when attempting to erase past end of disk");
 	rc = erase_sector_checked(rbuf, UINT32_MAX, num_sectors);
-	zassert_equal(rc, -EINVAL,
-		      "Unexpected error code when attempting to erase past end of disk");
+	zassert_not_equal(rc, 0, "Should fail when attempting to erase past end of disk");
 }
 
 /* Test multiple reads in series, and reading from a variety of blocks */

@@ -83,7 +83,7 @@ static int renesas_ra_sci_b_i2c_configure(const struct device *dev, uint32_t dev
 	struct sci_b_i2c_data *data = (struct sci_b_i2c_data *const)dev->data;
 
 	if (!(dev_config & I2C_MODE_CONTROLLER)) {
-		LOG_ERR("Only I2C Master mode supported.");
+		LOG_ERR("Only I2C controller mode supported.");
 		return -EIO;
 	}
 
@@ -129,10 +129,6 @@ static int renesas_ra_sci_b_i2c_transfer(const struct device *dev, struct i2c_ms
 	uint8_t *merge_buf = data->merge_buf;
 	struct i2c_msg tmp_msg;
 	uint16_t tmp_len;
-
-	if (!num_msgs) {
-		return 0;
-	}
 
 	/* Handle i2c burst write, restructure message to be compatible with HAL*/
 	if (num_msgs == 2) {
@@ -585,7 +581,7 @@ static void calc_sci_b_iic_clock_setting(const struct device *dev, const uint32_
 	clk_cfg->cycles_value = (uint8_t)sda_delay_counts;
 }
 
-static const struct i2c_driver_api renesas_ra_sci_b_i2c_driver_api = {
+static DEVICE_API(i2c, renesas_ra_sci_b_i2c_driver_api) = {
 	.configure = renesas_ra_sci_b_i2c_configure,
 	.get_config = renesas_ra_sci_b_i2c_get_config,
 	.transfer = renesas_ra_sci_b_i2c_transfer,

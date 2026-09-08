@@ -9,7 +9,12 @@
 #include <zephyr/kernel.h>
 
 DT_SCMI_PROTOCOL_DEFINE_NODEV(DT_INST(0, arm_scmi_system), NULL,
-		SCMI_SYSTEM_POWER_PROTOCOL_SUPPORTED_VERSION);
+		SCMI_SYSTEM_POWER_PROTOCOL_SUPPORTED_VERSION, NULL);
+
+enum scmi_system_message {
+	SYSTEM_POWER_STATE_SET = 0x3,
+	SYSTEM_POWER_STATE_NOTIFY = 0x5,
+};
 
 int scmi_system_protocol_version(uint32_t *version)
 {
@@ -45,9 +50,8 @@ int scmi_system_power_state_set(struct scmi_system_power_state_config *cfg)
 	struct scmi_message msg, reply;
 	int32_t status;
 	int ret;
-	bool use_polling;
 
-	/* sanity checks */
+	/* input validation */
 	if (!proto || !cfg) {
 		return -EINVAL;
 	}
@@ -56,7 +60,7 @@ int scmi_system_power_state_set(struct scmi_system_power_state_config *cfg)
 		return -EINVAL;
 	}
 
-	msg.hdr = SCMI_MESSAGE_HDR_MAKE(SCMI_SYSTEM_MSG_POWER_STATE_SET, SCMI_COMMAND,
+	msg.hdr = SCMI_MESSAGE_HDR_MAKE(SYSTEM_POWER_STATE_SET, SCMI_COMMAND,
 					proto->id, 0x0);
 	msg.len = sizeof(*cfg);
 	msg.content = cfg;
@@ -65,9 +69,7 @@ int scmi_system_power_state_set(struct scmi_system_power_state_config *cfg)
 	reply.len = sizeof(status);
 	reply.content = &status;
 
-	use_polling = k_is_pre_kernel();
-
-	ret = scmi_send_message(proto, &msg, &reply, use_polling);
+	ret = scmi_send_message(proto, &msg, &reply, false);
 	if (ret < 0) {
 		return ret;
 	}

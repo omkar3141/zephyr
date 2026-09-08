@@ -160,7 +160,7 @@ static struct net_icmpv6_nd_opt_6co ctx2 = {
 #define udp_src_port_8bit_y 0xf011 /* compressible */
 #define udp_dst_port_8bit   0xf122
 
-/* uncompressible ports */
+/* incompressible ports */
 #define udp_src_port_16bit 0xff11
 #define udp_dst_port_16bit 0xff22
 
@@ -253,9 +253,7 @@ struct net_6lo_data {
 
 int net_6lo_dev_init(const struct device *dev)
 {
-	struct net_6lo_context *net_6lo_context = dev->data;
-
-	net_6lo_context = net_6lo_context;
+	ARG_UNUSED(dev);
 
 	return 0;
 }

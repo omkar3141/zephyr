@@ -22,12 +22,11 @@ import argparse
 import contextlib
 import logging
 import pathlib
-import struct
 import sys
 
+import llext_elf_toolkit
 import llext_slidlib
 from elftools.elf.elffile import ELFFile
-from elftools.elf.sections import Section
 
 #!!!!! WARNING !!!!!
 #
@@ -39,55 +38,7 @@ from elftools.elf.sections import Section
 
 LLEXT_EXPORT_TABLE_SECTION_NAME = "llext_const_symbol_area"
 LLEXT_EXPORT_NAMES_SECTION_NAME = "llext_exports_strtab"
-
-
-def _llext_const_symbol_struct(ptr_size: int, endianness: str):
-    """
-    ptr_size -- Platform pointer size in bytes
-    endianness -- Platform endianness ('little'/'big')
-    """
-    endspec = "<" if endianness == 'little' else ">"
-    if ptr_size == 4:
-        ptrspec = "I"
-    elif ptr_size == 8:
-        ptrspec = "Q"
-
-    # struct llext_const_symbol
-    # contains just two pointers.
-    lcs_spec = endspec + 2 * ptrspec
-    return struct.Struct(lcs_spec)
-
-
-# ELF Shdr flag applied to the export table section, to indicate
-# the section has already been prepared by this script. This is
-# mostly a security measure to prevent the script from running
-# twice on the same ELF file, which can result in catastrophic
-# failures if SLID-based linking is enabled (in this case, the
-# preparation process is destructive).
-#
-# This flag is part of the SHF_MASKOS mask, of which all bits
-# are "reserved for operating system-specific semantics".
-# See: https://refspecs.linuxbase.org/elf/gabi4+/ch4.sheader.html
-SHF_LLEXT_PREPARATION_DONE = 0x08000000
-
-
-class SectionDescriptor:
-    """ELF Section descriptor
-
-    This is a wrapper class around pyelftools' "Section" object.
-    """
-
-    def __init__(self, elffile, section_name):
-        self.name = section_name
-        self.section = elffile.get_section_by_name(section_name)
-        if not isinstance(self.section, Section):
-            raise KeyError(f"section {section_name} not found")
-
-        self.shdr_index = elffile.get_section_index(section_name)
-        self.shdr_offset = elffile['e_shoff'] + self.shdr_index * elffile['e_shentsize']
-        self.size = self.section['sh_size']
-        self.flags = self.section['sh_flags']
-        self.offset = self.section['sh_offset']
+STRUCT_LLEXT_CONST_SYMBOL_DESC = "PP"  # two pointers
 
 
 class LLEXTExptabManipulator:
@@ -174,11 +125,20 @@ class ZephyrElfExptabPreparator:
         # 2) Generate the SLID for all exports
         collided = False
         sorted_exptab = dict()
+        repeated_exptab = []
         for name, export_addr in exports_list:
             slid = llext_slidlib.generate_slid(name, self.ptrsize)
 
             collision = sorted_exptab.get(slid)
             if collision:
+                if name == collision[0] and export_addr == collision[1]:
+                    # This is not a real collision, but the same symbol being exported
+                    # multiple times. In this case, we can just ignore the "collision".
+                    self.log.warning(
+                        f"Duplicate export: name {name}, exported addr 0x{export_addr:X}"
+                    )
+                    repeated_exptab.append((slid, name, export_addr))
+                    continue
                 # Don't abort immediately on collision,
                 # if there are others we want to log them all.
                 self.log.error(
@@ -191,8 +151,14 @@ class ZephyrElfExptabPreparator:
         if collided:
             return 1
 
-        # 3) Sort the export table (order specified above)
-        sorted_exptab = dict(sorted(sorted_exptab.items()))
+        # 3) Merge unique and repeated exports to keep same number of entries with original exptab,
+        # then sort by SLID (order specified above)
+        sorted_exptab = [
+            (slid, name_and_symaddr[0], name_and_symaddr[1])
+            for slid, name_and_symaddr in sorted_exptab.items()
+        ]
+        sorted_exptab.extend(repeated_exptab)
+        sorted_exptab = sorted(sorted_exptab, key=lambda item: item[0])
 
         # 4) Write the updated export table to ELF, and dump
         # to SLID listing if requested by caller
@@ -214,13 +180,13 @@ class ZephyrElfExptabPreparator:
 
             self.log.info("SLID -> export name mapping:")
 
-            for i, (slid, name_and_symaddr) in enumerate(sorted_exptab.items()):
+            for i, (slid, name, symaddr) in enumerate(sorted_exptab):
                 slid_as_str = llext_slidlib.format_slid(slid, self.ptrsize)
-                msg = f"{slid_as_str} -> {name_and_symaddr[0]}"
+                msg = f"{slid_as_str} -> {name}"
                 self.log.info(msg)
                 slidlist_write(msg)
 
-                self.exptab_manipulator[i] = (slid, name_and_symaddr[1])
+                self.exptab_manipulator[i] = (slid, symaddr)
         return 0
 
     def _prepare_exptab_for_str_linking(self):
@@ -262,7 +228,7 @@ class ZephyrElfExptabPreparator:
         self.elf_fd.seek(off)
         sh_flags = int.from_bytes(self.elf_fd.read(SHF_SIZE), self.endianness)
 
-        sh_flags |= SHF_LLEXT_PREPARATION_DONE
+        sh_flags |= llext_elf_toolkit.SHF_LLEXT_PREPARATION_DONE
 
         self.elf_fd.seek(off)
         self.elf_fd.write(int.to_bytes(sh_flags, self.ptrsize, self.endianness))
@@ -270,13 +236,15 @@ class ZephyrElfExptabPreparator:
     def _prepare_inner(self):
         # Locate the export table section
         try:
-            self.exptab_section = SectionDescriptor(self.elf, LLEXT_EXPORT_TABLE_SECTION_NAME)
+            self.exptab_section = llext_elf_toolkit.SectionDescriptor(
+                self.elf, LLEXT_EXPORT_TABLE_SECTION_NAME
+            )
         except KeyError as e:
             self.log.error(e.args[0])
             return 1
 
         # Abort if the ELF has already been processed
-        if (self.exptab_section.flags & SHF_LLEXT_PREPARATION_DONE) != 0:
+        if (self.exptab_section.flags & llext_elf_toolkit.SHF_LLEXT_PREPARATION_DONE) != 0:
             self.log.warning(
                 "exptab section flagged with LLEXT_PREPARATION_DONE - not preparing again"
             )
@@ -285,7 +253,9 @@ class ZephyrElfExptabPreparator:
         # Get the struct.Struct for export table entry
         self.ptrsize = self.elf.elfclass // 8
         self.endianness = 'little' if self.elf.little_endian else 'big'
-        self.lcs_struct = _llext_const_symbol_struct(self.ptrsize, self.endianness)
+        self.lcs_struct = llext_elf_toolkit.get_target_specific_structure(
+            STRUCT_LLEXT_CONST_SYMBOL_DESC, self.ptrsize, self.endianness
+        )
 
         # Verify that the export table size is coherent
         if (self.exptab_section.size % self.lcs_struct.size) != 0:
@@ -303,7 +273,9 @@ class ZephyrElfExptabPreparator:
 
         # Attempt to locate the export names section
         try:
-            self.expstrtab_section = SectionDescriptor(self.elf, LLEXT_EXPORT_NAMES_SECTION_NAME)
+            self.expstrtab_section = llext_elf_toolkit.SectionDescriptor(
+                self.elf, LLEXT_EXPORT_NAMES_SECTION_NAME
+            )
         except KeyError:
             self.expstrtab_section = None
 
@@ -324,6 +296,8 @@ class ZephyrElfExptabPreparator:
 
         if res == 0:  # Add the "prepared" flag to export table section
             self._set_prep_done_shdr_flag()
+        else:
+            raise RuntimeError(f"export table preparation failed, ret code: {res}")
 
     def prepare_elf(self):
         res = self._prepare_inner()

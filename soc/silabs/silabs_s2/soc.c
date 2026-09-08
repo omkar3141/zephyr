@@ -9,6 +9,7 @@
  * @brief SoC initialization for Silicon Labs Series 2 products
  */
 
+#include <zephyr/irq.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
@@ -17,6 +18,7 @@
 #include <sl_clock_manager_init.h>
 #include <sl_hfxo_manager.h>
 #include <sl_power_manager.h>
+#include <sl_sleeptimer.h>
 
 #include <soc_radio.h>
 
@@ -48,6 +50,10 @@ void soc_early_init_hook(void)
 	}
 	sl_clock_manager_init();
 
+	if (IS_ENABLED(CONFIG_SILABS_SISDK_SLEEPTIMER)) {
+		sl_sleeptimer_init();
+	}
+
 	if (IS_ENABLED(CONFIG_SILABS_SISDK_HFXO_MANAGER)) {
 		sl_hfxo_manager_init_hardware();
 		sl_hfxo_manager_init();
@@ -56,7 +62,7 @@ void soc_early_init_hook(void)
 		sl_power_manager_init();
 	}
 	if (IS_ENABLED(CONFIG_SOC_GECKO_USE_RAIL)) {
-		rail_isr_installer();
+		soc_radio_init();
 	}
 }
 
@@ -110,7 +116,7 @@ void soc_prep_hook(void)
 	__DSB();
 	__ISB();
 
-	NVIC_ClearPendingIRQ(SMU_SECURE_IRQn);
+	k_irq_clear_pending(SMU_SECURE_IRQn);
 	SMU->IF_CLR = SMU_IF_PPUSEC | SMU_IF_BMPUSEC;
 	SMU->IEN = SMU_IEN_PPUSEC | SMU_IEN_BMPUSEC;
 #endif

@@ -28,7 +28,7 @@
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/sys/util_macro.h>
-#include <zephyr/sys_clock.h>
+#include <zephyr/sys/clock.h>
 
 #include "mesh/access.h"
 #include "mesh/dfu_slot.h"
@@ -4486,7 +4486,7 @@ static int cmd_blob_target(uint16_t addr)
 
 	if (blob_cli_xfer.target_count == ARRAY_SIZE(blob_cli_xfer.targets)) {
 		LOG_ERR("No more room");
-		return 0;
+		return -ENOMEM;
 	}
 
 	t = &blob_cli_xfer.targets[blob_cli_xfer.target_count];

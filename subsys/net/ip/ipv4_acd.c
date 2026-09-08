@@ -16,6 +16,7 @@ LOG_MODULE_REGISTER(net_ipv4_acd, CONFIG_NET_IPV4_ACD_LOG_LEVEL);
 #include <zephyr/net/ethernet.h>
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/net_l2.h>
+#include <zephyr/net/net_log.h>
 #include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/net_pkt.h>
 #include <zephyr/random/random.h>
@@ -27,8 +28,10 @@ LOG_MODULE_REGISTER(net_ipv4_acd, CONFIG_NET_IPV4_ACD_LOG_LEVEL);
 
 static K_MUTEX_DEFINE(lock);
 
+static void ipv4_acd_timeout(struct k_work *work);
+
 /* Address conflict detection timer. */
-static struct k_work_delayable ipv4_acd_timer;
+static K_WORK_DELAYABLE_DEFINE(ipv4_acd_timer, ipv4_acd_timeout);
 
 /* List of IPv4 addresses under an active conflict detection. */
 static sys_slist_t active_acd_timers;
@@ -267,12 +270,25 @@ enum net_verdict net_ipv4_acd_input(struct net_if *iface, struct net_pkt *pkt)
 	sys_snode_t *current, *next;
 	struct net_arp_hdr *arp_hdr;
 	struct net_if_ipv4 *ipv4;
+	struct net_linkaddr *dst_lladdr;
+	struct net_linkaddr *ll_addr;
 
 	if (net_pkt_get_len(pkt) < sizeof(struct net_arp_hdr)) {
 		NET_DBG("Invalid ARP header (len %zu, min %zu bytes)",
 			net_pkt_get_len(pkt), sizeof(struct net_arp_hdr));
 		return NET_DROP;
 	}
+
+	dst_lladdr = net_pkt_lladdr_dst(pkt);
+	if ((dst_lladdr->type != NET_LINK_ETHERNET) ||
+	    (dst_lladdr->len != sizeof(struct net_eth_addr))) {
+		NET_ERR("Invalid LinkLayer in ARP");
+		return NET_DROP;
+	}
+
+	ll_addr = net_if_get_link_addr(iface);
+
+	NET_ASSERT(ll_addr != NULL);
 
 	arp_hdr = NET_ARP_HDR(pkt);
 
@@ -282,7 +298,6 @@ enum net_verdict net_ipv4_acd_input(struct net_if *iface, struct net_pkt *pkt)
 		struct net_if_addr *ifaddr =
 			CONTAINER_OF(current, struct net_if_addr, acd_node);
 		struct net_if *addr_iface = net_if_get_by_index(ifaddr->ifindex);
-		struct net_linkaddr *ll_addr;
 
 		if (iface != addr_iface) {
 			continue;
@@ -292,21 +307,20 @@ enum net_verdict net_ipv4_acd_input(struct net_if *iface, struct net_pkt *pkt)
 			continue;
 		}
 
-		ll_addr = net_if_get_link_addr(addr_iface);
-
 		/* RFC 5227, ch. 2.1.1 Probe Details:
 		 * - ARP Request/Reply with Sender IP address match OR,
 		 * - ARP Probe where Target IP address match with different sender HW address,
 		 * indicate a conflict.
-		 * ARP Probe has an all-zero sender IP address
+		 * ARP Probe has an all-zero sender IP address and is broadcasted
 		 */
 		if (net_ipv4_addr_cmp_raw(arp_hdr->src_ipaddr,
 					  (uint8_t *)&ifaddr->address.in_addr) ||
 		    (net_ipv4_addr_cmp_raw(arp_hdr->dst_ipaddr,
-					  (uint8_t *)&ifaddr->address.in_addr) &&
-				 (memcmp(&arp_hdr->src_hwaddr, ll_addr->addr, ll_addr->len) != 0) &&
-				 (net_ipv4_addr_cmp_raw(arp_hdr->src_ipaddr,
-					(uint8_t *)&(struct net_in_addr)NET_INADDR_ANY_INIT)))) {
+					   (uint8_t *)&ifaddr->address.in_addr) &&
+		     (memcmp(&arp_hdr->src_hwaddr, ll_addr->addr, ll_addr->len) != 0) &&
+		     (net_ipv4_addr_cmp_raw(arp_hdr->src_ipaddr,
+					    (uint8_t *)&(struct net_in_addr)NET_INADDR_ANY_INIT)) &&
+		     net_eth_is_addr_broadcast((struct net_eth_addr *)dst_lladdr->addr))) {
 			NET_DBG("Conflict detected from %s for %s",
 				net_sprint_ll_addr((uint8_t *)&arp_hdr->src_hwaddr,
 						   arp_hdr->hwlen),
@@ -334,7 +348,6 @@ enum net_verdict net_ipv4_acd_input(struct net_if *iface, struct net_pkt *pkt)
 	 */
 	ARRAY_FOR_EACH(ipv4->unicast, i) {
 		struct net_if_addr *ifaddr = &ipv4->unicast[i].ipv4;
-		struct net_linkaddr *ll_addr = net_if_get_link_addr(iface);
 
 		if (!ifaddr->is_used) {
 			continue;
@@ -377,11 +390,6 @@ enum net_verdict net_ipv4_acd_input(struct net_if *iface, struct net_pkt *pkt)
 
 out:
 	return NET_CONTINUE;
-}
-
-void net_ipv4_acd_init(void)
-{
-	k_work_init_delayable(&ipv4_acd_timer, ipv4_acd_timeout);
 }
 
 int net_ipv4_acd_start(struct net_if *iface, struct net_if_addr *ifaddr)

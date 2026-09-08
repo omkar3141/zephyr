@@ -209,6 +209,56 @@ Additional requirements:
 - If you are altering an existing commit created by someone else, you must add
   your Signed-off-by: line without removing the existing one.
 
+.. _ai_coding_assistants:
+
+AI Coding Assistants
+********************
+
+This section provides guidance for contributors using AI tools and assistants when contributing to
+the Zephyr project.
+
+Licensing and Legal Requirements
+================================
+
+All contributions must comply with the licensing requirements of the project and be compatible with
+Zephyr's licensing (e.g. Apache-2.0, see :ref:`licensing_requirements` for more details).
+
+Signed-off-by and Developer Certificate of Origin
+=================================================
+
+AI agents **must not** add ``Signed-off-by`` tags. Only humans can legally certify the :ref:`DCO`.
+The human submitter is responsible for:
+
+- Reviewing all AI-generated code.
+- Ensuring compliance with licensing requirements.
+- Adding their own Signed-off-by tag to certify the DCO.
+- Taking full responsibility for the contribution.
+
+Usage disclosure and attribution
+================================
+
+When AI tools are being used to help write a contribution, proper attribution helps track the
+evolving role of AI in the development process. Contributions should include an ``Assisted-by:`` tag
+in the following format:
+
+.. code-block:: none
+
+   Assisted-by: [Agent Name]:[Model Version] [Tool1] [Tool2]
+
+Where:
+
+- ``[Agent Name]`` is the name of the AI tool or framework.
+- ``[Model Version]`` is the specific model version used.
+- ``[Tool1] [Tool2]`` are optional specialized analysis tools used.
+
+Basic development tools (git, gcc, make, editors) should not be listed.
+
+Example:
+
+.. code-block:: none
+
+   Assisted-by: Claude:claude-opus-4.6 coccinelle
+
 .. _source_tree_v2:
 
 Source Tree Structure
@@ -609,6 +659,14 @@ before opening a new Pull Request:
 
    ./scripts/ci/check_compliance.py -c <commit range>
 
+The checks run in parallel, using one worker process per CPU. Pass ``-p N`` to
+limit the number of worker processes to ``N``, or ``-p 1`` to run the checks
+sequentially.
+
+.. code-block:: bash
+
+   ./scripts/ci/check_compliance.py -p 1 -c <commit range>
+
 .. note::
    On Windows if the .pl extension has not yet been associated with an
    application, then the first time a .pl file is run without specifying an
@@ -820,13 +878,13 @@ workflow here:
 #. Create a topic branch (off of ``main``) for your work (if you're addressing
    an issue, we suggest including the issue number in the branch name)::
 
-     git checkout main
-     git checkout -b fix_comment_typo
+     git switch main
+     git switch -c fix_comment_typo
 
    Some Zephyr subsystems do development work on a separate branch from
    ``main`` so you may need to indicate this in your checkout::
 
-     git checkout -b fix_out_of_date_patch origin/net
+     git switch -c fix_out_of_date_patch origin/net
 
 #. Make changes, test locally, change, test, test again, ...  (Check out the
    prior chapter on `twister`_ as well).
@@ -878,8 +936,8 @@ workflow here:
    can create another branch to work on another issue. (Be sure to make your
    new branch off of ``main`` and not the previous branch.)::
 
-     git checkout main
-     git checkout -b fix_another_issue
+     git switch main
+     git switch -c fix_another_issue
 
    and use the same process described above to work on this new topic branch.
 

@@ -47,7 +47,7 @@ struct usb_i2s_ctx {
 	bool i2s_started;
 	bool microframes;
 	/* Number of blocks written, used to determine when to start I2S.
-	 * Overflows are not a problem becuse this variable is not necessary
+	 * Overflows are not a problem because this variable is not necessary
 	 * after I2S is started.
 	 */
 	uint8_t i2s_blocks_written;
@@ -276,7 +276,7 @@ int main(void)
 	config.word_size = SAMPLE_BIT_WIDTH;
 	config.channels = NUMBER_OF_CHANNELS;
 	config.format = I2S_FMT_DATA_FORMAT_I2S;
-	config.options = I2S_OPT_BIT_CLK_MASTER | I2S_OPT_FRAME_CLK_MASTER;
+	config.options = I2S_OPT_BIT_CLK_CONTROLLER | I2S_OPT_FRAME_CLK_CONTROLLER;
 	config.frame_clk_freq = SAMPLE_FREQUENCY;
 	config.mem_slab = &i2s_tx_slab;
 	config.block_size = MAX_BLOCK_SIZE;

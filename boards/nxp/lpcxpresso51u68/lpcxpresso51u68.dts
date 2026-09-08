@@ -1,12 +1,13 @@
 /*
  * Copyright (c) 2021 metraTec GmbH
+ * Copyright 2026 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 /dts-v1/;
 
-#include <nxp/nxp_lpc51u68.dtsi>
+#include <nxp/lpc/lpc51u68/nxp_lpc51u68.dtsi>
 #include "lpcxpresso51u68-pinctrl.dtsi"
 #include <zephyr/dt-bindings/input/input-event-codes.h>
 
@@ -19,6 +20,7 @@
 		zephyr,flash = &flash0;
 		zephyr,console = &flexcomm0;
 		zephyr,shell-uart = &flexcomm0;
+		zephyr,crc = &crc;
 	};
 
 	aliases {
@@ -73,6 +75,14 @@
 	};
 };
 
+&gint0 {
+	status = "okay";
+};
+
+&gint1 {
+	status = "okay";
+};
+
 &flexcomm0 {
 	status = "okay";
 	compatible = "nxp,lpc-usart";
@@ -98,4 +108,8 @@
 	pinctrl-names = "default";
 	#address-cells = <1>;
 	#size-cells = <0>;
+};
+
+&crc {
+	status = "okay";
 };

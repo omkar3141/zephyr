@@ -630,10 +630,7 @@ static int gpio_intel_acpi_enum(const struct device *dev, int bank_idx, char *hi
 
 #define GPIO_INIT_CONFIG(n)                                                                        \
 	static const struct gpio_intel_config gpio_intel_cfg_##n = {                               \
-		.common =                                                                          \
-			{                                                                          \
-				.port_pin_mask = GPIO_PORT_PIN_MASK_FROM_DT_INST(n),               \
-			},                                                                         \
+		.common = GPIO_COMMON_CONFIG_FROM_DT_INST(n),                                      \
 	}
 #else
 
@@ -673,7 +670,7 @@ static int gpio_intel_dts_init(const struct device *dev)
 		IRQ_CONNECT(DT_INST_IRQN(0),
 			    DT_INST_IRQ(0, priority),
 			    gpio_intel_isr, dev,
-			    DT_INST_IRQ(0, sense));
+			    DT_INST_IRQ(0, flags));
 
 		irq_enable(DT_INST_IRQN(0));
 
@@ -698,10 +695,7 @@ static int gpio_intel_dts_init(const struct device *dev)
 
 #define GPIO_INIT_CONFIG(n)                                                                        \
 	static const struct gpio_intel_config gpio_intel_cfg_##n = {                               \
-		.common =                                                                          \
-			{                                                                          \
-				.port_pin_mask = GPIO_PORT_PIN_MASK_FROM_DT_INST(n),               \
-			},                                                                         \
+		.common = GPIO_COMMON_CONFIG_FROM_DT_INST(n),                                      \
 		GPIO_MMIO_ROM_INIT(n).pin_offset = DT_INST_PROP(n, pin_offset),                    \
 		.group_index = DT_INST_PROP_OR(n, group_index, 0),                                 \
 		.num_pins = DT_INST_PROP(n, ngpios),                                               \

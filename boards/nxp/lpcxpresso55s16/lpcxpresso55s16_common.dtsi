@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020 Henrik Brix Andersen <henrik@brixandersen.dk>
- * Copyright 2023 NXP
+ * Copyright 2023, 2026 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -20,6 +20,7 @@
 		zephyr,entropy = &rng;
 		zephyr,canbus = &can0;
 		zephyr,flash-controller = &iap;
+		zephyr,crc = &crc;
 	};
 
 	aliases {
@@ -146,6 +147,9 @@
 	#size-cells = <0>;
 	pinctrl-0 = <&pinmux_flexcomm4_i2c>;
 	pinctrl-names = "default";
+	scl-gpios = <&gpio1 20 GPIO_ACTIVE_HIGH>;
+	sda-gpios = <&gpio1 21 GPIO_ACTIVE_HIGH>;
+	recover-bus-on-init;
 
 	fxos8700: fxos8700@1e {
 		compatible = "nxp,fxos8700";
@@ -217,6 +221,18 @@
 		};
 		/* The last 12KB are reserved for PFR on the 256KB flash. */
 	};
+};
+
+&gint0 {
+	status = "okay";
+};
+
+&gint1 {
+	status = "okay";
+};
+
+&crc {
+	status = "okay";
 };
 
 arduino_i2c: &flexcomm4 {};

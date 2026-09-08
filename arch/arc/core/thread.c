@@ -318,7 +318,7 @@ void arc_dsp_disable(struct k_thread *thread, unsigned int options)
 	k_spinlock_key_t key = k_spin_lock(&lock);
 
 	/* Disable DSP or AGU capabilities for the thread */
-	thread->base.user_options &= ~(uint8_t)options;
+	thread->base.user_options &= ~(uint16_t)options;
 
 	k_spin_unlock(&lock, key);
 }
@@ -329,7 +329,7 @@ void arc_dsp_enable(struct k_thread *thread, unsigned int options)
 	k_spinlock_key_t key = k_spin_lock(&lock);
 
 	/* Enable dsp or agu capabilities for the thread */
-	thread->base.user_options |= (uint8_t)options;
+	thread->base.user_options |= (uint16_t)options;
 
 	k_spin_unlock(&lock, key);
 }
@@ -388,7 +388,7 @@ void arc_vpx_unlock_force(unsigned int id)
 static int arc_vpx_sem_init(void)
 {
 	for (unsigned int i = 0; i < CONFIG_MP_MAX_NUM_CPUS; i++) {
-		k_sem_init(vpx_sem, 1, 1);
+		k_sem_init(&vpx_sem[i], 1, 1);
 	}
 
 	return 0;

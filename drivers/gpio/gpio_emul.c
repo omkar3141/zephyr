@@ -400,7 +400,7 @@ int gpio_emul_flags_get(const struct device *port, gpio_pin_t pin, gpio_flags_t 
 		return -EINVAL;
 	}
 
-	if ((config->common.port_pin_mask & BIT(pin)) == 0) {
+	if (!gpio_port_pin_is_supported(config->common.port_pin_mask, pin)) {
 		return -EINVAL;
 	}
 
@@ -435,7 +435,7 @@ static int gpio_emul_pin_configure(const struct device *port, gpio_pin_t pin,
 		return -ENOTSUP;
 	}
 
-	if ((config->common.port_pin_mask & BIT(pin)) == 0) {
+	if (!gpio_port_pin_is_supported(config->common.port_pin_mask, pin)) {
 		return -EINVAL;
 	}
 
@@ -486,7 +486,7 @@ static int gpio_emul_pin_get_config(const struct device *port, gpio_pin_t pin,
 		(struct gpio_emul_data *)port->data;
 	const struct gpio_emul_config *config = (const struct gpio_emul_config *)port->config;
 
-	if ((config->common.port_pin_mask & BIT(pin)) == 0) {
+	if (!gpio_port_pin_is_supported(config->common.port_pin_mask, pin)) {
 		return -EINVAL;
 	}
 
@@ -702,7 +702,7 @@ static int gpio_emul_pin_interrupt_configure(const struct device *port, gpio_pin
 		(const struct gpio_emul_config *)port->config;
 	k_spinlock_key_t key;
 
-	if ((BIT(pin) & config->common.port_pin_mask) == 0) {
+	if (!gpio_port_pin_is_supported(config->common.port_pin_mask, pin)) {
 		return -EINVAL;
 	}
 
@@ -896,10 +896,7 @@ static int gpio_emul_pm_device_pm_action(const struct device *dev,
 		gpio_emul_flags_##_num[DT_INST_PROP(_num, ngpios)];	\
 									\
 	static const struct gpio_emul_config gpio_emul_config_##_num = {\
-		.common = {						\
-			.port_pin_mask =				\
-				GPIO_PORT_PIN_MASK_FROM_DT_INST(_num),	\
-		},							\
+		.common = GPIO_COMMON_CONFIG_FROM_DT_INST(_num),	\
 		.num_pins = DT_INST_PROP(_num, ngpios),			\
 		.interrupt_caps = GPIO_EMUL_INT_CAPS(_num)		\
 	};								\

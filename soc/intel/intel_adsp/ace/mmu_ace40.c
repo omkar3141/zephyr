@@ -63,6 +63,8 @@ MEM_MAP_SYM_DECLARE(__cold_end);
 MEM_MAP_SYM_DECLARE(__coldrodata_start);
 MEM_MAP_SYM_DECLARE(_heap_start);
 MEM_MAP_SYM_DECLARE(_heap_end);
+MEM_MAP_SYM_DECLARE(_shared_heap_start);
+MEM_MAP_SYM_DECLARE(_shared_heap_end);
 MEM_MAP_SYM_DECLARE(_image_ram_start);
 MEM_MAP_SYM_DECLARE(_image_ram_end);
 MEM_MAP_SYM_DECLARE(__imr_data_start);
@@ -74,7 +76,6 @@ MEM_MAP_SYM_DECLARE(__rodata_region_start);
 MEM_MAP_SYM_DECLARE(__rodata_region_end);
 MEM_MAP_SYM_DECLARE(__text_region_start);
 MEM_MAP_SYM_DECLARE(__text_region_end);
-
 
 const struct xtensa_mmu_range xtensa_soc_mmu_ranges[] = {
 	MEM_MAP_SYM_REGION(
@@ -166,6 +167,20 @@ const struct xtensa_mmu_range xtensa_soc_mmu_ranges[] = {
 
 	/* Map IMR */
 	MEM_MAP_CONST_REGION(
+		IMR_ROM_EXT_CODE_BASE,
+		IMR_ROM_EXT_CODE_BASE + IMR_ROM_EXT_CODE_SIZE,
+		XTENSA_MMU_PERM_X,
+		"IMR_rom_ext_code"
+	)
+
+	MEM_MAP_CONST_REGION(
+		IMR_ROM_EXT_DATABSS_BASE,
+		IMR_ROM_EXT_DATABSS_BASE + IMR_ROM_EXT_DATABSS_SIZE,
+		XTENSA_MMU_PERM_W,
+		"IMR_rom_ext_data_bss"
+	)
+
+	MEM_MAP_CONST_REGION(
 		IMR_BOOT_LDR_MANIFEST_BASE - IMR_BOOT_LDR_MANIFEST_SIZE,
 		IMR_BOOT_LDR_MANIFEST_BASE,
 		XTENSA_MMU_PERM_W | XTENSA_MMU_CACHED_WB,
@@ -236,12 +251,13 @@ const struct xtensa_mmu_range xtensa_soc_mmu_ranges[] = {
 		"lpsram"
 	)
 
-	{
-		.start = (uint32_t)_shared_heap_start,
-		.end   = (uint32_t)_shared_heap_end,
-		.attrs = XTENSA_MMU_PERM_W | XTENSA_MMU_CACHED_WB | XTENSA_MMU_MAP_SHARED,
-		.name = "shared heap",
-	},
+	MEM_MAP_SYM_REGION(
+		_shared_heap_start,
+		_shared_heap_end,
+		XTENSA_MMU_PERM_W | XTENSA_MMU_MAP_SHARED,
+		"shared heap"
+	)
+
 	{
 		.start = (uint32_t)(ADSP_L1CC_ADDR),
 		.end = (uint32_t)(ADSP_L1CC_ADDR + CONFIG_MMU_PAGE_SIZE),
@@ -251,7 +267,7 @@ const struct xtensa_mmu_range xtensa_soc_mmu_ranges[] = {
 	{
 		/* FIXME: definitely need more refinements... */
 		.start = (uint32_t)0x0,
-		.end = (uint32_t)0x100000,
+		.end = (uint32_t)0x101800,
 		.attrs = XTENSA_MMU_PERM_W,
 		.name = "hwreg0",
 	},

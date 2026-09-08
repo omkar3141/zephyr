@@ -9,38 +9,37 @@
 
 
 #include <soc.h>
+#include <stm32_bitops.h>
 #include <stm32_ll_bus.h>
+#include <stm32_ll_crs.h>
 #include <stm32_ll_pwr.h>
 #include <stm32_ll_rcc.h>
 #include <stm32_ll_utils.h>
 #include <stm32_ll_system.h>
 #include <zephyr/arch/cpu.h>
 #include <zephyr/drivers/clock_control.h>
+#include <zephyr/sys/__assert.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/drivers/clock_control/stm32_clock_control.h>
 #include <stm32_backup_domain.h>
 
 /* Macros to fill up prescaler values */
-#define z_hsi_divider(v) LL_RCC_HSI_DIV_ ## v
-#define hsi_divider(v) z_hsi_divider(v)
-
-#define z_ahb_prescaler(v) LL_RCC_SYSCLK_DIV_ ## v
-#define ahb_prescaler(v) z_ahb_prescaler(v)
-
-#define z_apb1_prescaler(v) LL_RCC_APB1_DIV_ ## v
-#define apb1_prescaler(v) z_apb1_prescaler(v)
-
-#define z_apb2_prescaler(v) LL_RCC_APB2_DIV_ ## v
-#define apb2_prescaler(v) z_apb2_prescaler(v)
-
-#define z_apb3_prescaler(v) LL_RCC_APB3_DIV_ ## v
-#define apb3_prescaler(v) z_apb3_prescaler(v)
+#define hsi_divider(v) CONCAT(LL_RCC_HSI_DIV_, v)
+#define ahb_prescaler(v) CONCAT(LL_RCC_SYSCLK_DIV_, v)
+#define apb1_prescaler(v) CONCAT(LL_RCC_APB1_DIV_, v)
+#define apb2_prescaler(v) CONCAT(LL_RCC_APB2_DIV_, v)
+#define apb3_prescaler(v) CONCAT(LL_RCC_APB3_DIV_, v)
 
 #define PLL1_ID		1
 #define PLL2_ID		2
 #define PLL3_ID		3
 
 #define PLL_FRACN_DIVISOR 8192
+
+#if IS_ENABLED(STM32_PLL_P_ENABLED)
+BUILD_ASSERT((STM32_PLL_P_DIVISOR % 2) == 0,
+	     "STM32H5 PLL1P divisor factor must be even");
+#endif /* STM32_PLL_P_ENABLED */
 
 static uint32_t get_bus_clock(uint32_t clock, uint32_t prescaler)
 {
@@ -197,6 +196,9 @@ static int stm32_clock_control_configure(const struct device *dev,
 					 void *data)
 {
 	struct stm32_pclken *pclken = (struct stm32_pclken *)(sub_system);
+	uint32_t enr = pclken->enr;
+	uint32_t reg = STM32_DT_CLKSEL_REG_GET(enr);
+	uint32_t shift = STM32_DT_CLKSEL_SHIFT_GET(enr);
 	int err;
 
 	ARG_UNUSED(dev);
@@ -213,9 +215,9 @@ static int stm32_clock_control_configure(const struct device *dev,
 		return 0;
 	}
 
-	sys_set_bits(DT_REG_ADDR(DT_NODELABEL(rcc)) + STM32_DT_CLKSEL_REG_GET(pclken->enr),
-		     STM32_DT_CLKSEL_VAL_GET(pclken->enr) <<
-			STM32_DT_CLKSEL_SHIFT_GET(pclken->enr));
+	stm32_reg_modify_bits((uint32_t *)(DT_REG_ADDR(DT_NODELABEL(rcc)) + reg),
+			      STM32_DT_CLKSEL_MASK_GET(enr) << shift,
+			      STM32_DT_CLKSEL_VAL_GET(enr) << shift);
 
 	return 0;
 }
@@ -521,6 +523,8 @@ static int set_up_plls(void)
 	}
 
 	LL_RCC_PLL1_Disable();
+	while (LL_RCC_PLL1_IsReady() != 0U) {
+	}
 
 	/* Configure PLL source : Can be HSE, HSI, MSIS */
 	if (IS_ENABLED(STM32_PLL_SRC_HSE)) {
@@ -805,6 +809,23 @@ static void set_up_fixed_clock_sources(void)
 		LL_RCC_HSI48_Enable();
 		while (LL_RCC_HSI48_IsReady() != 1) {
 		}
+
+		if (IS_ENABLED(STM32_HSI48_CRS_USB_SOF)) {
+			/*
+			 * Use SOF from full-speed USB as CRS synchronization source
+			 * as this is the most plausible usecase: XTAL-less USB.
+			 *
+			 * TODO: support arbitrary CRS sync source selection
+			 */
+			LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_CRS);
+#if defined(USB_DRD_FS)
+			LL_CRS_SetSyncSignalSource(LL_CRS_SYNC_SOURCE_USB);
+#elif defined(USB_OTG_FS)
+			LL_CRS_SetSyncSignalSource(LL_CRS_SYNC_SOURCE_OTG_FS);
+#endif
+			LL_CRS_EnableFreqErrorCounter();
+			LL_CRS_EnableAutoTrimming();
+		}
 	}
 
 }
@@ -834,6 +855,7 @@ int stm32_clock_control_init(const struct device *dev)
 	/* Set up PLLs */
 	r = set_up_plls();
 	if (r < 0) {
+		__ASSERT(0, "PLL setup failed");
 		return r;
 	}
 
@@ -864,6 +886,7 @@ int stm32_clock_control_init(const struct device *dev)
 		while (LL_RCC_GetSysClkSource() != LL_RCC_SYS_CLKSOURCE_STATUS_HSI) {
 		}
 	} else {
+		__ASSERT(0, "Invalid SYSCLK source selected");
 		return -ENOTSUP;
 	}
 

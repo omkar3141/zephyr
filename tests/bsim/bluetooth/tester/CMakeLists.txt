@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-cmake_minimum_required(VERSION 3.20.0)
+cmake_minimum_required(VERSION 3.28.0)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(tester_bsim)
@@ -28,6 +28,10 @@ target_sources(app PRIVATE
   src/audio/bap_broadcast_source.c
   src/audio/bap_central.c
   src/audio/bap_peripheral.c
+  src/audio/cap_broadcast_sink.c
+  src/audio/cap_broadcast_source.c
+  src/audio/cap_central.c
+  src/audio/cap_peripheral.c
   src/audio/ccp_central.c
   src/audio/ccp_peripheral.c
   src/audio/csip_central.c
@@ -38,6 +42,8 @@ target_sources(app PRIVATE
   src/audio/mcp_peripheral.c
   src/audio/micp_central.c
   src/audio/micp_peripheral.c
+  src/audio/pbp_sink.c
+  src/audio/pbp_source.c
   src/audio/tmap_central.c
   src/audio/tmap_peripheral.c
   src/audio/vcp_central.c

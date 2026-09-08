@@ -57,9 +57,12 @@
 #define _EXC_PENDSV_PRIO_MASK Z_EXC_PRIO(_EXC_PENDSV_PRIO)
 
 #ifdef _ASMLANGUAGE
+#ifndef CONFIG_USE_SWITCH
 GTEXT(z_arm_exc_exit);
+#endif
 #else
 #include <zephyr/types.h>
+#include <zephyr/arch/arm/arm-m-switch.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -125,7 +128,14 @@ struct arch_esf {
 
 extern uint32_t z_arm_coredump_fault_sp;
 
+#ifdef CONFIG_USE_SWITCH
+static inline void z_arm_exc_exit(void)
+{
+	arm_m_exc_tail();
+}
+#else
 extern void z_arm_exc_exit(void);
+#endif
 
 #ifdef __cplusplus
 }

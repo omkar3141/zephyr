@@ -18,7 +18,7 @@
 #include <zephyr/net_buf.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/slist.h>
-#include <zephyr/sys_clock.h>
+#include <zephyr/sys/clock.h>
 
 enum bt_iso_cig_state {
 	BT_ISO_CIG_STATE_IDLE,
@@ -115,9 +115,6 @@ void bt_iso_connected(struct bt_conn *iso);
 
 /* Notify ISO channels of a disconnect event */
 void bt_iso_disconnected(struct bt_conn *iso);
-
-/* Notify ISO connected channels of security changed */
-void bt_iso_security_changed(struct bt_conn *acl, uint8_t hci_status);
 
 #if defined(CONFIG_BT_ISO_LOG_LEVEL_DBG)
 void bt_iso_chan_set_state_debug(struct bt_iso_chan *chan,

@@ -8,6 +8,10 @@
 
 #include <st/u5/stm32u5_usbotg_hs.dtsi>
 
+&cpu0 {
+	d-cache-line-size = <32>;
+};
+
 / {
 	sram0: memory@20000000 {
 		/* SRAM1 + SRAM2 + SRAM3 + SRAM5 */
@@ -23,11 +27,6 @@
 		compatible = "st,stm32u595", "st,stm32u5", "simple-bus";
 
 		pinctrl: pin-controller@42020000 {
-			compatible = "st,stm32-pinctrl";
-			#address-cells = <1>;
-			#size-cells = <1>;
-			reg = <0x42020000 0x2800>;
-
 			gpioj: gpio@42022400 {
 				compatible = "st,stm32-gpio";
 				gpio-controller;
@@ -79,10 +78,7 @@
 			clock-names = "adcx", "adc_ker";
 			interrupts = <37 0>;
 			#io-channel-cells = <1>;
-			resolutions = <STM32_ADC_RES(14, 0x00)
-				       STM32_ADC_RES(12, 0x01)
-				       STM32_ADC_RES(10, 0x02)
-				       STM32_ADC_RES(8, 0x03)>;
+			st,adc-resolutions = <14 12 10 8>;
 			sampling-times = <5 6 12 20 36 68 391 814>;
 			st,adc-clock-source = "ASYNC";
 			st,adc-sequencer = "programmable";
@@ -91,6 +87,7 @@
 			st,adc-has-deep-powerdown;
 			st,adc-has-channel-preselection;
 			st,adc-has-differential-support;
+			st,adc-has-injected-support;
 			status = "disabled";
 		};
 
@@ -106,10 +103,7 @@
 			clock-names = "adcx", "adc_ker";
 			interrupts = <37 0>;
 			#io-channel-cells = <1>;
-			resolutions = <STM32_ADC_RES(14, 0x00)
-				       STM32_ADC_RES(12, 0x01)
-				       STM32_ADC_RES(10, 0x02)
-				       STM32_ADC_RES(8, 0x03)>;
+			st,adc-resolutions = <14 12 10 8>;
 			sampling-times = <5 6 12 20 36 68 391 814>;
 			st,adc-clock-source = "ASYNC";
 			st,adc-sequencer = "programmable";
@@ -118,7 +112,42 @@
 			st,adc-has-deep-powerdown;
 			st,adc-has-channel-preselection;
 			st,adc-has-differential-support;
+			st,adc-has-injected-support;
 			status = "disabled";
+		};
+
+		rng: rng@420c0800 {
+			nist-config = <0xf10f00>;
+			health-test-config = <0x92f3>;
+			noise-source-control = <0x1609>;
+		};
+
+		sai2: sai2@40015800 {
+			compatible = "st,stm32-sai";
+			#address-cells = <1>;
+			#size-cells = <1>;
+			reg = <0x40015800 0x400>;
+			ranges;
+			clocks = <&rcc STM32_CLOCK(APB2, 22)>,
+				 <&rcc STM32_SRC_PLL2_P SAI2_SEL(0)>;
+			clock-names = "sai_ck", "sai_ker_ck";
+			status = "disabled";
+
+			sai2_a: sai2a@40015804 {
+				reg = <0x40015804 0x20>;
+				dmas = <&gpdma1 1 38 (STM32_DMA_16BITS | STM32_DMA_PRIORITY_HIGH)>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+				status = "disabled";
+			};
+
+			sai2_b: sai2b@40015824 {
+				reg = <0x40015824 0x20>;
+				dmas = <&gpdma1 0 39 (STM32_DMA_16BITS | STM32_DMA_PRIORITY_HIGH)>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+				status = "disabled";
+			};
 		};
 	};
 

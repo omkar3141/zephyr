@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2025 Infineon Technologies AG,
- * or an affiliate of Infineon Technologies AG.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Infineon Technologies AG,
+ * SPDX-FileCopyrightText: or an affiliate of Infineon Technologies AG. All rights reserved.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,13 +8,6 @@
 #include "pse84_s_mpc.h"
 #include "pse84_s_protection.h"
 #include <string.h>
-
-#if (SMIF_0_MPC_0_REGION_COUNT > 0U) || (SMIF_1_MPC_0_REGION_COUNT > 0U)
-#include "cy_smif.h"
-
-#define SMIF_DESELECT_DELAY (7U)
-#define TIMEOUT_1_MS        (1000U)
-#endif /* (SMIF_0_MPC_0_REGION_COUNT > 0U)|| (SMIF_1_MPC_0_REGION_COUNT > 0U) */
 
 /* Value generated through device-configurator settings */
 #define CY_MPC_PC_LAST (8)
@@ -46,31 +39,6 @@ cy_rslt_t cy_mpc_init(void)
 	/* Will track the current iteration for errors */
 	cy_rslt_t current_result = CY_RSLT_SUCCESS;
 
-	/* When executing from RRAM, the SMIF must be initialized and enabled to
-	 * hold onto any MPC configurations performed on the SMIF memory regions.
-	 * We can disable them after performing the MPC configurations.
-	 */
-#if (SMIF_0_MPC_0_REGION_COUNT > 0U)
-	bool is_smif0_uninit = false;
-
-	if (!Cy_SMIF_IsEnabled(SMIF0_CORE)) {
-		is_smif0_uninit = true;
-
-		cy_stc_smif_context_t smif_core0_context;
-
-		static const cy_stc_smif_config_t smif_0_core0_config = {
-			.mode = (uint32_t)CY_SMIF_NORMAL,
-			.deselectDelay = SMIF_DESELECT_DELAY,
-			.blockEvent = (uint32_t)CY_SMIF_BUS_ERROR,
-			.enable_internal_dll = false};
-
-		/* Enable IP with default configuration */
-		(void)Cy_SMIF_Init(SMIF0_CORE, &smif_0_core0_config, TIMEOUT_1_MS,
-				   &smif_core0_context);
-		Cy_SMIF_Enable(SMIF0_CORE, &smif_core0_context);
-	}
-#endif /* (SMIF_0_MPC_0_REGION_COUNT > 0U) */
-
 #if (SOCMEM_0_MPC_0_REGION_COUNT > 0U)
 	/* Enable SOCMEM */
 	Cy_SysEnableSOCMEM(true);
@@ -101,13 +69,6 @@ cy_rslt_t cy_mpc_init(void)
 			}
 		}
 	}
-
-#if (SMIF_0_MPC_0_REGION_COUNT > 0U)
-	if (is_smif0_uninit) {
-		/* Disable IP as MPC configuration is complete*/
-		Cy_SMIF_Disable(SMIF0_CORE);
-	}
-#endif /* (SMIF_0_MPC_0_REGION_COUNT > 0U) */
 
 	return return_result;
 }

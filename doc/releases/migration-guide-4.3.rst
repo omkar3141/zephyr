@@ -402,7 +402,7 @@ Logging
 =======
 
 * The UART dictionary log parsing script
-  :zephyr_file:`scripts/logging/dictionary/log_parser_uart.py` has been deprecated. Instead, the
+  ``scripts/logging/dictionary/log_parser_uart.py`` has been deprecated. Instead, the
   more generic script of :zephyr_file:`scripts/logging/dictionary/live_log_parser.py` should be
   used. The new script supports the same functionality (and more), but requires different command
   line arguments when invoked.
@@ -554,6 +554,11 @@ Trusted Firmware-M
   release to Zephyr v4.3.0 or later to ensure full TF-M attestation functionality
   and upgrade compatibility.
   (:github:`94859`)
+  For any applications initially built from Zephyr v4.0 to v4.2,
+  :kconfig:option:`CONFIG_TFM_ZEPHYR_4_0_TO_4_2_COMPATIBILITY` must be set in order
+  to successfully upgrade to any version later than v4.2, and remain set for all future
+  upgrades.
+  (:github:`103793`)
 
 * Support for automatically downloading MCUboot and ethos by CMake in a build has been removed,
   the in-tree versions of these modules will be used instead. To use custom versions, create a

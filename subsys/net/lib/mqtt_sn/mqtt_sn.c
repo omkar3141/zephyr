@@ -66,17 +66,15 @@ struct mqtt_sn_topic {
 
 struct mqtt_sn_gateway {
 	sys_snode_t next;
-	char gw_id;
+	uint8_t gw_id;
 	int64_t adv_timer;
-	char addr[CONFIG_MQTT_SN_LIB_MAX_ADDR_SIZE];
+	uint8_t addr[CONFIG_MQTT_SN_LIB_MAX_ADDR_SIZE];
 	size_t addr_len;
 };
 
-K_MEM_SLAB_DEFINE_STATIC(publishes, sizeof(struct mqtt_sn_publish), CONFIG_MQTT_SN_LIB_MAX_PUBLISH,
-			 4);
-K_MEM_SLAB_DEFINE_STATIC(topics, sizeof(struct mqtt_sn_topic), CONFIG_MQTT_SN_LIB_MAX_TOPICS, 4);
-K_MEM_SLAB_DEFINE_STATIC(gateways, sizeof(struct mqtt_sn_gateway), CONFIG_MQTT_SN_LIB_MAX_GATEWAYS,
-			 4);
+K_MEM_SLAB_DEFINE_STATIC_TYPE(publishes, struct mqtt_sn_publish, CONFIG_MQTT_SN_LIB_MAX_PUBLISH);
+K_MEM_SLAB_DEFINE_STATIC_TYPE(topics, struct mqtt_sn_topic, CONFIG_MQTT_SN_LIB_MAX_TOPICS);
+K_MEM_SLAB_DEFINE_STATIC_TYPE(gateways, struct mqtt_sn_gateway, CONFIG_MQTT_SN_LIB_MAX_GATEWAYS);
 
 enum mqtt_sn_client_state {
 	MQTT_SN_CLIENT_DISCONNECTED,
@@ -129,19 +127,19 @@ static int encode_and_send(struct mqtt_sn_client *client, struct mqtt_sn_param *
 	}
 
 	if (broadcast_radius) {
-		err = client->transport->sendto(client, client->tx.data, client->tx.len, NULL,
-						broadcast_radius);
+		err = client->transport->sendto(client->transport, client->tx.data, client->tx.len,
+						NULL, broadcast_radius);
 	} else {
 		struct mqtt_sn_gateway *gw;
 
-		gw = SYS_SLIST_PEEK_HEAD_CONTAINER(&client->gateway, gw, next);
+		gw = SYS_SLIST_PEEK_HEAD_CONTAINER(&client->gateways, gw, next);
 		if (gw == NULL || gw->addr_len == 0) {
 			LOG_WRN("No Gateway Address");
 			err = -ENXIO;
 			goto end;
 		}
-		err = client->transport->sendto(client, client->tx.data, client->tx.len, gw->addr,
-						gw->addr_len);
+		err = client->transport->sendto(client->transport, client->tx.data, client->tx.len,
+						gw->addr, gw->addr_len);
 	}
 
 end:
@@ -344,8 +342,8 @@ static void mqtt_sn_topic_destroy_all(struct mqtt_sn_client *client)
 
 static void mqtt_sn_gw_destroy(struct mqtt_sn_client *client, struct mqtt_sn_gateway *gw)
 {
-	LOG_DBG("Destroying gateway %d", gw->gw_id);
-	sys_slist_find_and_remove(&client->gateway, &gw->next);
+	LOG_DBG("Destroying gateway 0x%02x", gw->gw_id);
+	sys_slist_find_and_remove(&client->gateways, &gw->next);
 	k_mem_slab_free(&gateways, (void *)gw);
 }
 
@@ -354,9 +352,9 @@ static void mqtt_sn_gw_destroy_all(struct mqtt_sn_client *client)
 	struct mqtt_sn_gateway *gw;
 	sys_snode_t *next;
 
-	while ((next = sys_slist_get(&client->gateway)) != NULL) {
+	while ((next = sys_slist_get(&client->gateways)) != NULL) {
 		gw = SYS_SLIST_CONTAINER(next, gw, next);
-		sys_slist_find_and_remove(&client->gateway, next);
+		sys_slist_find_and_remove(&client->gateways, next);
 		k_mem_slab_free(&gateways, (void *)gw);
 	}
 }
@@ -372,7 +370,7 @@ static struct mqtt_sn_gateway *mqtt_sn_gw_create(uint8_t gw_id, short duration,
 		return NULL;
 	}
 
-	__ASSERT(gw_addr.size <= CONFIG_MQTT_SN_LIB_MAX_ADDR_SIZE,
+	__ASSERT(gw_addr.size <= sizeof(gw->addr),
 		 "Gateway address is larger than allowed by CONFIG_MQTT_SN_LIB_MAX_ADDR_SIZE");
 
 	memset(gw, 0, sizeof(*gw));
@@ -389,11 +387,11 @@ static struct mqtt_sn_gateway *mqtt_sn_gw_create(uint8_t gw_id, short duration,
 	return gw;
 }
 
-static struct mqtt_sn_gateway *mqtt_sn_gw_find_by_id(struct mqtt_sn_client *client, uint16_t gw_id)
+static struct mqtt_sn_gateway *mqtt_sn_gw_find_by_id(struct mqtt_sn_client *client, uint8_t gw_id)
 {
 	struct mqtt_sn_gateway *gw;
 
-	SYS_SLIST_FOR_EACH_CONTAINER(&client->gateway, gw, next) {
+	SYS_SLIST_FOR_EACH_CONTAINER(&client->gateways, gw, next) {
 		if (gw->gw_id == gw_id) {
 			return gw;
 		}
@@ -1006,8 +1004,8 @@ static int process_ping(struct mqtt_sn_client *client, int64_t *next_cycle)
 		if (!client->ping_retries--) {
 			LOG_WRN("Ping ran out of retries");
 			mqtt_sn_disconnect_internal(client);
-			SYS_SLIST_PEEK_HEAD_CONTAINER(&client->gateway, gw, next);
-			LOG_DBG("Removing non-responsive GW 0x%08x", gw->gw_id);
+			gw = SYS_SLIST_PEEK_HEAD_CONTAINER(&client->gateways, gw, next);
+			LOG_DBG("Removing non-responsive GW 0x%02x", gw->gw_id);
 			mqtt_sn_gw_destroy(client, gw);
 			return -ETIMEDOUT;
 		}
@@ -1032,9 +1030,8 @@ static int process_ping(struct mqtt_sn_client *client, int64_t *next_cycle)
  *
  * @param client
  * @param next_cycle will be set to the time when the next action is required
- * @retval 0 on success
  */
-static int process_search(struct mqtt_sn_client *client, int64_t *next_cycle)
+static void process_search(struct mqtt_sn_client *client, int64_t *next_cycle)
 {
 	const int64_t now = k_uptime_get();
 
@@ -1064,8 +1061,6 @@ static int process_search(struct mqtt_sn_client *client, int64_t *next_cycle)
 	}
 
 	LOG_DBG("next_cycle: %lld", *next_cycle);
-
-	return 0;
 }
 
 /**
@@ -1073,19 +1068,18 @@ static int process_search(struct mqtt_sn_client *client, int64_t *next_cycle)
  *
  * @param client
  * @param next_cycle will be set to the time when the next action is required
- * @return int
  */
-static int process_advertise(struct mqtt_sn_client *client, int64_t *next_cycle)
+static void process_advertise(struct mqtt_sn_client *client, int64_t *next_cycle)
 {
 	const int64_t now = k_uptime_get();
 	struct mqtt_sn_gateway *gw;
 	struct mqtt_sn_gateway *gw_next;
 
-	SYS_SLIST_FOR_EACH_CONTAINER_SAFE(&client->gateway, gw, gw_next, next) {
+	SYS_SLIST_FOR_EACH_CONTAINER_SAFE(&client->gateways, gw, gw_next, next) {
 		LOG_DBG("Checking if GW 0x%02x is old", gw->gw_id);
 		if (gw->adv_timer != -1 && gw->adv_timer <= now) {
-			LOG_DBG("Removing non-responsive GW 0x%08x", gw->gw_id);
-			if (client->gateway.head == &gw->next) {
+			LOG_DBG("Removing non-responsive GW 0x%02x", gw->gw_id);
+			if (client->gateways.head == &gw->next) {
 				mqtt_sn_disconnect(client);
 			}
 			mqtt_sn_gw_destroy(client, gw);
@@ -1095,8 +1089,6 @@ static int process_advertise(struct mqtt_sn_client *client, int64_t *next_cycle)
 		}
 	}
 	LOG_DBG("next_cycle: %lld", *next_cycle);
-
-	return 0;
 }
 
 /**
@@ -1118,16 +1110,10 @@ static void process_work(struct k_work *wrk)
 		k_uptime_get());
 
 	/* Clean up old advertised gateways from list */
-	err = process_advertise(client, &next_cycle);
-	if (err) {
-		return;
-	}
+	process_advertise(client, &next_cycle);
 
 	/* Handle GW search process timers */
-	err = process_search(client, &next_cycle);
-	if (err) {
-		return;
-	}
+	process_search(client, &next_cycle);
 
 	process_pubs_qos_m1(client);
 
@@ -1228,7 +1214,7 @@ int mqtt_sn_add_gw(struct mqtt_sn_client *client, uint8_t gw_id, struct mqtt_sn_
 		return -ENOMEM;
 	}
 
-	sys_slist_append(&client->gateway, &gw->next);
+	sys_slist_append(&client->gateways, &gw->next);
 
 	return 0;
 }
@@ -1484,14 +1470,14 @@ static void handle_advertise(struct mqtt_sn_client *client, struct mqtt_sn_param
 	gw = mqtt_sn_gw_find_by_id(client, p->gw_id);
 
 	if (gw == NULL) {
-		LOG_DBG("Creating GW 0x%02x with duration %d", p->gw_id, p->duration);
+		LOG_DBG("Creating GW 0x%02x with duration %u", p->gw_id, p->duration);
 		gw = mqtt_sn_gw_create(p->gw_id, p->duration, rx_addr);
 		if (!gw) {
 			return;
 		}
-		sys_slist_append(&client->gateway, &gw->next);
+		sys_slist_append(&client->gateways, &gw->next);
 	} else {
-		LOG_DBG("Updating timer for GW 0x%02x with duration %d", p->gw_id, p->duration);
+		LOG_DBG("Updating timer for GW 0x%02x with duration %u", p->gw_id, p->duration);
 		gw->adv_timer =
 			k_uptime_get() + (p->duration * CONFIG_MQTT_SN_LIB_N_ADV * MSEC_PER_SEC);
 	}
@@ -1512,7 +1498,7 @@ static void handle_searchgw(struct mqtt_sn_client *client, struct mqtt_sn_param_
 	}
 
 	/* Set transmission timestamp to respond to SEARCHGW if we have a GW */
-	if (sys_slist_len(&client->gateway) > 0) {
+	if (sys_slist_len(&client->gateways) > 0) {
 		client->ts_gwinfo = k_uptime_get() + (T_GWINFO_MSEC * sys_rand8_get() / 255);
 	}
 	client->radius_gwinfo = p->radius;
@@ -1550,7 +1536,7 @@ static void handle_gwinfo(struct mqtt_sn_client *client, struct mqtt_sn_param_gw
 		return;
 	}
 
-	sys_slist_append(&client->gateway, &gw->next);
+	sys_slist_append(&client->gateways, &gw->next);
 
 	if (client->evt_cb) {
 		client->evt_cb(client, &evt);
@@ -1899,8 +1885,8 @@ static int handle_msg(struct mqtt_sn_client *client, struct mqtt_sn_data rx_addr
 int mqtt_sn_input(struct mqtt_sn_client *client)
 {
 	ssize_t next_frame_size;
-	char addr[CONFIG_MQTT_SN_LIB_MAX_ADDR_SIZE];
-	struct mqtt_sn_data rx_addr = {.data = addr, .size = CONFIG_MQTT_SN_LIB_MAX_ADDR_SIZE};
+	uint8_t addr[CONFIG_MQTT_SN_LIB_MAX_ADDR_SIZE];
+	struct mqtt_sn_data rx_addr = {.data = addr, .size = sizeof(addr)};
 	int err;
 
 	if (!client || !client->transport || !client->transport->recvfrom) {
@@ -1908,7 +1894,7 @@ int mqtt_sn_input(struct mqtt_sn_client *client)
 	}
 
 	if (client->transport->poll) {
-		next_frame_size = client->transport->poll(client);
+		next_frame_size = client->transport->poll(client->transport);
 		if (next_frame_size <= 0) {
 			return next_frame_size;
 		}
@@ -1916,13 +1902,18 @@ int mqtt_sn_input(struct mqtt_sn_client *client)
 
 	net_buf_simple_reset(&client->rx);
 
-	next_frame_size = client->transport->recvfrom(client, client->rx.data, client->rx.size,
-						      (void *)rx_addr.data, &rx_addr.size);
+	next_frame_size =
+		client->transport->recvfrom(client->transport, client->rx.data, client->rx.size,
+					    (void *)rx_addr.data, &rx_addr.size);
 	if (next_frame_size <= 0) {
 		return next_frame_size;
 	}
-
 	if (next_frame_size > client->rx.size) {
+		return -ENOBUFS;
+	}
+	if (rx_addr.size > sizeof(addr)) {
+		LOG_DBG("Received packet has an address larger than "
+			"CONFIG_MQTT_SN_LIB_MAX_ADDR_SIZE");
 		return -ENOBUFS;
 	}
 

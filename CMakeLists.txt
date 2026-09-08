@@ -92,11 +92,14 @@ endif()
 set(ZEPHYR_FINAL_EXECUTABLE zephyr_final)
 
 # Set some phony targets to collect dependencies
-set(OFFSETS_H_TARGET           offsets_h)
 set(SYSCALL_LIST_H_TARGET      syscall_list_h_target)
 set(DRIVER_VALIDATION_H_TARGET driver_validation_h_target)
 set(KOBJ_TYPES_H_TARGET        kobj_types_h_target)
 set(DEVICE_API_LD_TARGET       device_api_ld_target)
+# Backward compatibility: open-amp explicitly depends on OFFSETS_H_TARGET
+# which is redundant as zephyr_generated_headers already provides this to
+# all Zephyr libraries.  Remove once open-amp drops this.
+set(OFFSETS_H_TARGET           offsets_h)
 
 define_property(GLOBAL PROPERTY PROPERTY_OUTPUT_FORMAT BRIEF_DOCS " " FULL_DOCS " ")
 set_property(   GLOBAL PROPERTY PROPERTY_OUTPUT_FORMAT elf32-little${ARCH}) # BFD format
@@ -145,7 +148,6 @@ foreach(var AFLAGS CFLAGS CXXFLAGS CPPFLAGS LDFLAGS)
 endforeach()
 
 zephyr_compile_definitions(
-  KERNEL
   __ZEPHYR__=1
 )
 
@@ -166,7 +168,7 @@ if(CONFIG_COMPILER_WARNINGS_AS_ERRORS)
   zephyr_link_libraries($<TARGET_PROPERTY:linker,warnings_as_errors>)
 endif()
 
-if(CONFIG_DEPRECATION_TEST OR NOT CONFIG_WARN_DEPRECATED)
+if(NOT CONFIG_WARN_DEPRECATED)
   zephyr_compile_options($<$<COMPILE_LANGUAGE:C>:$<TARGET_PROPERTY:compiler,no_deprecation_warning>>)
   zephyr_compile_options($<$<COMPILE_LANGUAGE:CXX>:$<TARGET_PROPERTY:compiler,no_deprecation_warning>>)
   zephyr_compile_options($<$<COMPILE_LANGUAGE:ASM>:$<TARGET_PROPERTY:asm,no_deprecation_warning>>)
@@ -232,42 +234,6 @@ get_property(LINKER_OPTIMIZE_FOR_SPEED_FLAG TARGET linker PROPERTY optimization_
 get_property(LINKER_OPTIMIZE_FOR_SIZE_FLAG  TARGET linker PROPERTY optimization_size)
 get_property(LINKER_OPTIMIZE_FOR_SIZE_AGGRESSIVE_FLAG TARGET linker PROPERTY optimization_size_aggressive)
 
-# Let the assembler inherit the optimization flags of the compiler if it is
-# not set explicitly.
-if(NOT ASM_OPTIMIZE_FOR_NO_OPTIMIZATIONS_FLAG)
-  set(ASM_OPTIMIZE_FOR_NO_OPTIMIZATIONS_FLAG ${COMPILER_OPTIMIZE_FOR_NO_OPTIMIZATIONS_FLAG})
-endif()
-if(NOT ASM_OPTIMIZE_FOR_DEBUG_FLAG)
-  set(ASM_OPTIMIZE_FOR_DEBUG_FLAG ${COMPILER_OPTIMIZE_FOR_DEBUG_FLAG})
-endif()
-if(NOT ASM_OPTIMIZE_FOR_SPEED_FLAG)
-  set(ASM_OPTIMIZE_FOR_SPEED_FLAG ${COMPILER_OPTIMIZE_FOR_SPEED_FLAG})
-endif()
-if(NOT ASM_OPTIMIZE_FOR_SIZE_FLAG)
-  set(ASM_OPTIMIZE_FOR_SIZE_FLAG ${COMPILER_OPTIMIZE_FOR_SIZE_FLAG})
-endif()
-if(NOT ASM_OPTIMIZE_FOR_SIZE_AGGRESSIVE_FLAG)
-  set(ASM_OPTIMIZE_FOR_SIZE_AGGRESSIVE_FLAG ${COMPILER_OPTIMIZE_FOR_SIZE_AGGRESSIVE_FLAG})
-endif()
-
-# Let the linker inherit the optimization flags of the compiler if it is
-# not set explicitly.
-if(NOT LINKER_OPTIMIZE_FOR_NO_OPTIMIZATIONS_FLAG)
-  set(LINKER_OPTIMIZE_FOR_NO_OPTIMIZATIONS_FLAG ${COMPILER_OPTIMIZE_FOR_NO_OPTIMIZATIONS_FLAG})
-endif()
-if(NOT LINKER_OPTIMIZE_FOR_DEBUG_FLAG)
-  set(LINKER_OPTIMIZE_FOR_DEBUG_FLAG ${COMPILER_OPTIMIZE_FOR_DEBUG_FLAG})
-endif()
-if(NOT LINKER_OPTIMIZE_FOR_SPEED_FLAG)
-  set(LINKER_OPTIMIZE_FOR_SPEED_FLAG ${COMPILER_OPTIMIZE_FOR_SPEED_FLAG})
-endif()
-if(NOT LINKER_OPTIMIZE_FOR_SIZE_FLAG)
-  set(LINKER_OPTIMIZE_FOR_SIZE_FLAG ${COMPILER_OPTIMIZE_FOR_SIZE_FLAG})
-endif()
-if(NOT LINKER_OPTIMIZE_FOR_SIZE_AGGRESSIVE_FLAG)
-  set(LINKER_OPTIMIZE_FOR_SIZE_AGGRESSIVE_FLAG ${COMPILER_OPTIMIZE_FOR_SIZE_AGGRESSIVE_FLAG})
-endif()
-
 # From kconfig choice, pick the actual OPTIMIZATION_FLAG to use.
 # Kconfig choice ensures only one of these CONFIG_*_OPTIMIZATIONS is set.
 if(CONFIG_NO_OPTIMIZATIONS)
@@ -315,7 +281,9 @@ if(CONFIG_LTO)
     zephyr_compile_options($<TARGET_PROPERTY:compiler,optimization_lto_st>)
     add_link_options($<TARGET_PROPERTY:linker,lto_arguments_st>)
   else()
-    zephyr_compile_options($<TARGET_PROPERTY:compiler,optimization_lto>)
+    set(genex_tgt_lto "$<TARGET_PROPERTY:LTO>")
+    set(genex_lto "$<TARGET_PROPERTY:compiler,optimization_lto>")
+    zephyr_compile_options("$<$<OR:$<STREQUAL:${genex_tgt_lto},>,${genex_tgt_lto}>:${genex_lto}>")
     add_link_options($<TARGET_PROPERTY:linker,lto_arguments>)
   endif()
 endif()
@@ -371,6 +339,9 @@ if(CONFIG_CPP)
   elseif(CONFIG_STD_CPP23)
     set(STD_CPP_DIALECT_FLAGS $<TARGET_PROPERTY:compiler-cpp,dialect_cpp23>)
     list(APPEND CMAKE_CXX_COMPILE_FEATURES ${compile_features_cpp23})
+  elseif(CONFIG_STD_CPP26)
+    set(STD_CPP_DIALECT_FLAGS $<TARGET_PROPERTY:compiler-cpp,dialect_cpp26>)
+    list(APPEND CMAKE_CXX_COMPILE_FEATURES ${compile_features_cpp26})
   else()
     message(FATAL_ERROR
       "Unreachable code. Expected C++ standard to have been chosen. See Kconfig.zephyr.")
@@ -593,6 +564,14 @@ if(CONFIG_INSTRUMENTATION)
   endif()
 endif()
 
+if(CONFIG_COMPILER_CODEGEN_VLIW_ENABLED)
+  zephyr_compile_options($<$<COMPILE_LANGUAGE:C>:$<TARGET_PROPERTY:compiler,generate_vliw>>)
+  zephyr_compile_options($<$<COMPILE_LANGUAGE:CXX>:$<TARGET_PROPERTY:compiler,generate_vliw>>)
+elseif(CONFIG_COMPILER_CODEGEN_VLIW_DISABLED)
+  zephyr_compile_options($<$<COMPILE_LANGUAGE:C>:$<TARGET_PROPERTY:compiler,no_generate_vliw>>)
+  zephyr_compile_options($<$<COMPILE_LANGUAGE:CXX>:$<TARGET_PROPERTY:compiler,no_generate_vliw>>)
+endif()
+
 # Allow the user to inject options when calling cmake, e.g.
 # 'cmake -DEXTRA_CFLAGS="-Werror -Wno-deprecated-declarations" ..'
 include(cmake/extra_flags.cmake)
@@ -643,6 +622,7 @@ else()
 endif()
 
 zephyr_cc_option_ifdef(CONFIG_STACK_USAGE            -fstack-usage)
+zephyr_cc_option_ifdef(CONFIG_CALLGRAPH_INFO         -fcallgraph-info)
 
 # If the compiler supports it, strip the ${ZEPHYR_BASE} prefix from the
 # __FILE__ macro used in __ASSERT*, in the
@@ -772,6 +752,15 @@ endif()
 # of global properties such as ZEPHYR_LIBS or
 # GENERATED_KERNEL_OBJECT_FILES.
 #
+# Create an interface library which collects the dependencies to Zephyr
+# generated headers. Libraries containing files that include these headers can
+# use add_dependencies or target_link_libraries against this target to ensure
+# that generated headers are up-to-date before the libraries are built. This
+# ordering dependency can be propagated to these libraries' dependenents via
+# the PUBLIC or INTERFACE option of target_link_libraries.
+add_library(zephyr_generated_headers INTERFACE)
+add_dependencies(zephyr_generated_headers version_h)
+
 # Arch is placed early because it defines important compiler flags
 # that must be exported to external build systems defined in
 # e.g. subsys/.
@@ -818,12 +807,12 @@ set(struct_tags_json ${CMAKE_CURRENT_BINARY_DIR}/misc/generated/struct_tags.json
 # The syscalls subdirs txt file is constructed by python containing a list of folders to use for
 # dependency handling, including empty folders.
 # Windows:  The list is used to specify DIRECTORY list with CMAKE_CONFIGURE_DEPENDS attribute.
-# Other OS: The list will update whenever a file is added/removed/modified and ensure a re-build.
+# Other OS: The list file is updated whenever a directory is added or removed.
 set(syscalls_subdirs_txt ${CMAKE_CURRENT_BINARY_DIR}/misc/generated/syscalls_subdirs.txt)
 
-# As syscalls_subdirs_txt is updated whenever a file is modified, this file can not be used for
-# monitoring of added / removed folders. A trigger file is thus used for correct dependency
-# handling. The trigger file will update when a folder is added / removed.
+# As syscalls_subdirs_txt is updated only on directory add or remove, this file can not be used for
+# monitoring of syscall changes. A trigger file is thus used for correct dependency handling. The
+# trigger file will update when syscalls change.
 set(syscalls_subdirs_trigger ${CMAKE_CURRENT_BINARY_DIR}/misc/generated/syscalls_subdirs.trigger)
 
 if(NOT (${CMAKE_HOST_SYSTEM_NAME} STREQUAL Windows))
@@ -842,14 +831,13 @@ execute_process(
 )
 file(STRINGS ${syscalls_subdirs_txt} PARSE_SYSCALLS_PATHS_DEPENDS ENCODING UTF-8)
 
+# Each header file must be monitored as file modifications are not reflected on directory level.
+file(GLOB_RECURSE PARSE_SYSCALLS_HEADER_DEPENDS ${ZEPHYR_BASE}/include/*.h)
+
 if(${CMAKE_HOST_SYSTEM_NAME} STREQUAL Windows)
   # On windows only adding/removing files or folders will be reflected in depends.
   # Hence adding a file requires CMake to re-run to add this file to the file list.
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${PARSE_SYSCALLS_PATHS_DEPENDS})
-
-  # Also On Windows each header file must be monitored as file modifications are not reflected
-  # on directory level.
-  file(GLOB_RECURSE PARSE_SYSCALLS_HEADER_DEPENDS ${ZEPHYR_BASE}/include/*.h)
 else()
   # The syscall parsing depends on the folders in order to detect add/removed/modified files.
   # When a folder is removed, CMake will try to find a target that creates that dependency.
@@ -880,10 +868,10 @@ else()
     file(WRITE ${syscalls_subdirs_txt} "")
   endif()
 
-  # On other OS'es, modifying a file is reflected on the folder timestamp and hence detected
-  # when using depend on directory level.
+  # On other OS'es, using git checkout (or switch, restore, etc.) is reflected on the folder
+  # timestamp and hence detected when using depend on directory level.
   # Thus CMake only needs to re-run when sub-directories are added / removed, which is indicated
-  # using a trigger file.
+  # by syscalls_subdirs_txt being updated.
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${syscalls_subdirs_txt})
 endif()
 
@@ -1046,36 +1034,6 @@ add_custom_target(${DEVICE_API_LD_TARGET}
 
 zephyr_linker_include_generated(CMAKE ${DEVICE_API_LINKER_SECTIONS_CMAKE})
 
-# Create an interface library which collects the dependencies to Zephyr
-# generated headers. Libraries containing files that include these headers can
-# use add_dependencies or target_link_libraries against this target to ensure
-# that generated headers are up-to-date before the libraries are built. This
-# ordering dependency can be propagated to these libraries' dependenents via
-# the PUBLIC or INTERFACE option of target_link_libraries.
-
-add_library(zephyr_generated_headers INTERFACE)
-add_dependencies(zephyr_generated_headers
-  offsets_h version_h
-  )
-
-# Generate offsets.c.obj from offsets.c
-# Generate offsets.h     from offsets.c.obj
-
-set(OFFSETS_LIB offsets)
-
-set(OFFSETS_C_PATH ${ARCH_DIR}/${ARCH}/core/offsets/offsets.c)
-set(OFFSETS_H_PATH ${PROJECT_BINARY_DIR}/include/generated/zephyr/offsets.h)
-
-add_library(          ${OFFSETS_LIB} OBJECT ${OFFSETS_C_PATH})
-target_include_directories(${OFFSETS_LIB} PRIVATE
-  kernel/include
-  ${ARCH_DIR}/${ARCH}/include
-  )
-
-# Make sure that LTO will never be enabled when compiling offsets.c
-set_source_files_properties(${OFFSETS_C_PATH} PROPERTIES COMPILE_OPTIONS $<TARGET_PROPERTY:compiler,prohibit_lto>)
-
-target_link_libraries(${OFFSETS_LIB} zephyr_interface)
 add_dependencies(zephyr_interface
   ${SYSCALL_LIST_H_TARGET}
   ${DRIVER_VALIDATION_H_TARGET}
@@ -1083,16 +1041,17 @@ add_dependencies(zephyr_interface
   ${DEVICE_API_LD_TARGET}
   )
 
-add_custom_command(
-  OUTPUT ${OFFSETS_H_PATH}
-  COMMAND ${PYTHON_EXECUTABLE} ${ZEPHYR_BASE}/scripts/build/gen_offset_header.py
-  -i $<TARGET_OBJECTS:${OFFSETS_LIB}>
-  -o ${OFFSETS_H_PATH}
-  DEPENDS
-  ${OFFSETS_LIB}
-  $<TARGET_OBJECTS:${OFFSETS_LIB}>
+# Generate offsets.h from arch-specific offsets.c.
+# The offsets OBJECT library is also linked into the final executable
+# by toolchain linker scripts (cmake/linker/*/target.cmake).
+zephyr_constants_library(
+  NAME offsets
+  SOURCE ${ARCH_DIR}/${ARCH}/core/offsets/offsets.c
+  INCLUDES ${ARCH_DIR}/${ARCH}/include
+  INCLUDES ${ARCH_DIR}/common/include
+  DEPENDS heap_constants
 )
-add_custom_target(${OFFSETS_H_TARGET} DEPENDS ${OFFSETS_H_PATH})
+set(OFFSETS_LIB offsets)
 
 zephyr_get_include_directories_for_lang(C ZEPHYR_INCLUDES)
 
@@ -1268,27 +1227,6 @@ if(CONFIG_USERSPACE)
   set(APP_SMEM_ALIGNED_LD "${PROJECT_BINARY_DIR}/include/generated/app_smem_aligned.${APP_SMEM_LD_EXT}")
   set(APP_SMEM_UNALIGNED_LD "${PROJECT_BINARY_DIR}/include/generated/app_smem_unaligned.${APP_SMEM_LD_EXT}")
 
-  if(CONFIG_LINKER_USE_PINNED_SECTION)
-    set(APP_SMEM_PINNED_ALIGNED_LD
-        "${PROJECT_BINARY_DIR}/include/generated/app_smem_pinned_aligned.${APP_SMEM_LD_EXT}")
-    set(APP_SMEM_PINNED_UNALIGNED_LD
-        "${PROJECT_BINARY_DIR}/include/generated/app_smem_pinned_unaligned.${APP_SMEM_LD_EXT}")
-
-    if(NOT CONFIG_LINKER_GENERIC_SECTIONS_PRESENT_AT_BOOT)
-      # The libc partition may hold symbols that are required during boot process,
-      # for example, stack guard (if enabled). So the libc partition must be pinned
-      # if not sections are in physical memory at boot, as the paging mechanism is
-      # only initialized post-kernel.
-      set_property(TARGET app_smem APPEND PROPERTY pinned_partitions "z_libc_partition")
-    endif()
-
-    get_property(APP_SMEM_PINNED_PARTITION_LIST TARGET app_smem PROPERTY pinned_partitions)
-    if(APP_SMEM_PINNED_PARTITION_LIST)
-      list(JOIN APP_SMEM_PINNED_PARTITION_LIST "," APP_SMEM_PINNED_PARTITION_LIST_ARG_CSL)
-      set(APP_SMEM_PINNED_PARTITION_LIST_ARG "--pinpartitions=${APP_SMEM_PINNED_PARTITION_LIST_ARG_CSL}")
-    endif()
-  endif()
-
   set(OBJ_FILE_DIR "${PROJECT_BINARY_DIR}/../")
 
   if(CONFIG_NEWLIB_LIBC)
@@ -1302,13 +1240,11 @@ if(CONFIG_USERSPACE)
   endif()
 
   add_custom_command(
-    OUTPUT ${APP_SMEM_UNALIGNED_LD} ${APP_SMEM_PINNED_UNALIGNED_LD}
+    OUTPUT ${APP_SMEM_UNALIGNED_LD}
     COMMAND ${PYTHON_EXECUTABLE}
     ${ZEPHYR_BASE}/scripts/build/gen_app_partitions.py
     -f ${CMAKE_BINARY_DIR}/compile_commands.json
     -o ${APP_SMEM_UNALIGNED_LD}
-    $<$<BOOL:${APP_SMEM_PINNED_UNALIGNED_LD}>:--pinoutput=${APP_SMEM_PINNED_UNALIGNED_LD}>
-    ${APP_SMEM_PINNED_PARTITION_LIST_ARG}
     ${LIBC_PART}
     $<TARGET_PROPERTY:zephyr_property_target,COMPILE_OPTIONS>
     $<$<BOOL:${CMAKE_VERBOSE_MAKEFILE}>:--verbose>
@@ -1325,31 +1261,25 @@ if(CONFIG_USERSPACE)
     ${APP_SMEM_ALIGNED_DEP}
     DEPENDS
     ${APP_SMEM_ALIGNED_LD}
-    ${APP_SMEM_PINNED_ALIGNED_LD}
     )
 
   add_custom_target(
     ${APP_SMEM_UNALIGNED_DEP}
     DEPENDS
     ${APP_SMEM_UNALIGNED_LD}
-    ${APP_SMEM_PINNED_UNALIGNED_LD}
     )
 
   set(APP_SMEM_UNALIGNED_LIB app_smem_unaligned_output_obj_renamed_lib)
   list(APPEND LINKER_PASS_${ZEPHYR_CURRENT_LINKER_PASS}_DEFINE "LINKER_APP_SMEM_UNALIGNED")
 
-  foreach(dep ${APP_SMEM_UNALIGNED_LD} ${APP_SMEM_PINNED_UNALIGNED_LD})
-    zephyr_linker_include_generated(CMAKE ${dep} PASS LINKER_APP_SMEM_UNALIGNED)
-  endforeach()
+  zephyr_linker_include_generated(CMAKE ${APP_SMEM_UNALIGNED_LD} PASS LINKER_APP_SMEM_UNALIGNED)
 
   add_custom_command(
-    OUTPUT ${APP_SMEM_ALIGNED_LD} ${APP_SMEM_PINNED_ALIGNED_LD}
+    OUTPUT ${APP_SMEM_ALIGNED_LD}
     COMMAND ${PYTHON_EXECUTABLE}
     ${ZEPHYR_BASE}/scripts/build/gen_app_partitions.py
     -e $<TARGET_FILE:${ZEPHYR_LINK_STAGE_EXECUTABLE}>
     -o ${APP_SMEM_ALIGNED_LD}
-    $<$<BOOL:${APP_SMEM_PINNED_ALIGNED_LD}>:--pinoutput=${APP_SMEM_PINNED_ALIGNED_LD}>
-    ${APP_SMEM_PINNED_PARTITION_LIST_ARG}
     ${LIBC_PART}
     $<TARGET_PROPERTY:zephyr_property_target,COMPILE_OPTIONS>
     $<$<BOOL:${CMAKE_VERBOSE_MAKEFILE}>:--verbose>
@@ -1361,9 +1291,7 @@ if(CONFIG_USERSPACE)
     COMMAND_EXPAND_LISTS
     COMMENT "Generating app_smem_aligned linker section"
     )
-    foreach(dep ${APP_SMEM_ALIGNED_LD} ${APP_SMEM_PINNED_ALIGNED_LD})
-      zephyr_linker_include_generated(CMAKE ${dep} PASS NOT LINKER_APP_SMEM_UNALIGNED)
-    endforeach()
+    zephyr_linker_include_generated(CMAKE ${APP_SMEM_ALIGNED_LD} PASS NOT LINKER_APP_SMEM_UNALIGNED)
 endif()
 
 if(CONFIG_USERSPACE)
@@ -1479,7 +1407,6 @@ if(CONFIG_USERSPACE OR CONFIG_DEVICE_DEPS)
     ${CODE_RELOCATION_DEP}
     ${APP_SMEM_UNALIGNED_DEP}
     ${APP_SMEM_UNALIGNED_LD}
-    ${APP_SMEM_PINNED_UNALIGNED_LD}
     zephyr_generated_headers
     )
 
@@ -1506,11 +1433,13 @@ if(CONFIG_USERSPACE OR CONFIG_DEVICE_DEPS)
   )
   target_link_libraries_ifdef(CONFIG_NATIVE_LIBRARY ${ZEPHYR_LINK_STAGE_EXECUTABLE}
                               $<TARGET_PROPERTY:linker,no_position_independent>)
+  target_link_libraries_ifdef(CONFIG_LLEXT_EXPORT_BUILTINS_BY_SLID ${ZEPHYR_LINK_STAGE_EXECUTABLE}
+                              $<TARGET_PROPERTY:linker,no_check_sections>)
   target_byproducts(TARGET ${ZEPHYR_LINK_STAGE_EXECUTABLE}
                     BYPRODUCTS ${PROJECT_BINARY_DIR}/${ZEPHYR_LINK_STAGE_EXECUTABLE}.map
   )
   set_property(TARGET ${ZEPHYR_LINK_STAGE_EXECUTABLE} PROPERTY LINK_DEPENDS ${PROJECT_BINARY_DIR}/${ZEPHYR_CURRENT_LINKER_CMD})
-  add_dependencies(${ZEPHYR_LINK_STAGE_EXECUTABLE} linker_zephyr_pre${ZEPHYR_CURRENT_LINKER_PASS}_script ${OFFSETS_LIB})
+  add_dependencies(${ZEPHYR_LINK_STAGE_EXECUTABLE} linker_zephyr_pre${ZEPHYR_CURRENT_LINKER_PASS}_script)
 
   math(EXPR ZEPHYR_CURRENT_LINKER_PASS "1 + ${ZEPHYR_CURRENT_LINKER_PASS}")
 endif()
@@ -1723,6 +1652,8 @@ toolchain_ld_link_elf(
 )
 target_link_libraries_ifdef(CONFIG_NATIVE_LIBRARY ${ZEPHYR_LINK_STAGE_EXECUTABLE}
                             $<TARGET_PROPERTY:linker,partial_linking>)
+target_link_libraries_ifdef(CONFIG_LLEXT_EXPORT_BUILTINS_BY_SLID ${ZEPHYR_LINK_STAGE_EXECUTABLE}
+                            $<TARGET_PROPERTY:linker,no_check_sections>)
 target_byproducts(TARGET ${ZEPHYR_LINK_STAGE_EXECUTABLE}
                   BYPRODUCTS ${PROJECT_BINARY_DIR}/${ZEPHYR_LINK_STAGE_EXECUTABLE}.map
 )
@@ -1734,7 +1665,6 @@ set_property(TARGET
 add_dependencies(
   ${ZEPHYR_LINK_STAGE_EXECUTABLE}
   linker_zephyr_prebuilt_script_target
-  ${OFFSETS_LIB}
   )
 
 set(generated_kernel_files ${GKSF} ${GKOF})
@@ -1774,6 +1704,8 @@ else()
     LIBRARIES_POST_SCRIPT ""
     DEPENDENCIES          ${CODE_RELOCATION_DEP}
   )
+  target_link_libraries_ifdef(CONFIG_LLEXT_EXPORT_BUILTINS_BY_SLID ${ZEPHYR_FINAL_EXECUTABLE}
+                            $<TARGET_PROPERTY:linker,no_check_sections>)
   set_property(TARGET   ${ZEPHYR_FINAL_EXECUTABLE} PROPERTY LINK_DEPENDS ${PROJECT_BINARY_DIR}/linker.cmd)
   add_dependencies(     ${ZEPHYR_FINAL_EXECUTABLE} linker_zephyr_final_script_target)
 
@@ -1875,6 +1807,8 @@ if(CONFIG_BUILD_OUTPUT_HEX OR BOARD_FLASH_RUNNER STREQUAL openocd)
       ${KERNEL_HEX_NAME}
       )
     set(BYPRODUCT_KERNEL_HEX_NAME "${PROJECT_BINARY_DIR}/${KERNEL_HEX_NAME}" CACHE FILEPATH "Kernel hex file" FORCE)
+  else()
+    message(WARNING "Intel HEX output format not supported by toolchain (CONFIG_BUILD_OUTPUT_HEX=y)")
   endif()
 endif()
 
@@ -1897,10 +1831,12 @@ if(CONFIG_BUILD_OUTPUT_BIN)
       ${KERNEL_BIN_NAME}
       )
     set(BYPRODUCT_KERNEL_BIN_NAME "${PROJECT_BINARY_DIR}/${KERNEL_BIN_NAME}" CACHE FILEPATH "Kernel binary file" FORCE)
+  else()
+    message(WARNING "Binary output format not supported by toolchain (CONFIG_BUILD_OUTPUT_BIN=y)")
   endif()
 endif()
 
-if(CONFIG_BUILD_OUTPUT_BIN AND CONFIG_BUILD_OUTPUT_UF2)
+if(CONFIG_BUILD_OUTPUT_UF2)
   if(CONFIG_BUILD_OUTPUT_UF2_USE_FLASH_BASE)
     set(code_address "${CONFIG_FLASH_BASE_ADDRESS}")
   else()
@@ -1920,24 +1856,58 @@ if(CONFIG_BUILD_OUTPUT_BIN AND CONFIG_BUILD_OUTPUT_UF2)
   # are typically loaded to RAM
   if(NOT CONFIG_XIP)
     if(CONFIG_BUILD_OUTPUT_ADJUST_LMA)
-      math(EXPR code_address
+      if(CONFIG_SRAM_DEPRECATED_KCONFIG_SET)
+        math(EXPR code_address
           "${CONFIG_SRAM_BASE_ADDRESS} + ${CONFIG_BUILD_OUTPUT_ADJUST_LMA} + 0"
           OUTPUT_FORMAT HEXADECIMAL
-      )
+        )
+      else()
+        dt_chosen(chosen_sram_path PROPERTY "zephyr,sram")
+        dt_reg_addr(ram_addr PATH "${chosen_sram_path}")
+
+        math(EXPR code_address
+          "${ram_addr} + ${CONFIG_BUILD_OUTPUT_ADJUST_LMA} + 0"
+          OUTPUT_FORMAT HEXADECIMAL
+        )
+      endif()
     else()
-      set(code_address "${CONFIG_SRAM_BASE_ADDRESS}")
+      if(CONFIG_SRAM_DEPRECATED_KCONFIG_SET)
+        set(code_address ${CONFIG_SRAM_BASE_ADDRESS})
+      else()
+        dt_chosen(chosen_sram_path PROPERTY "zephyr,sram")
+        dt_reg_addr(code_address PATH "${chosen_sram_path}")
+      endif()
     endif()
   endif()
 
-  list(APPEND
-    post_build_commands
-    COMMAND ${PYTHON_EXECUTABLE} ${ZEPHYR_BASE}/scripts/build/uf2conv.py
-            -c
-            -f ${CONFIG_BUILD_OUTPUT_UF2_FAMILY_ID}
-            -b ${code_address}
-            -o ${KERNEL_UF2_NAME}
-            ${KERNEL_BIN_NAME}
-  )
+  if(CONFIG_BUILD_OUTPUT_HEX)
+    # HEX format embeds addresses, so no -b flag is needed.
+    # This method is required for mapped-partition.
+    list(APPEND
+      post_build_commands
+      COMMAND ${PYTHON_EXECUTABLE} ${ZEPHYR_BASE}/scripts/build/uf2conv.py
+              -c
+              -f ${CONFIG_BUILD_OUTPUT_UF2_FAMILY_ID}
+              -o ${KERNEL_UF2_NAME}
+              ${KERNEL_HEX_NAME}
+    )
+  elseif(CONFIG_BUILD_OUTPUT_BIN AND NOT "${code_address}" STREQUAL "")
+    # BIN format requires an explicit base address via -b.
+    list(APPEND
+      post_build_commands
+      COMMAND ${PYTHON_EXECUTABLE} ${ZEPHYR_BASE}/scripts/build/uf2conv.py
+              -c
+              -f ${CONFIG_BUILD_OUTPUT_UF2_FAMILY_ID}
+              -b ${code_address}
+              -o ${KERNEL_UF2_NAME}
+              ${KERNEL_BIN_NAME}
+    )
+  else()
+    message(WARNING
+      "UF2 output requires either a) CONFIG_BUILD_OUTPUT_HEX or b) CONFIG_BUILD_OUTPUT_BIN with a "
+      "known code address. Enable CONFIG_BUILD_OUTPUT_HEX in your board configuration.")
+  endif()
+
   list(APPEND
     post_build_byproducts
     ${KERNEL_UF2_NAME}
@@ -1964,11 +1934,16 @@ if(CONFIG_BUILD_OUTPUT_MOT)
       ${KERNEL_MOT_NAME}
       )
     set(BYPRODUCT_KERNEL_MOT_NAME "${PROJECT_BINARY_DIR}/${KERNEL_MOT_NAME}" CACHE FILEPATH "Kernel mot file" FORCE)
+  else()
+    message(WARNING "Motorola SREC output format not supported by toolchain (CONFIG_BUILD_OUTPUT_MOT=y)")
   endif()
 endif()
 
 set(KERNEL_META_PATH  ${PROJECT_BINARY_DIR}/${KERNEL_META_NAME} CACHE INTERNAL "")
 if(CONFIG_BUILD_OUTPUT_META)
+  # SBOM tooling reads CMake's object model alongside this metadata.
+  cmake_file_api(QUERY API_VERSION 1 CODEMODEL 2 TOOLCHAINS 1)
+
   list(APPEND
     post_build_commands
     COMMAND ${PYTHON_EXECUTABLE} ${ZEPHYR_BASE}/scripts/zephyr_module.py
@@ -2002,7 +1977,6 @@ endif()
 if(CONFIG_BUILD_OUTPUT_S19)
   get_property(elfconvert_formats TARGET bintools PROPERTY elfconvert_formats)
   if(srec IN_LIST elfconvert_formats)
-    # Should we print a warning if case the tools does not support converting to s19 ?
     list(APPEND
       post_build_commands
       COMMAND $<TARGET_PROPERTY:bintools,elfconvert_command>
@@ -2019,6 +1993,29 @@ if(CONFIG_BUILD_OUTPUT_S19)
       ${KERNEL_S19_NAME}
       )
     set(BYPRODUCT_KERNEL_S19_NAME "${PROJECT_BINARY_DIR}/${KERNEL_S19_NAME}" CACHE FILEPATH "Kernel s19 file" FORCE)
+  else()
+    message(WARNING "Motorola S19 output format not supported by toolchain (CONFIG_BUILD_OUTPUT_S19=y)")
+  endif()
+endif()
+
+if(CONFIG_BUILD_OUTPUT_VERILOG)
+  get_property(elfconvert_formats TARGET bintools PROPERTY elfconvert_formats)
+  if(verilog IN_LIST elfconvert_formats)
+    list(APPEND
+      post_build_commands
+      COMMAND
+        $<TARGET_PROPERTY:bintools,elfconvert_command>
+        $<TARGET_PROPERTY:bintools,elfconvert_flag>
+        $<TARGET_PROPERTY:bintools,elfconvert_flag_outtarget>verilog
+        $<TARGET_PROPERTY:bintools,elfconvert_flag_verilog_data_width>${CONFIG_BUILD_OUTPUT_VERILOG_DATA_WIDTH}
+        $<TARGET_PROPERTY:bintools,elfconvert_flag_infile>${KERNEL_ELF_NAME}
+        $<TARGET_PROPERTY:bintools,elfconvert_flag_outfile>${KERNEL_VERILOG_NAME}
+        $<TARGET_PROPERTY:bintools,elfconvert_flag_final>
+    )
+    list(APPEND post_build_byproducts ${KERNEL_VERILOG_NAME})
+    set(BYPRODUCT_KERNEL_VERILOG_NAME "${PROJECT_BINARY_DIR}/${KERNEL_VERILOG_NAME}" CACHE FILEPATH "Kernel Verilog file" FORCE)
+  else()
+    message(WARNING "Verilog output format not supported by toolchain (CONFIG_BUILD_OUTPUT_VERILOG=y)")
   endif()
 endif()
 
@@ -2136,17 +2133,29 @@ if(CONFIG_BUILD_OUTPUT_INFO_HEADER)
     )
 endif()
 
-if(CONFIG_LLEXT AND CONFIG_LLEXT_EXPORT_BUILTINS_BY_SLID)
-  #slidgen must be the first post-build command to be executed
-  #on the Zephyr ELF to ensure that all other commands, such as
-  #binary file generation, are operating on a preparated ELF.
-  list(PREPEND
+if(CONFIG_LLEXT)
+  # Add discarded groups inspector to post-build commands
+  list(APPEND
     post_build_commands
     COMMAND ${PYTHON_EXECUTABLE}
-    ${ZEPHYR_BASE}/scripts/build/llext_prepare_exptab.py
+    ${ZEPHYR_BASE}/scripts/build/llext_inspect_discarded_groups.py
     --elf-file ${PROJECT_BINARY_DIR}/${KERNEL_ELF_NAME}
-    --slid-listing ${PROJECT_BINARY_DIR}/slid_listing.txt
+    --dotconfig-file ${DOTCONFIG}
+    --output-report ${PROJECT_BINARY_DIR}/llext_discarded_groups.txt
   )
+
+  if(CONFIG_LLEXT_EXPORT_BUILTINS_BY_SLID)
+    #slidgen must be the first post-build command to be executed
+    #on the Zephyr ELF to ensure that all other commands, such as
+    #binary file generation, are operating on a preparated ELF.
+    list(PREPEND
+      post_build_commands
+      COMMAND ${PYTHON_EXECUTABLE}
+      ${ZEPHYR_BASE}/scripts/build/llext_prepare_exptab.py
+      --elf-file ${PROJECT_BINARY_DIR}/${KERNEL_ELF_NAME}
+      --slid-listing ${PROJECT_BINARY_DIR}/slid_listing.txt
+    )
+  endif()
 endif()
 
 if(NOT CMAKE_C_COMPILER_ID STREQUAL "ARMClang")
@@ -2286,7 +2295,7 @@ endif()
 add_custom_command(
   TARGET ${logical_target_for_zephyr_elf}
   POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E echo "Generating files from ${PROJECT_BINARY_DIR}/${KERNEL_ELF_NAME} for board: ${BOARD}"
+  COMMAND ${CMAKE_COMMAND} -E echo "Generating files from ${PROJECT_BINARY_DIR}/${KERNEL_ELF_NAME} for board: ${BOARD}/${BOARD_QUALIFIERS}"
   ${post_build_commands}
   BYPRODUCTS
   ${post_build_byproducts}
@@ -2312,7 +2321,6 @@ if(HEX_FILES_TO_MERGE)
     )
 
   add_custom_target(mergehex ALL DEPENDS ${MERGED_HEX_NAME})
-  list(APPEND RUNNERS_DEPS mergehex)
 
   message(VERBOSE "Merging hex files: ${HEX_FILES_TO_MERGE}")
 endif()
@@ -2361,7 +2369,7 @@ endif()
 
 if(CONFIG_SOC_DEPRECATED_RELEASE)
   message(WARNING "
-      WARNING:  The SoC '${SOC_NAME}' is deprecated and will be
+      WARNING:  The SoC '${CONFIG_SOC}' is deprecated and will be
       removed in version ${CONFIG_SOC_DEPRECATED_RELEASE}"
   )
 endif()
@@ -2399,22 +2407,13 @@ if(CONFIG_LLEXT_EDK)
   endif()
   set(llext_edk_file ${PROJECT_BINARY_DIR}/${CONFIG_LLEXT_EDK_NAME}.${llext_edk_extension})
 
-  # TODO maybe generate flags for C CXX ASM
-  zephyr_get_compile_definitions_for_lang(C zephyr_defs)
-  zephyr_get_compile_options_for_lang(C zephyr_flags)
-
-  # Filter out non LLEXT and LLEXT_EDK flags - and add required ones
-  llext_filter_zephyr_flags(LLEXT_REMOVE_FLAGS ${zephyr_flags} llext_filt_flags)
-  llext_filter_zephyr_flags(LLEXT_EDK_REMOVE_FLAGS ${llext_filt_flags} llext_filt_flags)
-
-  set(llext_edk_cflags ${zephyr_defs} -DLL_EXTENSION_BUILD)
-  list(APPEND llext_edk_cflags ${llext_filt_flags})
-  list(APPEND llext_edk_cflags ${LLEXT_APPEND_FLAGS})
-  list(APPEND llext_edk_cflags ${LLEXT_EDK_APPEND_FLAGS})
-
+  # Export current settings for use in LLEXT EDK generation
   build_info(llext-edk file PATH ${llext_edk_file})
-  build_info(llext-edk cflags VALUE ${llext_edk_cflags})
-  build_info(llext-edk include-dirs VALUE "$<TARGET_PROPERTY:zephyr_interface,INTERFACE_INCLUDE_DIRECTORIES>")
+  build_info(llext-edk remove-cflags VALUE ${LLEXT_REMOVE_FLAGS} ${LLEXT_EDK_REMOVE_FLAGS})
+  build_info(llext-edk append-cflags VALUE ${LLEXT_APPEND_FLAGS} ${LLEXT_EDK_APPEND_FLAGS} -DLL_EXTENSION_BUILD)
+
+  # Generate the compiler flag files that will be used by the EDK
+  add_subdirectory(misc/llext_edk)
 
   add_custom_command(
     OUTPUT ${llext_edk_file}
@@ -2432,8 +2431,9 @@ if(CONFIG_LLEXT_EDK)
       ${SYSCALL_LONG_REGISTERS_ARG}
       ${SYSCALL_SPLIT_TIMEOUT_ARG}
     COMMAND ${CMAKE_COMMAND}
+        -DSYSBUILD=${SYSBUILD}
         -P ${ZEPHYR_BASE}/cmake/llext-edk.cmake
-    DEPENDS ${logical_target_for_zephyr_elf} ${syscalls_json} build_info_yaml_saved
+    DEPENDS ${logical_target_for_zephyr_elf} ${syscalls_json} build_info_yaml_saved llext_edk_build_props
     COMMAND_EXPAND_LISTS
   )
   add_custom_target(llext-edk DEPENDS ${llext_edk_file})

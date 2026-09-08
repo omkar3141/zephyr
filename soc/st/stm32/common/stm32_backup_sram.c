@@ -43,24 +43,28 @@ static int stm32_backup_sram_init(const struct device *dev)
 	/* Add a refcount to backup domain access and never remove it */
 	stm32_backup_domain_enable_access();
 
-	if (IS_ENABLED(CONFIG_SOC_SERIES_STM32U5X)) {
-		/*
-		 * On STM32U5 series, backup RAM retention can only be enabled
-		 * when the LDO is selected as voltage regulator. However, the
-		 * SMPS regulator may have been selected by the time this code
-		 * executes, which results in a deadlock. To avoid this, the
-		 * SoC initialization code is modified to enable the regulator
-		 * on our behalf, before switching regulators - don't try to
-		 * enable the regulator again.
-		 */
-	} else {
-		/* enable backup sram regulator (required to retain backup SRAM content
-		 * while in standby or VBAT modes).
-		 */
-		LL_PWR_EnableBkUpRegulator();
-		while (!LL_PWR_IsEnabledBkUpRegulator()) {
-		}
+#if defined(CONFIG_SOC_SERIES_STM32U5X)
+	/*
+	 * On STM32U5 series, backup RAM retention can only be enabled
+	 * when the LDO is selected as voltage regulator. However, the
+	 * SMPS regulator may have been selected by the time this code
+	 * executes, which results in a deadlock. To avoid this, the
+	 * SoC initialization code is modified to enable the regulator
+	 * on our behalf, before switching regulators - don't try to
+	 * enable the regulator again.
+	 */
+#elif defined(CONFIG_SOC_SERIES_STM32N6X)
+	LL_PWR_EnableBkpSRAMSBRetention();
+	while (!LL_PWR_IsEnabledBkpSRAMSBRetention()) {
 	}
+#else
+	/* enable backup sram regulator (required to retain backup SRAM content
+	 * while in standby or VBAT modes).
+	 */
+	LL_PWR_EnableBkUpRegulator();
+	while (!LL_PWR_IsEnabledBkUpRegulator()) {
+	}
+#endif
 
 	return 0;
 }
@@ -70,4 +74,4 @@ static const struct stm32_backup_sram_config config = {
 };
 
 DEVICE_DT_INST_DEFINE(0, stm32_backup_sram_init, NULL, NULL, &config,
-		      POST_KERNEL, CONFIG_STM32_BACKUP_SRAM_INIT_PRIORITY, NULL);
+		      PRE_KERNEL_1, CONFIG_STM32_BACKUP_SRAM_INIT_PRIORITY, NULL);

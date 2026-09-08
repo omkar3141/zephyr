@@ -20,7 +20,7 @@
 #include <zephyr/sys/__assert.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/util_macro.h>
-#include <zephyr/sys_clock.h>
+#include <zephyr/sys/clock.h>
 
 #include "buf_view.h"
 #include "common/hci_common_internal.h"
@@ -74,7 +74,7 @@ static void iso_rx_freed_cb(void)
  * the HCI transport to fill buffers in parallel with `bt_recv`
  * consuming them.
  */
-NET_BUF_POOL_FIXED_DEFINE(sync_evt_pool, 1, SYNC_EVT_SIZE, 0, NULL);
+NET_BUF_POOL_FIXED_DEFINE(sync_evt_pool, CONFIG_BT_BUF_SYNC_EVT_POOL_COUNT, SYNC_EVT_SIZE, 0, NULL);
 
 NET_BUF_POOL_FIXED_DEFINE(discardable_pool, CONFIG_BT_BUF_EVT_DISCARDABLE_COUNT,
 			  BT_BUF_EVT_SIZE(CONFIG_BT_BUF_EVT_DISCARDABLE_SIZE),

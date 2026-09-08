@@ -16,7 +16,7 @@ BUILD_ASSERT(DT_NODE_EXISTS(DT_PATH(cpus)),
 		= PM_STATE_INFO_LIST_FROM_DT_CPU(n);
 #define CPU_STATE_REF(n) pmstates_##n
 
-DT_FOREACH_CHILD(DT_PATH(cpus), DEFINE_CPU_STATES);
+DT_FOREACH_CHILD_STATUS_OKAY(DT_PATH(cpus), DEFINE_CPU_STATES);
 
 /** CPU power states information for each CPU */
 static const struct pm_state_info *cpus_states[] = {
@@ -132,7 +132,7 @@ bool pm_state_in_constraints(const struct pm_state_constraints *constraints,
 	size_t num_constraints = constraints->count;
 	bool match_found = false;
 
-	for (int i = 0; i < num_constraints; i++) {
+	for (size_t i = 0; i < num_constraints; i++) {
 		enum pm_state state = constraints_list[i].state;
 		uint8_t substate = constraints_list[i].substate_id;
 

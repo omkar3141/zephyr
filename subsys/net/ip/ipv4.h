@@ -450,7 +450,16 @@ int net_ipv4_acd_start(struct net_if *iface, struct net_if_addr *ifaddr);
  * @param iface Network interface the address belongs to.
  * @param ifaddr IPv4 address to probe.
  */
+#if defined(CONFIG_NET_IPV4_ACD)
 void net_ipv4_acd_cancel(struct net_if *iface, struct net_if_addr *ifaddr);
+#else
+static inline void net_ipv4_acd_cancel(struct net_if *iface,
+				       struct net_if_addr *ifaddr)
+{
+	ARG_UNUSED(iface);
+	ARG_UNUSED(ifaddr);
+}
+#endif /* CONFIG_NET_IPV4_ACD */
 
 /**
  * @brief Notify no conflict was detected for an IPv4 address.
@@ -467,11 +476,6 @@ void net_if_ipv4_acd_succeeded(struct net_if *iface, struct net_if_addr *ifaddr)
  * @param ifaddr IPv4 address.
  */
 void net_if_ipv4_acd_failed(struct net_if *iface, struct net_if_addr *ifaddr);
-
-/**
- * @brief Initialize IPv4 address conflict detection module.
- */
-void net_ipv4_acd_init(void);
 
 /**
  * @brief Process ARP packet in terms of conflict detection.

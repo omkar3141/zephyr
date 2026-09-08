@@ -8,12 +8,14 @@
 
 #include <stdlib.h>
 
-#include <zephyr/drivers/stepper.h>
+#include <zephyr/drivers/stepper/stepper.h>
+#include <zephyr/drivers/stepper/stepper_ctrl.h>
 #include <zephyr/drivers/stepper/stepper_trinamic.h>
 
 #include <adi_tmc_spi.h>
 #include "tmc50xx.h"
 #include <adi_tmc5xxx_common.h>
+#include "tmc50xx_reg.h"
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(tmc50xx, CONFIG_STEPPER_LOG_LEVEL);
@@ -100,10 +102,11 @@ int tmc50xx_read(const struct device *dev, const uint8_t reg_addr, uint32_t *reg
 
 static void log_stallguard(const struct device *dev, const uint32_t drv_status)
 {
+	struct tmc50xx_data *data = dev->data;
 	int32_t position;
 	int err;
 
-	err = read_actual_position(dev, &position);
+	err = tmc50xx_read_actual_position(dev, data->work_index, &position);
 	if (err != 0) {
 		LOG_ERR("%s: Failed to read XACTUAL register", dev->name);
 		return;
@@ -165,36 +168,36 @@ static void rampstat_work(const struct device *dev)
 
 	if (ramp_stat_values > 0) {
 		switch (ramp_stat_values) {
-#ifdef CONFIG_STEPPER_ADI_TMC50XX_STEPPER
+#ifdef CONFIG_STEPPER_ADI_TMC50XX_STEPPER_CTRL
 		case TMC5XXX_STOP_LEFT_EVENT:
 			LOG_DBG("RAMPSTAT %s:Left end-stop detected", data->dev->name);
-			tmc50xx_stepper_trigger_cb(
+			tmc50xx_stepper_ctrl_trigger_cb(
 				config->motion_controllers[data->work_index],
-				STEPPER_EVENT_LEFT_END_STOP_DETECTED);
+				STEPPER_CTRL_EVENT_LEFT_END_STOP_DETECTED);
 			break;
 
 		case TMC5XXX_STOP_RIGHT_EVENT:
 			LOG_DBG("RAMPSTAT %s:Right end-stop detected", data->dev->name);
-			tmc50xx_stepper_trigger_cb(
+			tmc50xx_stepper_ctrl_trigger_cb(
 				config->motion_controllers[data->work_index],
-				STEPPER_EVENT_RIGHT_END_STOP_DETECTED);
+				STEPPER_CTRL_EVENT_RIGHT_END_STOP_DETECTED);
 			break;
 
 		case TMC5XXX_POS_REACHED_EVENT:
 		case TMC5XXX_POS_REACHED:
 		case TMC5XXX_POS_REACHED_AND_EVENT:
 			LOG_DBG("RAMPSTAT %s:Position reached", data->dev->name);
-			tmc50xx_stepper_trigger_cb(
+			tmc50xx_stepper_ctrl_trigger_cb(
 				config->motion_controllers[data->work_index],
-				STEPPER_EVENT_STEPS_COMPLETED);
+				STEPPER_CTRL_EVENT_STEPS_COMPLETED);
 			break;
 #endif
-#ifdef CONFIG_STEPPER_ADI_TMC50XX_STEPPER_DRV
+#ifdef CONFIG_STEPPER_ADI_TMC50XX_STEPPER_DRIVER
 		case TMC5XXX_STOP_SG_EVENT:
 			LOG_DBG("RAMPSTAT %s:Stall detected", data->dev->name);
-			tmc50xx_stepper_stallguard_enable(data->dev, false);
-			tmc50xx_stepper_drv_trigger_cb(config->stepper_drivers[data->work_index],
-						  STEPPER_DRV_EVENT_STALL_DETECTED);
+			tmc50xx_stepper_ctrl_stallguard_enable(data->dev, false);
+			tmc50xx_stepper_driver_trigger_cb(config->stepper_drivers[data->work_index],
+							  STEPPER_EVENT_STALL_DETECTED);
 			break;
 #endif
 		default:
@@ -214,8 +217,8 @@ static void rampstat_work_handler(struct k_work *work)
 	const struct device *dev = data->dev;
 	const struct tmc50xx_config *config = dev->config;
 
-	for (uint8_t i = 0; i < config->num_stepper_drivers; i++) {
-		data->work_index = tmc50xx_stepper_index(config->motion_controllers[i]);
+	for (uint8_t i = 0; i < config->num_motion_controllers; i++) {
+		data->work_index = tmc50xx_stepper_ctrl_index(config->motion_controllers[i]);
 		rampstat_work(dev);
 	}
 }
@@ -230,7 +233,7 @@ static int tmc50xx_init(const struct device *dev)
 	k_sem_init(&data->sem, 1, 1);
 
 	if (!spi_is_ready_dt(&config->spi)) {
-		LOG_ERR("SPI bus is not ready");
+		LOG_ERR_DEVICE_NOT_READY(config->spi.bus);
 		return -ENODEV;
 	}
 
@@ -276,9 +279,9 @@ static int tmc50xx_init(const struct device *dev)
 
 #define TMC50XX_DEFINE(inst)                                                                       \
 	static const struct device *tmc50xx_stepper_drivers_##inst[] =                             \
-		TMC50XX_CHILD_DEVICES_ARRAY(inst, adi_tmc50xx_stepper_drv);                        \
+		TMC50XX_CHILD_DEVICES_ARRAY(inst, adi_tmc50xx_stepper_driver);                     \
 	static const struct device *tmc50xx_motion_controllers_##inst[] =                          \
-		TMC50XX_CHILD_DEVICES_ARRAY(inst, adi_tmc50xx_stepper);                            \
+		TMC50XX_CHILD_DEVICES_ARRAY(inst, adi_tmc50xx_stepper_ctrl);                       \
 	BUILD_ASSERT(ARRAY_SIZE(tmc50xx_motion_controllers_##inst) <= 2,                           \
 		     "tmc50xx can drive two steppers at max");                                     \
 	BUILD_ASSERT(ARRAY_SIZE(tmc50xx_stepper_drivers_##inst) <= 2,                              \
@@ -295,7 +298,7 @@ static int tmc50xx_init(const struct device *dev)
 			  DT_INST_PROP(inst, shaft2) << TMC50XX_GCONF_SHAFT_SHIFT(1) |             \
 			  (DT_INST_PROP(inst, lock_gconf) << TMC50XX_LOCK_GCONF_SHIFT)),           \
 		.spi = SPI_DT_SPEC_INST_GET(inst,                                                  \
-					    (SPI_OP_MODE_MASTER | SPI_TRANSFER_MSB |               \
+					    (SPI_OP_MODE_CONTROLLER | SPI_TRANSFER_MSB |           \
 					     SPI_MODE_CPOL | SPI_MODE_CPHA | SPI_WORD_SET(8))),    \
 		.clock_frequency =                                                                 \
 			DT_INST_PROP(inst, clock_frequency), /* Child device references */         \

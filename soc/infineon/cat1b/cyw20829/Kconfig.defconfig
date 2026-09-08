@@ -1,5 +1,5 @@
-# Copyright (c) 2025 Infineon Technologies AG,
-# or an affiliate of Infineon Technologies AG.
+# SPDX-FileCopyrightText: Copyright (c) 2026 Infineon Technologies AG,
+# SPDX-FileCopyrightText: or an affiliate of Infineon Technologies AG. All rights reserved.
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -28,6 +28,9 @@ config MAIN_STACK_SIZE
 
 config IDLE_STACK_SIZE
 	default 1024 if PM
+
+config PM
+	select FLASH
 
 # add additional die specific params
 

@@ -97,6 +97,7 @@ struct i2c_it8xxx2_data {
 	uint8_t freq;
 	/* wait for stop bit interrupt */
 	uint8_t stop;
+	uint8_t *buf;
 };
 
 enum i2c_host_status {
@@ -420,7 +421,7 @@ void __soc_ram_code i2c_tran_fifo_write_start(const struct device *dev)
 
 	for (i = 0; i < data->bytecnt; i++) {
 		/* Set host block data byte. */
-		IT8XXX2_SMB_HOBDB(base) = *(data->active_msg->buf++);
+		IT8XXX2_SMB_HOBDB(base) = *data->buf++;
 	}
 	/* Calculate the remaining byte counts. */
 	data->bytecnt = data->active_msg->len - data->bytecnt;
@@ -447,7 +448,7 @@ void __soc_ram_code i2c_tran_fifo_write_next_block(const struct device *dev)
 
 	for (i = 0; i < _bytecnt; i++) {
 		/* Set host block data byte. */
-		IT8XXX2_SMB_HOBDB(base) = *(data->active_msg->buf++);
+		IT8XXX2_SMB_HOBDB(base) = *data->buf++;
 	}
 	/* Clear FIFO block done status. */
 	*reg_mstfctrl |= IT8XXX2_SMB_BLKDS;
@@ -490,6 +491,7 @@ int __soc_ram_code i2c_tran_fifo_w2r_change_direction(const struct device *dev)
 	IT8XXX2_SMB_HOCTL2(base) &= ~IT8XXX2_SMB_I2C_SW_WAIT;
 	/* Point to the next msg for the read location. */
 	data->active_msg = &data->msgs_list[data->active_msg_index];
+	data->buf = data->active_msg->buf;
 	/* Set read byte counts. */
 	IT8XXX2_SMB_D0REG(base) = data->active_msg->len;
 	data->bytecnt = data->active_msg->len;
@@ -544,7 +546,7 @@ void __soc_ram_code i2c_tran_fifo_read_next_block(const struct device *dev)
 
 	for (i = 0; i < I2C_FIFO_MODE_MAX_SIZE; i++) {
 		/* To get received data. */
-		*(data->active_msg->buf++) = IT8XXX2_SMB_HOBDB(base);
+		*data->buf++ = IT8XXX2_SMB_HOBDB(base);
 	}
 	/* Clear FIFO block done status. */
 	*reg_mstfctrl |= IT8XXX2_SMB_BLKDS;
@@ -561,7 +563,7 @@ void __soc_ram_code i2c_tran_fifo_read_finish(const struct device *dev)
 
 	for (i = 0; i < data->bytecnt; i++) {
 		/* To get received data. */
-		*(data->active_msg->buf++) = IT8XXX2_SMB_HOBDB(base);
+		*data->buf++ = IT8XXX2_SMB_HOBDB(base);
 	}
 	/* Clear byte count register. */
 	IT8XXX2_SMB_D0REG(base) = 0;
@@ -764,7 +766,7 @@ int __soc_ram_code i2c_tran_read(const struct device *dev)
 					   IT8XXX2_SMB_SMHEN;
 		/*
 		 * bit0, Direction of the host transfer.
-		 * bit[1:7}, Address of the targeted slave.
+		 * bit[1:7}, Address of the target.
 		 */
 		IT8XXX2_SMB_TRASLA(base) = (uint8_t)(data->addr_16bit << 1) |
 					   IT8XXX2_SMB_DIR;
@@ -804,7 +806,7 @@ int __soc_ram_code i2c_tran_read(const struct device *dev)
 		} else if (IT8XXX2_SMB_HOSTA(base) & HOSTA_BDS) {
 			if (data->ridx < data->active_msg->len) {
 				/* To get received data. */
-				*(data->active_msg->buf++) = IT8XXX2_SMB_HOBDB(base);
+				*data->buf++ = IT8XXX2_SMB_HOBDB(base);
 				data->ridx++;
 				/* For last byte */
 				i2c_r_last_byte(dev);
@@ -846,11 +848,11 @@ int __soc_ram_code i2c_tran_write(const struct device *dev)
 					   IT8XXX2_SMB_SMHEN;
 		/*
 		 * bit0, Direction of the host transfer.
-		 * bit[1:7}, Address of the targeted slave.
+		 * bit[1:7}, Address of the target.
 		 */
 		IT8XXX2_SMB_TRASLA(base) = (uint8_t)data->addr_16bit << 1;
 		/* Send first byte */
-		IT8XXX2_SMB_HOBDB(base) = *(data->active_msg->buf++);
+		IT8XXX2_SMB_HOBDB(base) = *data->buf++;
 
 		data->widx++;
 		/* clear start flag */
@@ -868,7 +870,7 @@ int __soc_ram_code i2c_tran_write(const struct device *dev)
 		if (IT8XXX2_SMB_HOSTA(base) & HOSTA_BDS) {
 			if (data->widx < data->active_msg->len) {
 				/* Send next byte */
-				IT8XXX2_SMB_HOBDB(base) = *(data->active_msg->buf++);
+				IT8XXX2_SMB_HOBDB(base) = *data->buf++;
 
 				data->widx++;
 				/* W/C byte done for next byte */
@@ -985,6 +987,7 @@ static int i2c_it8xxx2_transfer(const struct device *dev, struct i2c_msg *msgs,
 		data->ridx = 0;
 		data->err = 0;
 		data->active_msg = &msgs[i];
+		data->buf = msgs[i].buf;
 		data->addr_16bit = addr;
 
 #ifdef CONFIG_I2C_IT8XXX2_FIFO_MODE
@@ -1120,13 +1123,13 @@ static int i2c_it8xxx2_init(const struct device *dev)
 	 * bit1, Enable to communicate with I2C device
 	 *		  and support I2C-compatible cycles.
 	 * bit4, This bit controls the reset mechanism
-	 *		  of SMBus master to handle the SMDAT
+	 *		  of SMBus controller to handle the SMDAT
 	 *		  line low if 25ms reg timeout.
 	 */
 	IT8XXX2_SMB_HOCTL2(base) = IT8XXX2_SMB_SMD_TO_EN | IT8XXX2_SMB_SMHEN;
 	/*
 	 * bit1, Kill SMBus host transaction.
-	 * bit0, Enable the interrupt for the master interface.
+	 * bit0, Enable the interrupt for the controller interface.
 	 */
 	IT8XXX2_SMB_HOCTL(base) = IT8XXX2_SMB_KILL | IT8XXX2_SMB_SMHEN;
 	IT8XXX2_SMB_HOCTL(base) = IT8XXX2_SMB_SMHEN;
@@ -1307,7 +1310,7 @@ DT_INST_FOREACH_STATUS_OKAY(I2C_IT8XXX2_CHECK_SUPPORTED_CLOCK)
 		.scl_gpios = GPIO_DT_SPEC_INST_GET(inst, scl_gpios),            \
 		.sda_gpios = GPIO_DT_SPEC_INST_GET(inst, sda_gpios),            \
 		.clock_gate_offset = DT_INST_PROP(inst, clock_gate_offset),     \
-		.transfer_timeout_ms = DT_INST_PROP(inst, transfer_timeout_ms), \
+		.transfer_timeout_ms = I2C_DT_INST_TRANSFER_TIMEOUT_MS(inst),   \
 		.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),                   \
 		.fifo_enable = DT_INST_PROP(inst, fifo_enable),                 \
 		.push_pull_recovery = DT_INST_PROP(inst, push_pull_recovery),   \

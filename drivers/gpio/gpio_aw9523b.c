@@ -89,7 +89,7 @@ static int gpio_aw9523b_pin_configure(const struct device *dev, gpio_pin_t pin, 
 		}
 	}
 
-	if ((flags & GPIO_INPUT) && ((flags & GPIO_PULL_UP) || (flags & GPIO_PULL_DOWN))) {
+	if ((flags & GPIO_INPUT) && (flags & (GPIO_PULL_UP | GPIO_PULL_DOWN))) {
 		return -ENOTSUP;
 	}
 
@@ -487,9 +487,7 @@ end_hw_reset:
 	static struct gpio_aw9523b_data gpio_aw9523b_data##inst;                                   \
                                                                                                    \
 	static const struct gpio_aw9523b_config gpio_aw9523b_config##inst = {                      \
-		.common = {                                                                        \
-			.port_pin_mask = GPIO_PORT_PIN_MASK_FROM_DT_INST(inst),                    \
-		},                                                                                 \
+		.common = GPIO_COMMON_CONFIG_FROM_DT_INST(inst),                                   \
 		.mfd_dev = DEVICE_DT_GET(DT_INST_PARENT(inst)),                                    \
 		.i2c = I2C_DT_SPEC_GET(DT_INST_PARENT(inst)),                                      \
 		.port0_push_pull = DT_INST_PROP_OR(inst, port0_push_pull, false),                  \

@@ -8,20 +8,14 @@
  * @brief NRF Wi-Fi util shell module
  */
 #include <stdlib.h>
-#ifdef NRF71_ON_IPC
-#include <nrf71_wifi_ctrl.h>
-#else
 #include "host_rpu_umac_if.h"
-#endif
 #include "common/fmac_util.h"
 #include "system/fmac_api.h"
 #include "fmac_main.h"
 #include "wifi_util.h"
 
-#ifndef CONFIG_NRF71_ON_IPC
 #include "rpu_lmac_phy_stats.h"
 #include "rpu_umac_stats.h"
-#endif
 
 extern struct nrf_wifi_drv_priv_zep rpu_drv_priv_zep;
 struct nrf_wifi_ctx_zep *ctx = &rpu_drv_priv_zep.rpu_ctx_zep;
@@ -267,6 +261,11 @@ static int nrf_wifi_util_show_cfg(const struct shell *sh,
 		      "rate_flag = %d,  rate_val = %d\n",
 		      ctx->conf_params.tx_pkt_tput_mode,
 		      ctx->conf_params.tx_pkt_rate);
+
+	shell_fprintf(sh,
+		      SHELL_INFO,
+		      "extended_sleep_sec = %u seconds\n",
+		      ctx->extended_sleep_sec);
 	return 0;
 }
 
@@ -979,7 +978,6 @@ unlock:
 }
 #endif /* CONFIG_NRF_WIFI_RPU_RECOVERY */
 
-#ifndef CONFIG_NRF71_ON_IPC
 static int nrf_wifi_dump_stats(const struct shell *sh,
 				   struct nrf_wifi_hal_dev_ctx *hal_dev_ctx,
 				   const char *name,
@@ -1103,7 +1101,41 @@ unlock:
 	k_mutex_unlock(&ctx->rpu_lock);
 	return ret;
 }
-#endif /* !CONFIG_NRF71_ON_IPC */
+
+static int nrf_wifi_util_req_extended_sleep(const struct shell *sh,
+					    size_t argc,
+					    const char *argv[])
+{
+	enum nrf_wifi_status status = NRF_WIFI_STATUS_FAIL;
+	char *ptr = NULL;
+	unsigned long val = 0;
+
+	val = strtoul(argv[1], &ptr, 10);
+
+	if (val > UINT_MAX) {
+		shell_fprintf(sh,
+			      SHELL_ERROR,
+			      "Invalid value(%lu).\n",
+			      val);
+		shell_help(sh);
+		return -ENOEXEC;
+	}
+
+	status = nrf_wifi_fmac_req_extended_sleep(ctx->rpu_ctx,
+						  0,
+						  (unsigned int)val);
+
+	if (status != NRF_WIFI_STATUS_SUCCESS) {
+		shell_fprintf(sh,
+			      SHELL_ERROR,
+			      "Programming extended_sleep failed\n");
+		return -ENOEXEC;
+	}
+
+	ctx->extended_sleep_sec = (unsigned int)val;
+
+	return 0;
+}
 
 SHELL_STATIC_SUBCMD_SET_CREATE(
 	nrf70_util,
@@ -1208,7 +1240,6 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 		      1,
 		      0),
 #endif /* CONFIG_NRF_WIFI_RPU_RECOVERY */
-#ifndef CONFIG_NRF71_ON_IPC
 	SHELL_CMD_ARG(rpu_stats_mem,
 		      NULL,
 		      "Display RPU stats by reading from memory "
@@ -1216,7 +1247,14 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 		      nrf_wifi_util_dump_rpu_stats_mem,
 		      1,
 		      1),
-#endif /* !CONFIG_NRF71_ON_IPC */
+	SHELL_CMD_ARG(extended_sleep,
+		      NULL,
+		      "<duration_sec> - Extended sleep interval in seconds.\n"
+		      "During this interval the nRF70 remains in deep sleep without\n"
+		      "waking for DTIM beacons. Inbound traffic will be lost.",
+		      nrf_wifi_util_req_extended_sleep,
+		      2,
+		      0),
 	SHELL_SUBCMD_SET_END);
 
 

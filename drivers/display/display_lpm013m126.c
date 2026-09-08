@@ -242,7 +242,7 @@ static int lpm_init(const struct device *dev)
 	return 0;
 }
 
-static const struct display_driver_api lpm_api = {
+static DEVICE_API(display, lpm_api) = {
 	.blanking_on = lpm_blanking_on,
 	.blanking_off = lpm_blanking_off,
 	.write = lpm_write,
@@ -252,7 +252,7 @@ static const struct display_driver_api lpm_api = {
 
 #define LPM013M126_INIT(inst)							\
 	static const struct lpm013m126_config lpm_cfg_##inst = {		\
-		.bus = SPI_DT_SPEC_INST_GET(inst, SPI_OP_MODE_MASTER |		\
+		.bus = SPI_DT_SPEC_INST_GET(inst, SPI_OP_MODE_CONTROLLER |	\
 					    SPI_WORD_SET(8) |			\
 					    SPI_TRANSFER_MSB),			\
 		.disp_gpio = GPIO_DT_SPEC_INST_GET(inst, disp_gpios),		\

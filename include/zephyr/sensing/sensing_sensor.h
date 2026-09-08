@@ -4,8 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef ZEPHYR_INCLUDE_SENSING_SENSOR_H_
-#define ZEPHYR_INCLUDE_SENSING_SENSOR_H_
+/**
+ * @file
+ * @brief Header file for the Sensing subsystem sensor API.
+ * @ingroup sensing_sensor
+ */
+
+#ifndef ZEPHYR_INCLUDE_SENSING_SENSING_SENSOR_H_
+#define ZEPHYR_INCLUDE_SENSING_SENSING_SENSOR_H_
 
 #include <stdbool.h>
 #include <zephyr/device.h>
@@ -60,6 +66,7 @@ struct sensing_sensor_register_info {
  */
 enum {
 	EVENT_CONFIG_READY, /**< Configuration is ready. */
+	EVENT_SENSOR_POLL,  /**< Sensor polling requested by timer. */
 };
 
 /**
@@ -69,6 +76,7 @@ enum {
  */
 enum {
 	SENSOR_LATER_CFG_BIT, /**< Indicates if there is a configuration request pending. */
+	SENSOR_POLL_BIT,      /**< Indicates sensor needs to be polled. */
 };
 
 /**
@@ -377,7 +385,7 @@ extern const struct rtio_iodev_api __sensing_iodev_api;
  * compatible
  *
  * @param inst instance number. This is replaced by
- * <tt>DT_DRV_COMPAT(inst)</tt> in the call to SENSING_SENSORS_DT_DEFINE().
+ * <tt>DT_DRV_INST(inst)</tt> in the call to SENSING_SENSORS_DT_DEFINE().
  * @param ... other parameters as expected by SENSING_SENSORS_DT_DEFINE().
  */
 #define SENSING_SENSORS_DT_INST_DEFINE(inst, ...)	\
@@ -428,4 +436,4 @@ int sensing_sensor_get_state(
 }
 #endif
 
-#endif /*ZEPHYR_INCLUDE_SENSING_SENSOR_H_*/
+#endif /* ZEPHYR_INCLUDE_SENSING_SENSING_SENSOR_H_ */

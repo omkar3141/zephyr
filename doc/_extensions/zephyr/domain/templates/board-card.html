@@ -13,12 +13,13 @@
   aria-label="Open the documentation page for {{ board.full_name }}"
   data-name="{{ board.full_name}}"
   data-arch="{{ board.archs | join(" ") }}"
+  data-target-memory="{{ board.target_memory | default([]) | tojson | forceescape }}"
   data-vendor="{{ board.vendor }}"
   data-socs="{{ board.socs | join(" ") }}"
   data-supported-features="
     {%- set feature_types = [] -%}
-    {%- for target_features in board.supported_features.values() -%}
-      {%- for feature_type in target_features.keys() -%}
+    {%- for target in board.supported_features.values() -%}
+      {%- for feature_type in target.features.keys() -%}
         {%- if feature_type not in feature_types -%}
           {%- set _ = feature_types.append(feature_type) -%}
         {%- endif -%}
@@ -37,6 +38,7 @@
     {%- endfor -%}
     {{- all_compatibles|join(' ') -}}
   "
+  data-maintained="{{ board.maintained | tojson }}"
   tabindex="0">
   <div class="vendor">{{ vendors[board.vendor] }}</div>
   {% if board.image -%}

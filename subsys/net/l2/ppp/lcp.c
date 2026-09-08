@@ -9,6 +9,7 @@ LOG_MODULE_DECLARE(net_l2_ppp, CONFIG_NET_L2_PPP_LOG_LEVEL);
 
 #include <zephyr/net/net_core.h>
 #include <zephyr/net/net_l2.h>
+#include <zephyr/net/net_log.h>
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/net_pkt.h>
 #include <zephyr/net/net_mgmt.h>
@@ -62,6 +63,8 @@ struct lcp_option_data {
 	uint32_t async_ctrl_char_map;
 	uint16_t auth_proto;
 	uint16_t mru;
+	bool pfc;
+	bool acfc;
 };
 
 static const enum ppp_protocol_type lcp_supported_auth_protos[] = {
@@ -122,8 +125,9 @@ static int lcp_async_ctrl_char_map_parse(struct ppp_fsm *fsm, struct net_pkt *pk
 	return 0;
 }
 
+#if defined(CONFIG_NET_L2_PPP_OPTION_MRU)
 static int lcp_peer_mru_parse(struct ppp_fsm *fsm, struct net_pkt *pkt,
-			       void *user_data)
+			      void *user_data)
 {
 	struct lcp_option_data *data = user_data;
 	uint16_t peer_mru;
@@ -137,19 +141,13 @@ static int lcp_peer_mru_parse(struct ppp_fsm *fsm, struct net_pkt *pkt,
 
 	NET_DBG("[LCP] Received peer MRU %u", peer_mru);
 
-	if (peer_mru > CONFIG_NET_L2_PPP_OPTION_MAX_MRU) {
-		LOG_WRN("[LCP] Received peer MRU is too big. %u > %u.",
-			peer_mru, CONFIG_NET_L2_PPP_OPTION_MAX_MRU);
-		return -EINVAL;
-	}
-
 	data->mru = peer_mru;
 
 	return 0;
 }
 
 static int lcp_peer_mru_nack(struct ppp_fsm *fsm, struct net_pkt *ret_pkt,
-			       void *user_data)
+			     void *user_data)
 {
 	struct ppp_context *ctx = ppp_fsm_ctx(fsm);
 
@@ -157,14 +155,48 @@ static int lcp_peer_mru_nack(struct ppp_fsm *fsm, struct net_pkt *ret_pkt,
 	(void)net_pkt_write_u8(ret_pkt, 4);
 	return net_pkt_write_be16(ret_pkt, ctx->lcp.my_options.mru);
 }
+#endif
+
+#if defined(CONFIG_NET_L2_PPP_OPTION_PFC)
+static int lcp_peer_pfc_parse(struct ppp_fsm *fsm, struct net_pkt *pkt,
+			      void *user_data)
+{
+	struct lcp_option_data *data = user_data;
+
+	data->pfc = true;
+	NET_DBG("[LCP] Peer requested Protocol-Field-Compression");
+
+	return 0;
+}
+#endif
+
+#if defined(CONFIG_NET_L2_PPP_OPTION_ACFC)
+static int lcp_peer_acfc_parse(struct ppp_fsm *fsm, struct net_pkt *pkt,
+			       void *user_data)
+{
+	struct lcp_option_data *data = user_data;
+
+	data->acfc = true;
+	NET_DBG("[LCP] Peer requested Address-and-Control-Field-Compression");
+
+	return 0;
+}
+#endif
 
 static const struct ppp_peer_option_info lcp_peer_options[] = {
 	PPP_PEER_OPTION(LCP_OPTION_AUTH_PROTO, lcp_auth_proto_parse,
 			lcp_auth_proto_nack),
 	PPP_PEER_OPTION(LCP_OPTION_ASYNC_CTRL_CHAR_MAP, lcp_async_ctrl_char_map_parse,
 			NULL),
-	PPP_PEER_OPTION(LCP_OPTION_MRU, lcp_peer_mru_parse,
-			lcp_peer_mru_nack),
+#if defined(CONFIG_NET_L2_PPP_OPTION_MRU)
+	PPP_PEER_OPTION(LCP_OPTION_MRU, lcp_peer_mru_parse, lcp_peer_mru_nack),
+#endif
+#if defined(CONFIG_NET_L2_PPP_OPTION_PFC)
+	PPP_PEER_OPTION(LCP_OPTION_PROTO_COMPRESS, lcp_peer_pfc_parse, NULL),
+#endif
+#if defined(CONFIG_NET_L2_PPP_OPTION_ACFC)
+	PPP_PEER_OPTION(LCP_OPTION_ADDR_CTRL_COMPRESS, lcp_peer_acfc_parse, NULL),
+#endif
 };
 
 static int lcp_config_info_req(struct ppp_fsm *fsm,
@@ -191,6 +223,15 @@ static int lcp_config_info_req(struct ppp_fsm *fsm,
 
 	ctx->lcp.peer_options.auth_proto = data.auth_proto;
 	ctx->lcp.peer_options.async_map = data.async_ctrl_char_map;
+#if defined(CONFIG_NET_L2_PPP_OPTION_MRU)
+	ctx->lcp.peer_options.mru = data.mru;
+#endif
+#if defined(CONFIG_NET_L2_PPP_OPTION_PFC)
+	ctx->lcp.peer_options.pfc = data.pfc;
+#endif
+#if defined(CONFIG_NET_L2_PPP_OPTION_ACFC)
+	ctx->lcp.peer_options.acfc = data.acfc;
+#endif
 	NET_DBG("Asynchronous Control Character Map: %08X",  data.async_ctrl_char_map);
 
 	if (data.auth_proto_present) {
@@ -217,10 +258,18 @@ static void lcp_lower_up(struct ppp_context *ctx)
 	ppp_fsm_lower_up(&ctx->lcp.fsm);
 }
 
+static void lcp_reset_peer_compression(struct ppp_context *ctx)
+{
+	ctx->lcp.peer_options.pfc = false;
+	ctx->lcp.peer_options.acfc = false;
+}
+
 static void lcp_open(struct ppp_context *ctx)
 {
 	/* Reset peer async control character map */
 	ctx->lcp.peer_options.async_map = 0xffffffff;
+
+	lcp_reset_peer_compression(ctx);
 
 	ppp_fsm_open(&ctx->lcp.fsm);
 }
@@ -247,10 +296,19 @@ static void lcp_down(struct ppp_fsm *fsm)
 	memset(&ctx->lcp.peer_options.auth_proto, 0,
 	       sizeof(ctx->lcp.peer_options.auth_proto));
 
-	ppp_link_down(ctx);
+	/* The peer has to ask for compression again after renegotiation */
+	lcp_reset_peer_compression(ctx);
+
+	k_sem_give(&ctx->wait_ppp_link_down);
+
+	if (ctx->phase != PPP_DEAD) {
+		ppp_network_all_down(ctx);
+	}
 
 	if (net_if_is_carrier_ok(ctx->iface) && ctx->is_enabled) {
 		ppp_change_phase(ctx, PPP_ESTABLISH);
+	} else {
+		ppp_change_phase(ctx, PPP_DEAD);
 	}
 }
 
@@ -259,11 +317,22 @@ static void lcp_up(struct ppp_fsm *fsm)
 	struct ppp_context *ctx = CONTAINER_OF(fsm, struct ppp_context,
 					       lcp.fsm);
 
-	if (ctx->lcp.peer_options.mru > 0) {
-		NET_DBG("Set MTU size from peer options: %u -> %u",
-			net_if_get_mtu(ctx->iface), ctx->lcp.peer_options.mru);
-		net_if_set_mtu(ctx->iface, ctx->lcp.peer_options.mru);
+#if defined(CONFIG_NET_L2_PPP_OPTION_MRU)
+	/* Set MTU based on negotiated MRU values.
+	 * Use the minimum of our MRU and peer's MRU to ensure both sides
+	 * can handle the packet size.
+	 */
+	uint16_t mtu = ctx->lcp.my_options.mru;
+
+	if (ctx->lcp.peer_options.mru > 0 &&
+	    ctx->lcp.peer_options.mru < mtu) {
+		mtu = ctx->lcp.peer_options.mru;
 	}
+
+	NET_DBG("PPP MTU set to %d (mru=%d, peer_mru=%d)",
+		mtu, ctx->lcp.my_options.mru, ctx->lcp.peer_options.mru);
+	net_if_set_mtu(ctx->iface, mtu);
+#endif
 
 	ppp_link_established(ctx, fsm);
 }
@@ -290,7 +359,13 @@ static void lcp_finished(struct ppp_fsm *fsm)
 
 static int lcp_add_mru(struct ppp_context *ctx, struct net_pkt *pkt)
 {
-	net_pkt_write_u8(pkt, MRU_OPTION_LEN);
+	int ret;
+
+	ret = net_pkt_write_u8(pkt, MRU_OPTION_LEN);
+	if (ret < 0) {
+		return ret;
+	}
+
 	return net_pkt_write_be16(pkt, ctx->lcp.my_options.mru);
 }
 
@@ -305,7 +380,7 @@ static int lcp_ack_mru(struct ppp_context *ctx, struct net_pkt *pkt,
 		return -EINVAL;
 	}
 
-	ret = net_pkt_read(pkt, &mru, sizeof(mru));
+	ret = net_pkt_read_be16(pkt, &mru);
 	if (ret) {
 		return ret;
 	}
@@ -328,7 +403,7 @@ static int lcp_nak_mru(struct ppp_context *ctx, struct net_pkt *pkt,
 		return -EINVAL;
 	}
 
-	ret = net_pkt_read(pkt, &mru, sizeof(mru));
+	ret = net_pkt_read_be16(pkt, &mru);
 	if (ret) {
 		return ret;
 	}
@@ -348,7 +423,13 @@ static int lcp_nak_mru(struct ppp_context *ctx, struct net_pkt *pkt,
 
 static int lcp_add_async_map(struct ppp_context *ctx, struct net_pkt *pkt)
 {
-	net_pkt_write_u8(pkt, ASYNC_MAP_OPTION_LEN);
+	int ret;
+
+	ret = net_pkt_write_u8(pkt, ASYNC_MAP_OPTION_LEN);
+	if (ret < 0) {
+		return ret;
+	}
+
 	return net_pkt_write_be32(pkt, ctx->lcp.my_options.async_map);
 }
 
@@ -363,7 +444,7 @@ static int lcp_ack_async_map(struct ppp_context *ctx, struct net_pkt *pkt,
 		return -EINVAL;
 	}
 
-	ret = net_pkt_read(pkt, &async_map, sizeof(async_map));
+	ret = net_pkt_read_be32(pkt, &async_map);
 	if (ret) {
 		return ret;
 	}
@@ -379,14 +460,14 @@ static int lcp_nak_async_map(struct ppp_context *ctx, struct net_pkt *pkt,
 			     uint8_t oplen)
 {
 	int ret;
-	uint16_t async_map;
+	uint32_t async_map;
 
 	/* Handle NAK: accept only equal to ours */
 	if (oplen != sizeof(async_map)) {
 		return -EINVAL;
 	}
 
-	ret = net_pkt_read(pkt, &async_map, sizeof(async_map));
+	ret = net_pkt_read_be32(pkt, &async_map);
 	if (ret) {
 		return ret;
 	}
@@ -398,10 +479,38 @@ static int lcp_nak_async_map(struct ppp_context *ctx, struct net_pkt *pkt,
 	return 0;
 }
 
+#if defined(CONFIG_NET_L2_PPP_OPTION_PFC) || defined(CONFIG_NET_L2_PPP_OPTION_ACFC)
+#define COMPRESS_OPTION_LEN 2
+
+static int lcp_add_compress(struct ppp_context *ctx, struct net_pkt *pkt)
+{
+	return net_pkt_write_u8(pkt, COMPRESS_OPTION_LEN);
+}
+
+static int lcp_ack_compress(struct ppp_context *ctx, struct net_pkt *pkt,
+			    uint8_t oplen)
+{
+	return (oplen == 0) ? 0 : -EINVAL;
+}
+
+static int lcp_nak_compress(struct ppp_context *ctx, struct net_pkt *pkt,
+			    uint8_t oplen)
+{
+	return 0;
+}
+#endif
 
 static const struct ppp_my_option_info lcp_my_options[] = {
 #if defined(CONFIG_NET_L2_PPP_OPTION_MRU)
 	PPP_MY_OPTION(LCP_OPTION_MRU, lcp_add_mru, lcp_ack_mru, lcp_nak_mru),
+#endif
+#if defined(CONFIG_NET_L2_PPP_OPTION_PFC)
+	PPP_MY_OPTION(LCP_OPTION_PROTO_COMPRESS, lcp_add_compress,
+		      lcp_ack_compress, lcp_nak_compress),
+#endif
+#if defined(CONFIG_NET_L2_PPP_OPTION_ACFC)
+	PPP_MY_OPTION(LCP_OPTION_ADDR_CTRL_COMPRESS, lcp_add_compress,
+		      lcp_ack_compress, lcp_nak_compress),
 #endif
 	PPP_MY_OPTION(LCP_OPTION_ASYNC_CTRL_CHAR_MAP, lcp_add_async_map,
 			lcp_ack_async_map, lcp_nak_async_map),
@@ -410,11 +519,19 @@ BUILD_ASSERT(ARRAY_SIZE(lcp_my_options) == LCP_NUM_MY_OPTIONS);
 
 static struct net_pkt *lcp_config_info_add(struct ppp_fsm *fsm)
 {
+	size_t len = ASYNC_MAP_OPTION_LEN;
+
 #if defined(CONFIG_NET_L2_PPP_OPTION_MRU)
-	return ppp_my_options_add(fsm, MRU_OPTION_LEN + ASYNC_MAP_OPTION_LEN);
-#else
-	return ppp_my_options_add(fsm, ASYNC_MAP_OPTION_LEN);
+	len += MRU_OPTION_LEN;
 #endif
+#if defined(CONFIG_NET_L2_PPP_OPTION_PFC)
+	len += COMPRESS_OPTION_LEN;
+#endif
+#if defined(CONFIG_NET_L2_PPP_OPTION_ACFC)
+	len += COMPRESS_OPTION_LEN;
+#endif
+
+	return ppp_my_options_add(fsm, len);
 }
 
 static int lcp_config_info_nack(struct ppp_fsm *fsm, struct net_pkt *pkt,
@@ -448,7 +565,7 @@ static void lcp_init(struct ppp_context *ctx)
 	ppp_fsm_name_set(&ctx->lcp.fsm, ppp_proto2str(PPP_LCP));
 
 	ctx->lcp.my_options.mru = net_if_get_mtu(ctx->iface);
-	ctx->lcp.my_options.async_map = 0xffffffff;
+	ctx->lcp.my_options.async_map = 0;
 
 	ctx->lcp.fsm.my_options.info = lcp_my_options;
 	ctx->lcp.fsm.my_options.data = ctx->lcp.my_options_data;
@@ -456,6 +573,7 @@ static void lcp_init(struct ppp_context *ctx)
 
 	ctx->lcp.fsm.cb.config_info_add = lcp_config_info_add;
 	ctx->lcp.fsm.cb.config_info_req = lcp_config_info_req;
+	ctx->lcp.fsm.cb.config_info_ack = ppp_my_options_parse_conf_ack;
 	ctx->lcp.fsm.cb.config_info_nack = lcp_config_info_nack;
 	ctx->lcp.fsm.cb.config_info_rej = ppp_my_options_parse_conf_rej;
 

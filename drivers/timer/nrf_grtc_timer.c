@@ -6,8 +6,10 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
+#include <zephyr/devicetree.h>
 #include <zephyr/irq.h>
-#if defined(CONFIG_CLOCK_CONTROL_NRF)
+#if (defined(CONFIG_CLOCK_CONTROL_NRF) || defined(CONFIG_CLOCK_CONTROL_NRF_COMMON)) &&             \
+	!(defined(CONFIG_SOC_SERIES_NRF54H) || defined(CONFIG_SOC_SERIES_NRF92))
 #include <zephyr/drivers/clock_control/nrf_clock_control.h>
 #endif
 #include <zephyr/drivers/pinctrl.h>
@@ -56,8 +58,11 @@
 
 #if DT_NODE_HAS_STATUS_OKAY(LFCLK_NODE)
 #define LFCLK_FREQUENCY_HZ DT_PROP(LFCLK_NODE, clock_frequency)
-#else
+#elif defined(CONFIG_CLOCK_CONTROL_NRF)
 #define LFCLK_FREQUENCY_HZ CONFIG_CLOCK_CONTROL_NRF_K32SRC_FREQUENCY
+#else
+#define LFCLK_FREQUENCY_HZ \
+	DT_PROP(DT_COMPAT_GET_ANY_STATUS_OKAY(nordic_nrf_clock_lfclk), k32src_frequency)
 #endif
 
 /* Threshold used to determine if there is a risk of unexpected GRTC COMPARE event coming
@@ -174,7 +179,7 @@ static void sys_clock_timeout_handler(int32_t id, uint64_t cc_val, void *p_conte
 	}
 
 	last_elapsed = 0;
-	sys_clock_announce((int32_t)dticks);
+	sys_clock_announce(dticks);
 }
 
 int32_t z_nrf_grtc_timer_chan_alloc(void)
@@ -187,6 +192,23 @@ int32_t z_nrf_grtc_timer_chan_alloc(void)
 		return -ENOMEM;
 	}
 	err_code = nrfx_grtc_channel_alloc(&chan);
+	if (err_code < 0) {
+		return -ENOMEM;
+	}
+	ext_channels_allocated++;
+	return (int32_t)chan;
+}
+
+int32_t z_nrf_grtc_timer_ext_chan_alloc(void)
+{
+	uint8_t chan;
+	int err_code;
+
+	/* Prevent allocating all available channels - one must be left for system purposes. */
+	if (ext_channels_allocated >= EXT_CHAN_COUNT) {
+		return -ENOMEM;
+	}
+	err_code = nrfx_grtc_extended_channel_alloc(&chan);
 	if (err_code < 0) {
 		return -ENOMEM;
 	}
@@ -274,6 +296,49 @@ static int compare_set(int32_t chan, uint64_t target_time,
 	compare_int_unlock(chan, key);
 
 	return ret;
+}
+
+static void interval_set_nolocks(int32_t chan, uint32_t initial_val, uint32_t interval_value,
+				z_nrf_grtc_timer_compare_handler_t handler, void *user_data)
+{
+	nrfx_grtc_syscounter_cc_interval_set(chan, initial_val, interval_value);
+	if (handler) {
+		nrfx_grtc_channel_t user_channel_data = {
+			.handler = handler,
+			.p_context = user_data,
+			.channel = chan,
+		};
+		nrfx_grtc_channel_callback_set(chan, user_channel_data.handler,
+					user_channel_data.p_context);
+	}
+}
+
+static void interval_set(int32_t chan, uint32_t initial_val, uint32_t interval_value,
+				z_nrf_grtc_timer_compare_handler_t handler, void *user_data)
+{
+	bool key = compare_int_lock(chan);
+
+	interval_set_nolocks(chan, initial_val, interval_value, handler, user_data);
+
+	compare_int_unlock(chan, key);
+}
+
+int z_nrf_grtc_timer_interval_set(int32_t chan, uint32_t initial_value, uint32_t interval_value,
+				z_nrf_grtc_timer_compare_handler_t handler, void *user_data)
+{
+	if (NRFX_BIT((uint32_t)chan) && NRFX_GRTC_CONFIG_EXTENDED_CC_CHANNELS_MASK == 0) {
+		return -EPERM;
+	}
+
+	interval_set(chan, initial_value, interval_value,
+			(nrfx_grtc_cc_handler_t)handler, user_data);
+
+	return 0;
+}
+
+void z_nrf_grtc_timer_interval_stop(int32_t chan)
+{
+	nrfx_grtc_syscounter_cc_interval_reset(chan);
 }
 
 int z_nrf_grtc_timer_set(int32_t chan, uint64_t target_time,
@@ -449,16 +514,25 @@ ISR_DIRECT_DECLARE(nrfx_grtc_direct_irq_handler)
 
 void sys_clock_disable(void)
 {
-	nrfx_grtc_uninit();
+	int err __maybe_unused;
 #if defined(CONFIG_CLOCK_CONTROL_NRF)
-	int err;
 	struct onoff_manager *mgr =
 		z_nrf_clock_control_get_onoff((clock_control_subsys_t)CLOCK_CONTROL_NRF_TYPE_LFCLK);
 
 	err = onoff_release(mgr);
 	__ASSERT_NO_MSG(err >= 0);
 
+	nrfx_grtc_uninit();
 	nrfx_coredep_delay_us(1000);
+#elif defined(CONFIG_CLOCK_CONTROL_NRF_COMMON) &&                                                  \
+	!(defined(CONFIG_SOC_SERIES_NRF54H) || defined(CONFIG_SOC_SERIES_NRF92))
+	err = nrf_clock_control_release(DEVICE_DT_GET_ONE(nordic_nrf_clock_lfclk), NULL);
+	__ASSERT_NO_MSG(err >= 0);
+
+	nrfx_grtc_uninit();
+	nrfx_coredep_delay_us(1000);
+#else
+	nrfx_grtc_uninit();
 #endif
 }
 
@@ -521,7 +595,9 @@ static int sys_clock_driver_init(void)
 
 static int grtc_post_init(void)
 {
-#if defined(CONFIG_CLOCK_CONTROL_NRF)
+#if defined(CONFIG_CLOCK_CONTROL_NRF) ||                                                           \
+	(defined(CONFIG_CLOCK_CONTROL_NRF_COMMON) &&                                               \
+	 !(defined(CONFIG_SOC_SERIES_NRF54H) || defined(CONFIG_SOC_SERIES_NRF92)))
 	static const enum nrf_lfclk_start_mode mode =
 		IS_ENABLED(CONFIG_SYSTEM_CLOCK_NO_WAIT)
 			? CLOCK_CONTROL_NRF_LF_START_NOWAIT
@@ -566,7 +642,7 @@ static int grtc_post_init(void)
 #endif
 }
 
-void sys_clock_set_timeout(int32_t ticks, bool idle)
+void sys_clock_set_timeout(uint32_t ticks, bool idle)
 {
 	ARG_UNUSED(idle);
 
@@ -631,6 +707,7 @@ int nrf_grtc_timer_clock_driver_init(void)
 	return sys_clock_driver_init();
 }
 #else
-SYS_INIT(sys_clock_driver_init, EARLY, CONFIG_SYSTEM_CLOCK_INIT_PRIORITY);
+/* Init must follow soc init and precede LOG_CORE_INIT() */
+SYS_INIT(sys_clock_driver_init, EARLY, 1);
 SYS_INIT(grtc_post_init, PRE_KERNEL_2, CONFIG_SYSTEM_CLOCK_INIT_PRIORITY);
 #endif

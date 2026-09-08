@@ -23,12 +23,6 @@
 
 LOG_MODULE_REGISTER(i2c_nrfx_twim, CONFIG_I2C_LOG_LEVEL);
 
-#if CONFIG_I2C_NRFX_TRANSFER_TIMEOUT
-#define I2C_TRANSFER_TIMEOUT_MSEC K_MSEC(CONFIG_I2C_NRFX_TRANSFER_TIMEOUT)
-#else
-#define I2C_TRANSFER_TIMEOUT_MSEC K_FOREVER
-#endif
-
 struct i2c_nrfx_twim_data {
 	nrfx_twim_t twim;
 	struct k_sem transfer_sync;
@@ -158,8 +152,7 @@ static int i2c_nrfx_twim_transfer(const struct device *dev,
 			break;
 		}
 
-		ret = k_sem_take(&dev_data->completion_sync,
-				 I2C_TRANSFER_TIMEOUT_MSEC);
+		ret = k_sem_take(&dev_data->completion_sync, I2C_TRANSFER_TIMEOUT);
 		if (ret != 0) {
 			/* Whatever the frequency, completion_sync should have
 			 * been given by the event handler.
@@ -178,7 +171,7 @@ static int i2c_nrfx_twim_transfer(const struct device *dev,
 			 * bus from this error.
 			 */
 			(void)i2c_nrfx_twim_recover_bus(dev);
-			ret = -EIO;
+			ret = -ETIMEDOUT;
 			break;
 		}
 
@@ -281,12 +274,20 @@ static DEVICE_API(i2c, i2c_nrfx_twim_driver_api) = {
 		     "Wrong I2C " #inst " frequency setting in dts");			      \
 	static struct i2c_nrfx_twim_data twim_##inst##_data;				      \
 	static struct i2c_nrfx_twim_common_config twim_##inst##z_config;		      \
+	NRF_DT_INST_IRQ_DIRECT_DEFINE(							      \
+		inst,									      \
+		nrfx_twim_irq_handler,							      \
+		&CONCAT(twim_, inst, _data.twim)					      \
+	)										      \
 	static void pre_init##inst(void)						      \
 	{										      \
 		twim_##inst##z_config.twim = &twim_##inst##_data.twim;			      \
 		twim_##inst##_data.twim.p_twim = (NRF_TWIM_Type *)DT_INST_REG_ADDR(inst);     \
-		IRQ_CONNECT(DT_INST_IRQN(inst), DT_INST_IRQ(inst, priority),		      \
-			    nrfx_twim_irq_handler, &twim_##inst##_data.twim, 0);	      \
+		NRF_DT_INST_IRQ_CONNECT(						      \
+			inst,								      \
+			nrfx_twim_irq_handler,						      \
+			&CONCAT(twim_, inst, _data.twim)				      \
+		)									      \
 	}										      \
 	IF_ENABLED(USES_MSG_BUF(inst),							      \
 		(static uint8_t twim_##inst##_msg_buf[MSG_BUF_SIZE(inst)]		      \

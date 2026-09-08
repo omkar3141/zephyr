@@ -7,6 +7,8 @@
 #ifndef NRFX_KCONFIG_H__
 #define NRFX_KCONFIG_H__
 
+#include <zephyr/devicetree.h>
+
 /*
  * These are mappings of Kconfig options enabling nrfx drivers and particular
  * peripheral instances to the corresponding symbols used inside of nrfx.
@@ -21,33 +23,42 @@
 #define NRFX_ADC_CONFIG_LOG_ENABLED 1
 #endif
 
+#if !defined(CONFIG_CLOCK_CONTROL_NRF_FORCE_ALT)
+
 #ifdef CONFIG_NRFX_CLOCK
 #define NRFX_CLOCK_ENABLED 1
 #endif
 #ifdef CONFIG_NRFX_CLOCK_LOG
 #define NRFX_CLOCK_CONFIG_LOG_ENABLED 1
 #endif
-#ifdef CONFIG_NRFX_CLOCK_USE_LFRC_CALIBRATION
+#if defined(CONFIG_NRFX_CLOCK_USE_LFRC_CALIBRATION) || \
+	defined(CONFIG_NRFX_CLOCK_LFCLK_USE_LFRC_CALIBRATION)
 #define NRFX_CLOCK_CONFIG_USE_LFRC_CALIBRATION 1
 #endif
 
-#ifdef CONFIG_NRFX_CLOCK_LF_SRC_RC
-#if defined(CONFIG_SOC_SERIES_NRF91X) || defined(CONFIG_SOC_COMPATIBLE_NRF53X)
+#if (defined(CONFIG_NRFX_CLOCK_LF_SRC_RC) && defined(CONFIG_CLOCK_CONTROL_NRF)) ||                 \
+	(DT_ENUM_HAS_VALUE(DT_COMPAT_GET_ANY_STATUS_OKAY(nordic_nrf_clock_lfclk), k32src, rc) &&  \
+	!defined(CONFIG_CLOCK_CONTROL_NRF))
+#if defined(CONFIG_SOC_SERIES_NRF91) || defined(CONFIG_SOC_COMPATIBLE_NRF53X)
 #define NRFX_CLOCK_CONFIG_LF_SRC 1
 #else
 #define NRFX_CLOCK_CONFIG_LF_SRC 0
 #endif
 #endif
 
-#ifdef CONFIG_NRFX_CLOCK_LF_SRC_XTAL
-#if defined(CONFIG_SOC_SERIES_NRF91X) || defined(CONFIG_SOC_COMPATIBLE_NRF53X)
+#if (defined(CONFIG_NRFX_CLOCK_LF_SRC_XTAL) && defined(CONFIG_CLOCK_CONTROL_NRF)) ||               \
+	(DT_ENUM_HAS_VALUE(DT_COMPAT_GET_ANY_STATUS_OKAY(nordic_nrf_clock_lfclk), k32src, xtal) &&\
+	!defined(CONFIG_CLOCK_CONTROL_NRF))
+#if defined(CONFIG_SOC_SERIES_NRF91) || defined(CONFIG_SOC_COMPATIBLE_NRF53X)
 #define NRFX_CLOCK_CONFIG_LF_SRC 2
 #else
 #define NRFX_CLOCK_CONFIG_LF_SRC 1
 #endif
 #endif
 
-#ifdef CONFIG_NRFX_CLOCK_LF_SRC_SYNTH
+#if (defined(CONFIG_NRFX_CLOCK_LF_SRC_SYNTH) && defined(CONFIG_CLOCK_CONTROL_NRF)) ||              \
+	(DT_ENUM_HAS_VALUE(DT_COMPAT_GET_ANY_STATUS_OKAY(nordic_nrf_clock_lfclk), k32src,         \
+			   synth) && !defined(CONFIG_CLOCK_CONTROL_NRF))
 #ifdef CONFIG_SOC_COMPATIBLE_NRF53X
 #define NRFX_CLOCK_CONFIG_LF_SRC 3
 #else
@@ -55,21 +66,37 @@
 #endif
 #endif
 
-#ifdef CONFIG_NRFX_CLOCK_LF_SRC_LOW_SWING
+#if (defined(CONFIG_NRFX_CLOCK_LF_SRC_LOW_SWING) && defined(CONFIG_CLOCK_CONTROL_NRF)) ||          \
+	(DT_ENUM_HAS_VALUE(DT_COMPAT_GET_ANY_STATUS_OKAY(nordic_nrf_clock_lfclk),                 \
+			   k32src, ext_low_swing) &&                                               \
+	 !defined(CONFIG_CLOCK_CONTROL_NRF))
 #define NRFX_CLOCK_CONFIG_LF_SRC 131073
 #endif
 
-#ifdef CONFIG_NRFX_CLOCK_LF_SRC_FULL_SWING
+#if (defined(CONFIG_NRFX_CLOCK_LF_SRC_FULL_SWING) && defined(CONFIG_CLOCK_CONTROL_NRF)) ||         \
+	(DT_ENUM_HAS_VALUE(DT_COMPAT_GET_ANY_STATUS_OKAY(nordic_nrf_clock_lfclk),                 \
+			   k32src, ext_full_swing) &&                                              \
+	 !defined(CONFIG_CLOCK_CONTROL_NRF))
 #define NRFX_CLOCK_CONFIG_LF_SRC 196609
 #endif
 
-#ifdef CONFIG_NRFX_CLOCK_LF_CAL_ENABLED
+#if (defined(CONFIG_NRFX_CLOCK_LF_CAL_ENABLED) && defined(CONFIG_CLOCK_CONTROL_NRF)) ||            \
+	defined(CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC_CALIBRATION)
 #define NRFX_CLOCK_CONFIG_LF_CAL_ENABLED 1
 #endif
 
-#ifdef CONFIG_NRFX_CLOCK_LFXO_TWO_STAGE_ENABLED
+#if (defined(CONFIG_NRFX_CLOCK_LFXO_TWO_STAGE_ENABLED) && defined(CONFIG_CLOCK_CONTROL_NRF)) ||    \
+	(((DT_ENUM_HAS_VALUE(DT_COMPAT_GET_ANY_STATUS_OKAY(nordic_nrf_clock_lfclk),               \
+			     k32src, xtal) &&                                                      \
+	   !defined(CONFIG_SOC_SERIES_BSIM_NRFXX)) ||                                              \
+	  DT_ENUM_HAS_VALUE(DT_COMPAT_GET_ANY_STATUS_OKAY(nordic_nrf_clock_lfclk),                \
+			    k32src, ext_low_swing) ||                                              \
+	  DT_ENUM_HAS_VALUE(DT_COMPAT_GET_ANY_STATUS_OKAY(nordic_nrf_clock_lfclk),                \
+			    k32src, ext_full_swing)) &&                                            \
+	 !defined(CONFIG_CLOCK_CONTROL_NRF))
 #define NRFX_CLOCK_CONFIG_LFXO_TWO_STAGE_ENABLED 1
 #endif
+#endif /*!defined(CONFIG_CLOCK_CONTROL_NRF_FORCE_ALT)*/
 
 #ifdef CONFIG_NRFX_COMP
 #define NRFX_COMP_ENABLED 1
@@ -91,36 +118,6 @@
 #ifdef CONFIG_NRFX_EGU_LOG
 #define NRFX_EGU_CONFIG_LOG_ENABLED 1
 #endif
-#ifdef CONFIG_NRFX_EGU0
-#define NRFX_EGU0_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_EGU1
-#define NRFX_EGU1_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_EGU2
-#define NRFX_EGU2_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_EGU3
-#define NRFX_EGU3_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_EGU4
-#define NRFX_EGU4_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_EGU5
-#define NRFX_EGU5_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_EGU10
-#define NRFX_EGU10_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_EGU20
-#define NRFX_EGU20_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_EGU020
-#define NRFX_EGU020_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_EGU130
-#define NRFX_EGU130_ENABLED 1
-#endif
 
 #ifdef CONFIG_NRFX_GRTC
 #define NRFX_GRTC_ENABLED 1
@@ -140,29 +137,19 @@
 #define NRFX_GRTC_CONFIG_AUTOSTART 1
 #endif
 
+#ifdef CONFIG_NRF_GRTC_TIMER_STOP_AT_UNINIT
+#define NRFX_GRTC_CONFIG_STOP_AT_UNINIT 1
+#endif
+
+#ifdef CONFIG_NRF_GRTC_TIMER_CLEAR_AT_UNINIT
+#define NRFX_GRTC_CONFIG_CLEAR_AT_UNINIT 1
+#endif
+
 #ifdef CONFIG_NRFX_GPIOTE
 #define NRFX_GPIOTE_ENABLED 1
 #endif
 #ifdef CONFIG_NRFX_GPIOTE_LOG
 #define NRFX_GPIOTE_CONFIG_LOG_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_GPIOTE0
-#define NRFX_GPIOTE0_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_GPIOTE1
-#define NRFX_GPIOTE1_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_GPIOTE20
-#define NRFX_GPIOTE20_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_GPIOTE30
-#define NRFX_GPIOTE30_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_GPIOTE130
-#define NRFX_GPIOTE130_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_GPIOTE131
-#define NRFX_GPIOTE131_ENABLED 1
 #endif
 #ifdef CONFIG_NRFX_GPIOTE_NONUNIFORM_INSTANCES
 #define NRFX_GPIOTE_CONFIG_NONUNIFORM_INSTANCES 1
@@ -249,6 +236,21 @@
 #ifdef CONFIG_NRFX_PRS_BOX_4
 #define NRFX_PRS_BOX_4_ENABLED 1
 #endif
+#ifdef CONFIG_NRFX_PRS_BOX_5
+#define NRFX_PRS_BOX_5_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_PRS_BOX_6
+#define NRFX_PRS_BOX_6_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_PRS_BOX_7
+#define NRFX_PRS_BOX_7_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_PRS_BOX_8
+#define NRFX_PRS_BOX_8_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_PRS_BOX_9
+#define NRFX_PRS_BOX_9_ENABLED 1
+#endif
 
 #ifdef CONFIG_NRFX_PWM
 #define NRFX_PWM_ENABLED 1
@@ -288,21 +290,6 @@
 #ifdef CONFIG_NRFX_RTC_LOG
 #define NRFX_RTC_CONFIG_LOG_ENABLED 1
 #endif
-#ifdef CONFIG_NRFX_RTC0
-#define NRFX_RTC0_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_RTC1
-#define NRFX_RTC1_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_RTC2
-#define NRFX_RTC2_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_RTC130
-#define NRFX_RTC130_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_RTC131
-#define NRFX_RTC131_ENABLED 1
-#endif
 
 #ifdef CONFIG_NRFX_SAADC
 #define NRFX_SAADC_ENABLED 1
@@ -316,15 +303,6 @@
 #endif
 #ifdef CONFIG_NRFX_SPI_LOG
 #define NRFX_SPI_CONFIG_LOG_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_SPI0
-#define NRFX_SPI0_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_SPI1
-#define NRFX_SPI1_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_SPI2
-#define NRFX_SPI2_ENABLED 1
 #endif
 
 #ifdef CONFIG_NRFX_SPIM
@@ -383,12 +361,6 @@
 #ifdef CONFIG_NRFX_TWI_LOG
 #define NRFX_TWI_CONFIG_LOG_ENABLED 1
 #endif
-#ifdef CONFIG_NRFX_TWI0
-#define NRFX_TWI0_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_TWI1
-#define NRFX_TWI1_ENABLED 1
-#endif
 
 #ifdef CONFIG_NRFX_TWIM
 #define NRFX_TWIM_ENABLED 1
@@ -415,9 +387,6 @@
 #endif
 #ifdef CONFIG_NRFX_UART_LOG
 #define NRFX_UART_CONFIG_LOG_ENABLED 1
-#endif
-#ifdef CONFIG_NRFX_UART0
-#define NRFX_UART0_ENABLED 1
 #endif
 
 #ifdef CONFIG_NRFX_UARTE
@@ -456,10 +425,24 @@
 #define NRFX_WDT_CONFIG_LOG_ENABLED 1
 #endif
 
+#ifdef CONFIG_NRFX_GPPI_SD2PPI_GLOBAL
+#define NRFX_GPPI_CONFIG_DPPI_PPIB_EXT_FUNC 1
+#endif
+
+#ifdef CONFIG_NRFX_GPPI_EXT_ALLOCATOR
+#define NRFX_GPPI_CONFIG_EXT_ALLOCATOR 1
+#endif
+
 #ifdef CONFIG_NRF52_ANOMALY_109_WORKAROUND
 #define NRF52_ERRATA_109_ENABLE_WORKAROUND 1
 #define NRFX_PWM_NRF52_ANOMALY_109_EGU_INSTANCE \
 	CONFIG_NRF52_ANOMALY_109_WORKAROUND_EGU_INSTANCE
+#endif
+
+#ifdef CONFIG_SOC_NRF53_ANOMALY_166_WORKAROUND
+#define NRF53_ERRATA_166_ENABLE_WORKAROUND 1
+#else
+#define NRF53_ERRATA_166_ENABLE_WORKAROUND 0
 #endif
 
 /* If local or global DPPIC peripherals are used, provide the following macro

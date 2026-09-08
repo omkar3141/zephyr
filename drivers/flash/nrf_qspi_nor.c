@@ -96,7 +96,7 @@ BUILD_ASSERT(INST_0_SCK_FREQUENCY >= (NRF_QSPI_BASE_CLOCK_FREQ / 16),
  * need to be used to achieve the SCK frequency as close as possible (but not
  * higher) to the one specified in DT.
  */
-#if defined(CONFIG_SOC_SERIES_NRF53X)
+#if defined(CONFIG_SOC_SERIES_NRF53)
 /*
  * On nRF53 Series SoCs, the default /4 divider for the HFCLK192M clock can
  * only be used when the QSPI peripheral is idle. When a QSPI operation is
@@ -149,7 +149,7 @@ BUILD_ASSERT(INST_0_SCK_FREQUENCY >= (NRF_QSPI_BASE_CLOCK_FREQ / 16),
 
 #endif
 
-#endif /* defined(CONFIG_SOC_SERIES_NRF53X) */
+#endif /* defined(CONFIG_SOC_SERIES_NRF53) */
 
 /* 0 for MODE0 (CPOL=0, CPHA=0), 1 for MODE3 (CPOL=1, CPHA=1). */
 #define INST_0_SPI_MODE DT_INST_PROP(0, cpol)
@@ -257,11 +257,11 @@ static inline void qspi_unlock(const struct device *dev)
 
 static inline void qspi_clock_div_change(const struct device *dev)
 {
-#ifdef CONFIG_SOC_SERIES_NRF53X
+#ifdef CONFIG_SOC_SERIES_NRF53
 #if NRF53_ERRATA_159_ENABLE_WORKAROUND
 	struct qspi_nor_data *dev_data = dev->data;
 
-	if (nrf53_errata_159()) {
+	if (NRF_ERRATA_DYNAMIC_CHECK(53, 159)) {
 		/* Save current hfclk configuration */
 		dev_data->prev_hclk_div = nrf_clock_hfclk_div_get(NRF_CLOCK);
 		nrf_clock_hfclk_div_set(NRF_CLOCK, NRF_CLOCK_HFCLK_DIV_2);
@@ -277,7 +277,7 @@ static inline void qspi_clock_div_change(const struct device *dev)
 
 static inline void qspi_clock_div_restore(const struct device *dev)
 {
-#ifdef CONFIG_SOC_SERIES_NRF53X
+#ifdef CONFIG_SOC_SERIES_NRF53
 	/* Restore the default base clock divider to reduce power
 	 * consumption when the QSPI peripheral is idle.
 	 */
@@ -285,7 +285,7 @@ static inline void qspi_clock_div_restore(const struct device *dev)
 #if NRF53_ERRATA_159_ENABLE_WORKAROUND
 	struct qspi_nor_data *dev_data = dev->data;
 
-	if (nrf53_errata_159()) {
+	if (NRF_ERRATA_DYNAMIC_CHECK(53, 159)) {
 		/* Restore previous hfclk configuration */
 		nrf_clock_hfclk_div_set(NRF_CLOCK, dev_data->prev_hclk_div);
 	}
@@ -300,7 +300,7 @@ static void qspi_acquire(const struct device *dev)
 
 	rc = pm_device_runtime_get(dev);
 	if (rc < 0) {
-		LOG_ERR("pm_device_runtime_get failed: %d", rc);
+		LOG_ERR_PM_DEVICE_RUNTIME_GET(dev, rc);
 	}
 #if defined(CONFIG_MULTITHREADING)
 	/* In multithreading, the driver can call qspi_acquire more than once
@@ -344,12 +344,17 @@ static void qspi_release(const struct device *dev)
 
 	rc = pm_device_runtime_put_async(dev, K_MSEC(ACTIVE_DWELL_MS));
 	if (rc < 0) {
-		LOG_ERR("pm_device_runtime_put failed: %d", rc);
+		LOG_ERR_PM_DEVICE_RUNTIME_PUT(dev, rc);
 	}
 }
 
 static inline void qspi_wait_for_completion(const struct device *dev, int res)
 {
+#if defined(CONFIG_NORDIC_QSPI_NOR_XIP_FLASH_SCHED_LOCK)
+	/* Do nothing, as the QSPI transfers are blocking */
+	ARG_UNUSED(res);
+	ARG_UNUSED(dev);
+#else
 	struct qspi_nor_data *dev_data = dev->data;
 
 	if (res == 0) {
@@ -366,6 +371,7 @@ static inline void qspi_wait_for_completion(const struct device *dev, int res)
 		irq_unlock(key);
 #endif /* CONFIG_MULTITHREADING */
 	}
+#endif /* CONFIG_NORDIC_QSPI_NOR_XIP_FLASH_SCHED_LOCK */
 }
 
 static inline void qspi_complete(struct qspi_nor_data *dev_data)
@@ -377,6 +383,20 @@ static inline void qspi_complete(struct qspi_nor_data *dev_data)
 #endif /* CONFIG_MULTITHREADING */
 }
 
+#if defined(CONFIG_NORDIC_QSPI_NOR_XIP_FLASH_SCHED_LOCK)
+
+/** In case of XIP execution from external flash, the QSPI transfers must be blocking
+ *  in order to avoid race conditions where at the same time the QSPI external flash
+ *  is being programmed and the QSPI is being used to execute code from the external flash.
+ *  Passing NULL to nrfx_qspi_init() will make the QSPI transfers blocking.
+ *  Note - after the QSPI transfer is complete (the READY event is received) a
+ *  nrfx_qspi_... blocking function will exit, but the external flash write operation
+ *  will be still in progress. Thus, qspi_wait_while_writing must be blocking as well.
+ *  Actually, most of the race conditions would in fact occur by preempting qspi_wait_while_writing
+ */
+#define qspi_handler NULL
+
+#else
 /**
  * @brief QSPI handler
  *
@@ -392,6 +412,7 @@ static void qspi_handler(nrfx_qspi_evt_t event, void *p_context)
 		qspi_complete(dev_data);
 	}
 }
+#endif /* CONFIG_NORDIC_QSPI_NOR_XIP_FLASH_SCHED_LOCK */
 
 /* QSPI send custom command.
  *
@@ -484,9 +505,14 @@ static int qspi_wait_while_writing(const struct device *dev, k_timeout_t poll_pe
 	do {
 #ifdef CONFIG_MULTITHREADING
 		if (!K_TIMEOUT_EQ(poll_period, K_NO_WAIT)) {
+#if defined(CONFIG_NORDIC_QSPI_NOR_XIP_FLASH_SCHED_LOCK)
+			/* Must not sleep while k_sched_lock held; wait same duration as k_sleep. */
+			k_busy_wait(k_ticks_to_us_floor32(poll_period.ticks));
+#else
 			k_sleep(poll_period);
-		}
 #endif
+		}
+#endif /* CONFIG_MULTITHREADING */
 		rc = qspi_rdsr(dev, 1);
 	} while ((rc >= 0)
 		 && ((rc & SPI_NOR_WIP_BIT) != 0U));
@@ -828,19 +854,22 @@ static inline int read_non_aligned(const struct device *dev,
 
 	/* read prefix */
 	if (flash_prefix != 0) {
-		res = nrfx_qspi_read(buf, WORD_SIZE, addr -
-				     (WORD_SIZE - flash_prefix));
+		off_t offset = addr % WORD_SIZE;
+
+		res = nrfx_qspi_read(buf, WORD_SIZE, addr - offset);
 		qspi_wait_for_completion(dev, res);
 		if (res != 0) {
 			return res;
 		}
-		memcpy(dptr, buf + WORD_SIZE - flash_prefix, flash_prefix);
+		memcpy(dptr, buf + offset, flash_prefix);
 	}
 
 	/* read suffix */
 	if (flash_suffix != 0) {
-		res = nrfx_qspi_read(buf, WORD_SIZE * 2,
-				     addr + flash_prefix + flash_middle);
+		size_t suffix_size = (flash_suffix <= WORD_SIZE) ? WORD_SIZE : (WORD_SIZE * 2);
+
+		res = nrfx_qspi_read(buf, suffix_size, addr + flash_prefix + flash_middle);
+
 		qspi_wait_for_completion(dev, res);
 		if (res != 0) {
 			return res;
@@ -974,6 +1003,10 @@ static int qspi_nor_write(const struct device *dev, off_t addr,
 
 	qspi_acquire(dev);
 
+#if defined(CONFIG_NORDIC_QSPI_NOR_XIP_FLASH_SCHED_LOCK)
+	k_sched_lock();
+#endif
+
 	rc = qspi_nor_write_protection_set(dev, false);
 	if (rc == 0) {
 		if (size < 4U) {
@@ -988,6 +1021,10 @@ static int qspi_nor_write(const struct device *dev, off_t addr,
 	}
 
 	rc2 = qspi_nor_write_protection_set(dev, true);
+
+#if defined(CONFIG_NORDIC_QSPI_NOR_XIP_FLASH_SCHED_LOCK)
+	k_sched_unlock();
+#endif
 
 	qspi_release(dev);
 
@@ -1020,7 +1057,15 @@ static int qspi_nor_erase(const struct device *dev, off_t addr, size_t size)
 
 	qspi_acquire(dev);
 
+#if defined(CONFIG_NORDIC_QSPI_NOR_XIP_FLASH_SCHED_LOCK)
+	k_sched_lock();
+#endif
+
 	rc = qspi_erase(dev, addr, size);
+
+#if defined(CONFIG_NORDIC_QSPI_NOR_XIP_FLASH_SCHED_LOCK)
+	k_sched_unlock();
+#endif
 
 	qspi_release(dev);
 
@@ -1054,7 +1099,7 @@ static int qspi_init(const struct device *dev)
 	}
 
 #if DT_INST_NODE_HAS_PROP(0, rx_delay)
-	if (!nrf53_errata_121()) {
+	if (!NRF_ERRATA_DYNAMIC_CHECK(53, 121)) {
 		nrf_qspi_iftiming_set(NRF_QSPI, DT_INST_PROP(0, rx_delay));
 	}
 #endif

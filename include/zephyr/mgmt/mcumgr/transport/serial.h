@@ -4,8 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef ZEPHYR_INCLUDE_MGMT_SERIAL_H_
-#define ZEPHYR_INCLUDE_MGMT_SERIAL_H_
+/**
+ * @file
+ * @brief Header file for the MCUmgr serial transport API.
+ * @ingroup mcumgr_transport_serial
+ */
+
+#ifndef ZEPHYR_INCLUDE_MGMT_MCUMGR_TRANSPORT_SERIAL_H_
+#define ZEPHYR_INCLUDE_MGMT_MCUMGR_TRANSPORT_SERIAL_H_
 
 /**
  * @brief This allows to use the MCUmgr SMP protocol over serial.
@@ -47,6 +53,15 @@ struct mcumgr_serial_rx_ctxt {
 
 	/** Length of full packet, as read from header. */
 	uint16_t pkt_len;
+
+#if defined(CONFIG_MCUMGR_TRANSPORT_SERIAL_HAS_SMP_OVER_CONSOLE) && \
+	defined(CONFIG_MCUMGR_TRANSPORT_SERIAL_HAS_RAW_BINARY_NON_SMP_OVER_CONSOLE)
+	/**
+	 * Set to true by transports which use raw MCUmgr over UART (not SMP over console) to know
+	 * not to deal with the extra base64 etc. processing.
+	 */
+	const bool raw_transport;
+#endif
 };
 
 /** @typedef mcumgr_serial_tx_cb
@@ -101,4 +116,4 @@ int mcumgr_serial_tx_pkt(const uint8_t *data, int len, mcumgr_serial_tx_cb cb);
  * @}
  */
 
-#endif
+#endif /* ZEPHYR_INCLUDE_MGMT_MCUMGR_TRANSPORT_SERIAL_H_ */

@@ -16,7 +16,9 @@ supported:
   - entropy
   - hwinfo
   - pwm
+  - rtc
   - sdhc
-  - shell
+  - spi
   - uart
+  - usbd
 vendor: microchip

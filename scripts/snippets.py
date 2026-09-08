@@ -17,7 +17,7 @@ Output CMake variables:
 from collections import defaultdict, UserDict
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Dict, Iterable, List, Set
+from collections.abc import Iterable
 from jsonschema.exceptions import best_match
 import argparse
 import logging
@@ -28,15 +28,25 @@ import yaml
 import platform
 import jsonschema
 
+try:
+    # Use the C LibYAML parser if available, rather than the Python parser.
+    from yaml import CSafeLoader as SafeLoader
+except ImportError:
+    from yaml import SafeLoader     # type: ignore
+
 # Marker type for an 'append:' configuration. Maps variables
 # to the list of values to append to them.
-Appends = Dict[str, List[str]]
+Appends = dict[str, list[str]]
+BoardRevisionAppends = dict[str, dict[str, list[str]]]
 
 def _new_append():
     return defaultdict(list)
 
 def _new_board2appends():
-    return defaultdict(_new_append)
+    return defaultdict(lambda: defaultdict(_new_append))
+
+def _new_dirs():
+    return []
 
 @dataclass
 class Snippet:
@@ -44,35 +54,50 @@ class Snippet:
     individual snippet.'''
 
     name: str
+    dirs: list[Path] = field(default_factory=_new_dirs)
+    description: str | None = None
     appends: Appends = field(default_factory=_new_append)
-    board2appends: Dict[str, Appends] = field(default_factory=_new_board2appends)
+    board2appends: dict[str, BoardRevisionAppends] = field(default_factory=_new_board2appends)
 
     def process_data(self, pathobj: Path, snippet_data: dict, sysbuild: bool):
         '''Process the data in a snippet.yml file, after it is loaded into a
         python object and validated by jsonschema.'''
         def append_value(variable, value):
             if variable in ('SB_EXTRA_CONF_FILE', 'EXTRA_DTC_OVERLAY_FILE', 'EXTRA_CONF_FILE'):
-                path = pathobj.parent / value
-                if not path.is_file():
-                    _err(f'snippet file {pathobj}: {variable}: file not found: {path}')
-                return f'"{path.as_posix()}"'
+                paths = []
+                if not isinstance(value, list):
+                    value = [value]
+                for file in value:
+                    path = pathobj.parent / file
+                    if not path.is_file():
+                        _err(f'snippet file {pathobj}: {variable}: file not found: {path}')
+                    paths.append(f'"{path.as_posix()}"')
+                return paths
             if variable in ('DTS_EXTRA_CPPFLAGS'):
-                return f'"{value}"'
+                return [f'"{value}"']
             _err(f'unknown append variable: {variable}')
 
         for variable, value in snippet_data.get('append', {}).items():
             if (sysbuild is True and variable[0:3] == 'SB_') or \
             (sysbuild is False and variable[0:3] != 'SB_'):
-                self.appends[variable].append(append_value(variable, value))
+                self.appends[variable] += append_value(variable, value)
         for board, settings in snippet_data.get('boards', {}).items():
             if board.startswith('/') and not board.endswith('/'):
                 _err(f"snippet file {pathobj}: board {board} starts with '/', so "
                      "it must end with '/' to use a regular expression")
+            for revision, appenddata in settings.get('revisions', {}).items():
+                for variable, value in appenddata.get('append', {}).items():
+                    if (sysbuild is True and variable[0:3] == 'SB_') or \
+                    (sysbuild is False and variable[0:3] != 'SB_'):
+                        self.board2appends[board][revision][variable] += \
+                            append_value(variable, value)
             for variable, value in settings.get('append', {}).items():
                 if (sysbuild is True and variable[0:3] == 'SB_') or \
                 (sysbuild is False and variable[0:3] != 'SB_'):
-                    self.board2appends[board][variable].append(
-                        append_value(variable, value))
+                    self.board2appends[board][""][variable] += \
+                        append_value(variable, value)
+        self.description = snippet_data.get('description')
+        self.dirs.append(pathobj.parent)
 
 class Snippets(UserDict):
     '''Type for all the information we have discovered about all snippets.
@@ -82,8 +107,8 @@ class Snippets(UserDict):
 
     def __init__(self, requested: Iterable[str] = None):
         super().__init__()
-        self.paths: Set[Path] = set()
-        self.requested: List[str] = list(requested or [])
+        self.paths: set[Path] = set()
+        self.requested: list[str] = list(requested or [])
 
 class SnippetsError(Exception):
     '''Class for signalling expected errors'''
@@ -166,14 +191,26 @@ zephyr_create_scope(snippets)
             board_re = board[1:-1]
             output += f'''\
 # Appends for board regular expression '{board_re}'
-if("${{BOARD}}${{BOARD_QUALIFIERS}}" MATCHES "^{board_re}$")
+if("${{BOARD}}/${{BOARD_QUALIFIERS}}" MATCHES "^{board_re}$")
 '''
         else:
             output += f'''\
 # Appends for board '{board}'
-if("${{BOARD}}${{BOARD_QUALIFIERS}}" STREQUAL "{board}")
+if("${{BOARD}}/${{BOARD_QUALIFIERS}}" STREQUAL "{board}")
 '''
-        output += self.output_appends(appends, 1)
+
+        # Output board variables first then board revision variables
+        output += self.output_appends(appends[""], 1)
+
+        for revision in appends:
+            if revision != "":
+                output += f'''\
+  # Appends for revision '{revision}'
+  if("${{BOARD_REVISION}}" STREQUAL "{revision}")
+'''
+                output += self.output_appends(appends[revision], 2)
+                output += '  endif()\n'
+
         output += 'endif()\n'
         return output
 
@@ -188,8 +225,12 @@ if("${{BOARD}}${{BOARD_QUALIFIERS}}" STREQUAL "{board}")
 # Name of the file containing the jsonschema schema for snippet.yml
 # files.
 SCHEMA_PATH = str(Path(__file__).parent / 'schemas' / 'snippet-schema.yaml')
-with open(SCHEMA_PATH, 'r') as f:
-    SNIPPET_SCHEMA = yaml.safe_load(f.read())
+with open(SCHEMA_PATH, 'rb') as f:
+    SNIPPET_SCHEMA = yaml.load(f.read(), Loader=SafeLoader)
+
+SNIPPET_VALIDATOR_CLASS = jsonschema.validators.validator_for(SNIPPET_SCHEMA)
+SNIPPET_VALIDATOR_CLASS.check_schema(SNIPPET_SCHEMA)
+SNIPPET_VALIDATOR = SNIPPET_VALIDATOR_CLASS(SNIPPET_SCHEMA)
 
 # The name of the file which contains metadata about the snippets
 # being defined in a directory.
@@ -290,16 +331,13 @@ def load_snippet_yml(snippet_yml: Path) -> dict:
     against the schema, and do other basic checks. Return the dict
     of the resulting YAML data.'''
 
-    with open(snippet_yml, 'r') as f:
+    with open(snippet_yml, 'rb') as f:
         try:
-            snippet_data = yaml.safe_load(f.read())
+            snippet_data = yaml.load(f.read(), Loader=SafeLoader)
         except yaml.scanner.ScannerError:
             _err(f'snippets file {snippet_yml} is invalid YAML')
 
-    validator_class = jsonschema.validators.validator_for(SNIPPET_SCHEMA)
-    validator_class.check_schema(SNIPPET_SCHEMA)
-    snippet_validator = validator_class(SNIPPET_SCHEMA)
-    errors = list(snippet_validator.iter_errors(snippet_data))
+    errors = list(SNIPPET_VALIDATOR.iter_errors(snippet_data))
 
     if errors:
         sys.exit('ERROR: Malformed snippet YAML file: '

@@ -115,7 +115,7 @@ void nxp_pint_pin_disable(uint8_t pin)
 {
 	uint8_t slot;
 
-	if (pin > ARRAY_SIZE(pin_pint_id)) {
+	if (pin >= ARRAY_SIZE(pin_pint_id)) {
 		return;
 	}
 
@@ -123,6 +123,8 @@ void nxp_pint_pin_disable(uint8_t pin)
 	if (slot == NO_PINT_ID) {
 		return;
 	}
+	/* This pin no longer have a slot assigned */
+	pin_pint_id[pin] = NO_PINT_ID;
 	/* Remove this pin from the PINT slot if one was in use */
 	pint_irq_cfg[slot].used = false;
 	PINT_PinInterruptConfig(pint_base, slot, kPINT_PinIntEnableNone, NULL);
@@ -140,7 +142,7 @@ int nxp_pint_pin_set_callback(uint8_t pin, nxp_pint_cb_t cb, void *data)
 {
 	uint8_t slot;
 
-	if (pin > ARRAY_SIZE(pin_pint_id)) {
+	if (pin >= ARRAY_SIZE(pin_pint_id)) {
 		return -EINVAL;
 	}
 
@@ -163,7 +165,7 @@ void nxp_pint_pin_unset_callback(uint8_t pin)
 {
 	uint8_t slot;
 
-	if (pin > ARRAY_SIZE(pin_pint_id)) {
+	if (pin >= ARRAY_SIZE(pin_pint_id)) {
 		return;
 	}
 
@@ -179,7 +181,7 @@ int nxp_pint_pin_get_slot_index(uint8_t pin)
 {
 	int slot;
 
-	if (pin > ARRAY_SIZE(pin_pint_id)) {
+	if (pin >= ARRAY_SIZE(pin_pint_id)) {
 		return -EINVAL;
 	}
 

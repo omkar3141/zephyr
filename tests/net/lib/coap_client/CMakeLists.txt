@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-cmake_minimum_required(VERSION 3.20.0)
+cmake_minimum_required(VERSION 3.28.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(coap_client_test)
 
@@ -19,7 +19,8 @@ target_include_directories(app PRIVATE ${ZEPHYR_BASE}/include/)
 target_compile_definitions(app PRIVATE _POSIX_C_SOURCE=200809L)
 
 add_compile_definitions(CONFIG_ZVFS_POLL_MAX=3)
-add_compile_definitions(CONFIG_COAP_CLIENT=y)
+add_compile_definitions(CONFIG_COAP_CLIENT=1)
+add_compile_definitions(CONFIG_COAP_CLIENT_MULTICAST=1)
 add_compile_definitions(CONFIG_COAP_CLIENT_BLOCK_SIZE=256)
 add_compile_definitions(CONFIG_COAP_CLIENT_MESSAGE_SIZE=256)
 add_compile_definitions(CONFIG_COAP_CLIENT_MESSAGE_HEADER_SIZE=48)

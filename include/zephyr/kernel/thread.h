@@ -52,15 +52,12 @@ struct _thread_base {
 	};
 
 	/* wait queue on which the thread is pended (needed only for
-	 * trees, not dumb lists)
+	 * trees, not simple lists)
 	 */
 	_wait_q_t *pended_on;
 
 	/* user facing 'thread options'; values defined in include/zephyr/kernel.h */
-	uint8_t user_options;
-
-	/* thread state */
-	uint8_t thread_state;
+	uint16_t user_options;
 
 	/*
 	 * scheduler lock count and thread priority
@@ -97,11 +94,14 @@ struct _thread_base {
 	uint32_t order_key;
 #endif
 
+	/* thread state */
+	uint8_t thread_state;
+
 #ifdef CONFIG_SMP
 	/* True for the per-CPU idle threads */
 	uint8_t is_idle;
 
-	/* CPU index on which thread was last run */
+	/* Identify CPU on which thread is (or was last) executing */
 	uint8_t cpu;
 
 	/* Recursive count of irq_lock() calls */
@@ -111,11 +111,7 @@ struct _thread_base {
 
 #ifdef CONFIG_SCHED_CPU_MASK
 	/* "May run on" bits for each CPU */
-#if CONFIG_MP_MAX_NUM_CPUS <= 8
-	uint8_t cpu_mask;
-#else
-	uint16_t cpu_mask;
-#endif /* CONFIG_MP_MAX_NUM_CPUS */
+	uint32_t cpu_mask;
 #endif /* CONFIG_SCHED_CPU_MASK */
 
 	/* data returned by APIs */
@@ -273,18 +269,33 @@ struct k_thread {
 	/** threads waiting in k_thread_join() */
 	_wait_q_t join_queue;
 
+#if defined(CONFIG_USERSPACE)
+	/**
+	 * The futex this thread is waiting on.
+	 * Value may be stale if inspected while thread is not waiting on a futex.
+	 */
+	void *futex_pointer;
+#endif /* CONFIG_USERSPACE */
+
 #if defined(CONFIG_POLL)
 	struct z_poller poller;
 #endif /* CONFIG_POLL */
 
-#if defined(CONFIG_EVENTS)
-	struct k_thread *next_event_link;
+#if defined(CONFIG_WAITQ_SCALABLE) && (defined(CONFIG_EVENTS) || defined(CONFIG_USERSPACE))
+	/**
+	 * Some operations which satisfy wait conditions need to build a list of
+	 * threads that should be woken up. This field serves as a link to place
+	 * any thread in such a list when necessary:
+	 * - k_event_post/set() when rbtree waitqs are used (because these waitqs
+	 *   are not mutable during walk)
+	 * - k_futex_wake() when rbtree waitqs are used (for the same reason)
+	 */
+	struct k_thread *next_wake_link;
+#endif /* CONFIG_WAITQ_SCALABLE && (CONFIG_EVENTS || CONFIG_USERSPACE) */
 
+#if defined(CONFIG_EVENTS)
 	uint32_t   events; /* dual purpose - wait on and then received */
 	uint32_t   event_options;
-
-	/** true if timeout should not wake the thread */
-	bool no_wake_on_timeout;
 #endif /* CONFIG_EVENTS */
 
 #if defined(CONFIG_THREAD_MONITOR)
@@ -370,6 +381,31 @@ struct k_thread {
 	/** threads waiting in k_thread_suspend() */
 	_wait_q_t  halt_queue;
 #endif /* CONFIG_SMP */
+
+/*
+ * True when the priority-inheritance fields below and in struct k_mutex
+ * (kernel.h) are compiled in. Defined here rather than in kernel.h because
+ * this header is included first.
+ */
+#define Z_MUTEX_PI_ENABLED (CONFIG_PRIORITY_CEILING < CONFIG_NUM_PREEMPT_PRIORITIES)
+
+#if Z_MUTEX_PI_ENABLED
+	/**
+	 * List of all mutexes currently held by this thread.
+	 * Used to recalculate the thread's priority when a mutex is released,
+	 * and to propagate priority boosts through the ownership chain.
+	 */
+	sys_slist_t held_mutexes;
+
+	/**
+	 * Mutex this thread is currently blocked on, or NULL if not blocked.
+	 * Used for chained priority inheritance (to boost the owner of the
+	 * mutex this thread is waiting for) and for deadlock cycle detection.
+	 */
+	struct k_mutex *mutex_pended_on;
+	/** Thread's priority before any mutex inheritance boost. */
+	int8_t orig_prio;
+#endif /* Z_MUTEX_PI_ENABLED */
 
 	/** arch-specifics: must always be at the end */
 	struct _thread_arch arch;

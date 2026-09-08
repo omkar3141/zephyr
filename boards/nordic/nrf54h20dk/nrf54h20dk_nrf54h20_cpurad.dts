@@ -66,8 +66,8 @@ ipc0: &cpuapp_cpurad_ipc {
 	mbox-names = "tx", "rx";
 	tx-region = <&cpurad_cpuapp_ipc_shm>;
 	rx-region = <&cpuapp_cpurad_ipc_shm>;
-	tx-blocks = <32>;
-	rx-blocks = <32>;
+	tx-blocks = <15>;
+	rx-blocks = <15>;
 };
 
 &cpurad_cpusys_ipc {
@@ -92,6 +92,14 @@ slot1_partition: &cpurad_slot1_partition {
 };
 
 &grtc {
+	status = "okay";
+};
+
+&hfxo {
+	status = "okay";
+};
+
+&lfxo {
 	status = "okay";
 };
 
@@ -140,3 +148,9 @@ zephyr_udc0: &usbhs {
 &gpiote130 {
 	owned-channels = <7>;
 };
+
+&lfclk {
+	status = "okay";
+};
+
+ironside_se_boot_report: &cpurad_ironside_se_boot_report {};

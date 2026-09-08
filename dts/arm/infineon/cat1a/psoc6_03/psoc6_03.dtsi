@@ -43,6 +43,7 @@
 			reg = <0x14000000 0x8000>;
 			write-block-size = <512>;
 			erase-block-size = <512>;
+			status = "disabled";
 		};
 	};
 
@@ -205,6 +206,7 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 			interrupts = <39 6>;
+			clk-dst = <0x0>;
 			status = "disabled";
 		};
 
@@ -214,6 +216,7 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 			interrupts = <40 6>;
+			clk-dst = <0x1>;
 			status = "disabled";
 		};
 
@@ -223,6 +226,7 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 			interrupts = <41 6>;
+			clk-dst = <0x2>;
 			status = "disabled";
 		};
 
@@ -232,6 +236,7 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 			interrupts = <42 6>;
+			clk-dst = <0x3>;
 			status = "disabled";
 		};
 
@@ -241,6 +246,7 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 			interrupts = <43 6>;
+			clk-dst = <0x4>;
 			status = "disabled";
 		};
 
@@ -250,6 +256,7 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 			interrupts = <44 6>;
+			clk-dst = <0x5>;
 			status = "disabled";
 		};
 
@@ -259,6 +266,7 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 			interrupts = <18 6>;
+			clk-dst = <0x6>;
 			status = "disabled";
 		};
 

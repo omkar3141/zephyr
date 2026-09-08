@@ -10,6 +10,7 @@ check_set_linker_property(TARGET linker PROPERTY base
 check_set_linker_property(TARGET linker PROPERTY baremetal
                           -nostdlib
                           -static
+                          -znoexecstack
                           ${LINKERFLAGPREFIX},-X
                           ${LINKERFLAGPREFIX},-N
 )
@@ -23,6 +24,8 @@ check_set_linker_property(TARGET linker PROPERTY orphan_error
 )
 
 set_property(TARGET linker PROPERTY undefined ${LINKERFLAGPREFIX},--undefined=)
+
+set_property(TARGET linker PROPERTY defsym ${LINKERFLAGPREFIX},--defsym=)
 
 check_set_linker_property(TARGET linker PROPERTY memusage "${LINKERFLAGPREFIX},--print-memory-usage")
 

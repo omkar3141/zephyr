@@ -205,9 +205,11 @@ static void stm32_comp_irq_handler(const struct device *dev)
 	const struct stm32_comp_config *cfg = dev->config;
 	struct stm32_comp_data *data = dev->data;
 
-	if (stm32_exti_is_pending(cfg->exti_line_number)) {
-		stm32_exti_clear_pending(cfg->exti_line_number);
+	if (!stm32_exti_is_pending(cfg->exti_line_number)) {
+		return;
 	}
+
+	stm32_exti_clear_pending(cfg->exti_line_number);
 
 	if (data->callback == NULL) {
 		return;
@@ -222,11 +224,6 @@ static int stm32_comp_init(const struct device *dev)
 	const struct stm32_comp_config *cfg = dev->config;
 	COMP_TypeDef *comp = cfg->comp;
 	int ret = 0;
-
-	if (!device_is_ready(clk)) {
-		LOG_ERR("%s clock control device not ready", dev->name);
-		return -ENODEV;
-	}
 
 	/* Enable COMP bus clock */
 	ret = clock_control_on(clk, &cfg->pclken[0]);

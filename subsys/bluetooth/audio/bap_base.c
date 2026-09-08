@@ -13,15 +13,16 @@
 #include <string.h>
 
 #include <zephyr/autoconf.h>
+#include <zephyr/bluetooth/assigned_numbers.h>
 #include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/bap.h>
 #include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/data.h>
 #include <zephyr/bluetooth/gap.h>
 #include <zephyr/bluetooth/iso.h>
 #include <zephyr/bluetooth/uuid.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/net_buf.h>
-#include <zephyr/sys/check.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/sys/util_macro.h>
 
@@ -30,14 +31,14 @@ LOG_MODULE_REGISTER(bt_bap_base, CONFIG_BT_BAP_BASE_LOG_LEVEL);
 /* The BASE and the following defines are defined by BAP v1.0.1, section 3.7.2.2 Basic Audio
  * Announcements
  */
-#define BASE_CODEC_ID_SIZE       (1 /* id */ + 2 /* cid */ + 2 /* vid */)
-#define BASE_PD_SIZE             3
-#define BASE_SUBGROUP_COUNT_SIZE 1
-#define BASE_NUM_BIS_SIZE        1
-#define BASE_CC_LEN_SIZE         1
-#define BASE_META_LEN_SIZE       1
-#define BASE_BIS_INDEX_SIZE      1
-#define BASE_BIS_CC_LEN_SIZE     1
+#define BASE_CODEC_ID_SIZE       (1U /* id */ + 2U /* cid */ + 2U /* vid */)
+#define BASE_PD_SIZE             3U
+#define BASE_SUBGROUP_COUNT_SIZE 1U
+#define BASE_NUM_BIS_SIZE        1U
+#define BASE_CC_LEN_SIZE         1U
+#define BASE_META_LEN_SIZE       1U
+#define BASE_BIS_INDEX_SIZE      1U
+#define BASE_BIS_CC_LEN_SIZE     1U
 #define BASE_SUBGROUP_MAX_SIZE   (BT_BASE_MAX_SIZE - BASE_PD_SIZE - BASE_SUBGROUP_COUNT_SIZE)
 #define BASE_SUBGROUP_MIN_SIZE                                                                     \
 	(BASE_NUM_BIS_SIZE + BASE_CODEC_ID_SIZE + BASE_CC_LEN_SIZE + BASE_META_LEN_SIZE +          \
@@ -177,7 +178,7 @@ const struct bt_bap_base *bt_bap_base_get_base_from_ad(const struct bt_data *ad)
 	uint8_t subgroup_count;
 	void *uuid;
 
-	CHECKIF(ad == NULL) {
+	if (ad == NULL) {
 		LOG_DBG("data is NULL");
 
 		return NULL;
@@ -239,9 +240,9 @@ int bt_bap_base_get_size(const struct bt_bap_base *base)
 {
 	struct net_buf_simple net_buf;
 	uint8_t subgroup_count;
-	size_t size = 0;
+	size_t size = 0U;
 
-	CHECKIF(base == NULL) {
+	if (base == NULL) {
 		LOG_DBG("base is NULL");
 
 		return -EINVAL;
@@ -292,7 +293,7 @@ int bt_bap_base_get_pres_delay(const struct bt_bap_base *base)
 	struct net_buf_simple net_buf;
 	uint32_t pd;
 
-	CHECKIF(base == NULL) {
+	if (base == NULL) {
 		LOG_DBG("base is NULL");
 
 		return -EINVAL;
@@ -309,7 +310,7 @@ int bt_bap_base_get_subgroup_count(const struct bt_bap_base *base)
 	struct net_buf_simple net_buf;
 	uint8_t subgroup_count;
 
-	CHECKIF(base == NULL) {
+	if (base == NULL) {
 		LOG_DBG("base is NULL");
 
 		return -EINVAL;
@@ -330,13 +331,13 @@ int bt_bap_base_foreach_subgroup(const struct bt_bap_base *base,
 	struct net_buf_simple net_buf;
 	uint8_t subgroup_count;
 
-	CHECKIF(base == NULL) {
+	if (base == NULL) {
 		LOG_DBG("base is NULL");
 
 		return -EINVAL;
 	}
 
-	CHECKIF(func == NULL) {
+	if (func == NULL) {
 		LOG_DBG("func is NULL");
 
 		return -EINVAL;
@@ -370,13 +371,13 @@ int bt_bap_base_get_subgroup_codec_id(const struct bt_bap_base_subgroup *subgrou
 {
 	struct net_buf_simple net_buf;
 
-	CHECKIF(subgroup == NULL) {
+	if (subgroup == NULL) {
 		LOG_DBG("subgroup is NULL");
 
 		return -EINVAL;
 	}
 
-	CHECKIF(codec_id == NULL) {
+	if (codec_id == NULL) {
 		LOG_DBG("codec_id is NULL");
 
 		return -EINVAL;
@@ -393,13 +394,13 @@ int bt_bap_base_get_subgroup_codec_data(const struct bt_bap_base_subgroup *subgr
 {
 	struct net_buf_simple net_buf;
 
-	CHECKIF(subgroup == NULL) {
+	if (subgroup == NULL) {
 		LOG_DBG("subgroup is NULL");
 
 		return -EINVAL;
 	}
 
-	CHECKIF(data == NULL) {
+	if (data == NULL) {
 		LOG_DBG("data is NULL");
 
 		return -EINVAL;
@@ -417,13 +418,13 @@ int bt_bap_base_get_subgroup_codec_meta(const struct bt_bap_base_subgroup *subgr
 {
 	struct net_buf_simple net_buf;
 
-	CHECKIF(subgroup == NULL) {
+	if (subgroup == NULL) {
 		LOG_DBG("subgroup is NULL");
 
 		return -EINVAL;
 	}
 
-	CHECKIF(meta == NULL) {
+	if (meta == NULL) {
 		LOG_DBG("meta is NULL");
 
 		return -EINVAL;
@@ -448,13 +449,13 @@ int bt_bap_base_subgroup_codec_to_codec_cfg(const struct bt_bap_base_subgroup *s
 	uint8_t *ltv_data;
 	uint8_t ltv_len;
 
-	CHECKIF(subgroup == NULL) {
+	if (subgroup == NULL) {
 		LOG_DBG("subgroup is NULL");
 
 		return -EINVAL;
 	}
 
-	CHECKIF(codec_cfg == NULL) {
+	if (codec_cfg == NULL) {
 		LOG_DBG("codec_cfg is NULL");
 
 		return -EINVAL;
@@ -500,7 +501,7 @@ int bt_bap_base_get_subgroup_bis_count(const struct bt_bap_base_subgroup *subgro
 {
 	struct net_buf_simple net_buf;
 
-	CHECKIF(subgroup == NULL) {
+	if (subgroup == NULL) {
 		LOG_DBG("subgroup is NULL");
 
 		return -EINVAL;
@@ -519,13 +520,13 @@ int bt_bap_base_subgroup_foreach_bis(const struct bt_bap_base_subgroup *subgroup
 	struct net_buf_simple net_buf;
 	uint8_t bis_count;
 
-	CHECKIF(subgroup == NULL) {
+	if (subgroup == NULL) {
 		LOG_DBG("subgroup is NULL");
 
 		return -EINVAL;
 	}
 
-	CHECKIF(func == NULL) {
+	if (func == NULL) {
 		LOG_DBG("func is NULL");
 
 		return -EINVAL;
@@ -563,13 +564,13 @@ int bt_bap_base_subgroup_foreach_bis(const struct bt_bap_base_subgroup *subgroup
 int bt_bap_base_subgroup_bis_codec_to_codec_cfg(const struct bt_bap_base_subgroup_bis *bis,
 						struct bt_audio_codec_cfg *codec_cfg)
 {
-	CHECKIF(bis == NULL) {
+	if (bis == NULL) {
 		LOG_DBG("bis is NULL");
 
 		return -EINVAL;
 	}
 
-	CHECKIF(codec_cfg == NULL) {
+	if (codec_cfg == NULL) {
 		LOG_DBG("codec_cfg is NULL");
 
 		return -EINVAL;
@@ -612,13 +613,13 @@ static bool base_subgroup_cb(const struct bt_bap_base_subgroup *subgroup, void *
 int bt_bap_base_subgroup_get_bis_indexes(const struct bt_bap_base_subgroup *subgroup,
 					 uint32_t *bis_indexes)
 {
-	CHECKIF(subgroup == NULL) {
+	if (subgroup == NULL) {
 		LOG_DBG("subgroup is NULL");
 
 		return -EINVAL;
 	}
 
-	CHECKIF(bis_indexes == NULL) {
+	if (bis_indexes == NULL) {
 		LOG_DBG("bis_indexes is NULL");
 
 		return -EINVAL;
@@ -631,13 +632,13 @@ int bt_bap_base_subgroup_get_bis_indexes(const struct bt_bap_base_subgroup *subg
 
 int bt_bap_base_get_bis_indexes(const struct bt_bap_base *base, uint32_t *bis_indexes)
 {
-	CHECKIF(base == NULL) {
+	if (base == NULL) {
 		LOG_DBG("base is NULL");
 
 		return -EINVAL;
 	}
 
-	CHECKIF(bis_indexes == NULL) {
+	if (bis_indexes == NULL) {
 		LOG_DBG("bis_indexes is NULL");
 
 		return -EINVAL;

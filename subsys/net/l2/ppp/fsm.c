@@ -8,6 +8,7 @@
 LOG_MODULE_DECLARE(net_l2_ppp, CONFIG_NET_L2_PPP_LOG_LEVEL);
 
 #include <zephyr/net/net_core.h>
+#include <zephyr/net/net_log.h>
 #include <zephyr/net/net_pkt.h>
 #include <zephyr/net/net_if.h>
 
@@ -48,7 +49,8 @@ struct net_if *ppp_fsm_iface(struct ppp_fsm *fsm)
 {
 	struct ppp_context *ctx = ppp_fsm_ctx(fsm);
 
-	NET_ASSERT(ctx->iface);
+	NET_ASSERT(ctx != NULL);
+	NET_ASSERT(ctx->iface != NULL);
 
 	return ctx->iface;
 }
@@ -56,6 +58,8 @@ struct net_if *ppp_fsm_iface(struct ppp_fsm *fsm)
 static bool ppp_fsm_is_dead(struct ppp_fsm *fsm)
 {
 	struct ppp_context *ctx = ppp_fsm_ctx(fsm);
+
+	NET_ASSERT(ctx != NULL);
 
 	return ctx->phase == PPP_DEAD;
 }
@@ -413,6 +417,8 @@ int ppp_send_pkt(struct ppp_fsm *fsm, struct net_if *iface,
 	switch (type) {
 	case PPP_CODE_REJ: {
 		struct ppp_context *ctx = ppp_fsm_ctx(fsm);
+
+		NET_ASSERT(ctx != NULL);
 
 		len = net_pkt_get_len(req_pkt);
 		len = MIN(len, ctx->lcp.my_options.mru);
@@ -1042,6 +1048,8 @@ enum net_verdict ppp_fsm_input(struct ppp_fsm *fsm, uint16_t proto,
 	uint16_t length;
 	int ret;
 	struct ppp_context *ctx = ppp_fsm_ctx(fsm);
+
+	NET_ASSERT(ctx != NULL);
 
 	ret = net_pkt_read_u8(pkt, &code);
 	if (ret < 0) {

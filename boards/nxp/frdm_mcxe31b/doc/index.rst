@@ -29,6 +29,15 @@ Supported Features
 
 .. zephyr:board-supported-hw::
 
+Shields for Supported Features
+==============================
+
+Some features in the table above are tested with Zephyr shields. These shields
+are tested on this board:
+
+- :ref:`lcd_par_s035` - supports the Display interface. This board uses the
+  MIPI_DBI interface of the shield, connected to the FlexIO on-chip peripheral.
+
 Connections and IOs
 ===================
 
@@ -62,6 +71,40 @@ controller, refer to the device reference manual.
 +-------+-------------+---------------------------+
 | PTA6  | FLEXCAN0    | CAN0 RX                   |
 +-------+-------------+---------------------------+
+| PTB4  | EMAC        | Ethernet MDIO             |
++-------+-------------+---------------------------+
+| PTB5  | EMAC        | Ethernet MDC              |
++-------+-------------+---------------------------+
+| PTC0  | EMAC        | Ethernet RMII RXD1        |
++-------+-------------+---------------------------+
+| PTC1  | EMAC        | Ethernet RMII RXD0        |
++-------+-------------+---------------------------+
+| PTC2  | EMAC        | Ethernet RMII TXD0        |
++-------+-------------+---------------------------+
+| PTC3  | GPIO        | Ethernet PHY reset        |
++-------+-------------+---------------------------+
+| PTC17 | EMAC        | Ethernet RMII RX_DV       |
++-------+-------------+---------------------------+
+| PTD7  | EMAC        | Ethernet RMII TXD1        |
++-------+-------------+---------------------------+
+| PTD11 | EMAC        | Ethernet RMII REF_CLK     |
++-------+-------------+---------------------------+
+| PTD12 | EMAC        | Ethernet RMII TX_EN       |
++-------+-------------+---------------------------+
+
+Ethernet
+========
+
+The board carries a Microchip LAN8741 10/100 Mbit/s PHY on MDIO address 0,
+connected to the MCXE31B EMAC over RMII. The EMAC is a Synopsys DesignWare
+Ethernet QoS core and is driven by the generic
+:zephyr_file:`drivers/ethernet/dwc_mac` driver, not by the NXP HAL based
+``eth_nxp_enet_qos`` driver.
+
+The PHY sources the 50 MHz RMII reference clock, which the SoC takes in on
+``PTD11`` and divides by two to clock the MAC's MII side. The driver also
+supports MII, selected with ``phy-connection-type``, though this board is
+wired for RMII.
 
 System Clock
 ============

@@ -9,7 +9,7 @@ with digital signal processing (DSP) instructions, large flash and SRAM memories
 and the latest generation Bluetooth® 5.4 Low Energy (LE) radio.
 The nano-power modes increase battery life substantially.
 
-The MAX32658 is qualified to operate at a temperature range of -20°C to +85°C.
+The MAX32658 is qualified to operate at a temperature range of -20 °C to +85 °C.
 Bluetooth 5.4 LE radio supports Mesh, long-range (coded), and high-throughput modes.
 A cryptographic toolbox (CTB) provides advanced root of trust security features,
 including an Advanced Encryption Standard (AES) Engine, TRNG, and secure boot.
@@ -475,7 +475,7 @@ by non-secure. All others is going to be accessible by NS world.
   endif()
 
 
-As an alternative method (which recommended) user can configurate ownership peripheral by
+As an alternative method (which recommended) user can configure ownership peripheral by
 an cmake overlay file too without touching TF-M source files. For this path
 create ``s_ns_access_overlay.cmake`` file under your project root folder and put peripheral/memory
 you would like to be accessible by secure world.
@@ -514,8 +514,8 @@ see the following message in the terminal:
    ***** Booting Zephyr OS build v4.1.0 *****
    Hello World! max32658evkit/max32658
 
-Building and flashing secure/non-secure with Arm |reg| TrustZone |reg|
-----------------------------------------------------------------------
+Building and flashing secure/non-secure with Arm® TrustZone®
+------------------------------------------------------------
 The TF-M integration samples can be run using the
 ``max32658evkit/max32658/ns`` board target. To run we need to manually flash
 the resulting image (``tfm_merged.hex``) with a J-Link as follows

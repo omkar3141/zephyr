@@ -4,6 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/**
+ * @file
+ * @brief Header file for the code instrumentation subsystem APIs.
+ * @ingroup instrumentation_api
+ */
+
 #ifndef ZEPHYR_INCLUDE_INSTRUMENTATION_INSTRUMENTATION_H_
 #define ZEPHYR_INCLUDE_INSTRUMENTATION_INSTRUMENTATION_H_
 
@@ -65,12 +71,17 @@ struct instr_event_context {
  *        on the code and additional fields in the header.
  */
 struct instr_record {
+	/** Record header. */
 	struct instr_header header;
+	/** Address of the function the event was generated for. */
 	void *callee;
+	/** Address of the caller of the function the event was generated for. */
 	void *caller;
+	/** Time the event was generated, in nanoseconds. */
 	uint64_t timestamp;
+	/** Event payload. */
 	union {
-		struct instr_event_context context; /* Context data */
+		struct instr_event_context context; /**< Context data */
 		/* Add more payloads here */
 	};
 } __packed;
@@ -88,6 +99,13 @@ bool instr_tracing_supported(void);
  * @return true if profiling is available, false otherwise.
  */
 bool instr_profiling_supported(void);
+
+/**
+ * @brief Checks if dynamic trigger configuration feature is available.
+ *
+ * @return true if dynamic trigger is supported, false otherwise.
+ */
+bool instr_dynamic_trigger_supported(void);
 
 /**
  * @brief Checks if subsystem is ready to be initialized. Must called be before

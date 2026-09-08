@@ -14,6 +14,7 @@
 #include <zephyr/init.h>
 #include <fsl_clock.h>
 #include <cmsis_core.h>
+#include <fsl_smc.h>
 
 #define ASSERT_WITHIN_RANGE(val, min, max, str) BUILD_ASSERT(val >= min && val <= max, str)
 
@@ -88,7 +89,7 @@ ASSERT_ASYNC_CLK_DIV_VALID(SCG_CLOCK_DIV(soscdiv2_clk), "Invalid SCG SOSC divide
 static const scg_sosc_config_t scg_sosc_config = {
 	.freq = DT_PROP(SCG_CLOCK_NODE(sosc_clk), clock_frequency),
 	.monitorMode = kSCG_SysOscMonitorDisable,
-	.enableMode = kSCG_SysOscEnable | kSCG_SysOscEnableInLowPower,
+	.enableMode = kSCG_SysOscEnable | kSCG_SysOscEnableInLowPower | kSCG_SysOscEnableErClk,
 	.div2 = TO_ASYNC_CLK_DIV(SCG_CLOCK_DIV(soscdiv2_clk)),
 	.workMode = DT_PROP(DT_INST(0, nxp_kinetis_scg), sosc_mode)};
 #endif
@@ -186,6 +187,9 @@ void soc_early_init_hook(void)
 {
 	/* Initialize system clocks and PLL */
 	clk_init();
+#ifdef CONFIG_PM
+	SMC_SetPowerModeProtection(SMC, kSMC_AllowPowerModeAll);
+#endif /* CONFIG_PM */
 }
 
 #ifdef CONFIG_SOC_RESET_HOOK

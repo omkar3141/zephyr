@@ -5,12 +5,20 @@
 /*
  * Copyright (c) 2015-2016 Intel Corporation
  * Copyright (C) 2024 Xiaomi Corporation
+ * Copyright 2025-2026 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef ZEPHYR_INCLUDE_BLUETOOTH_AVRCP_H_
-#define ZEPHYR_INCLUDE_BLUETOOTH_AVRCP_H_
+#ifndef ZEPHYR_INCLUDE_BLUETOOTH_CLASSIC_AVRCP_H_
+#define ZEPHYR_INCLUDE_BLUETOOTH_CLASSIC_AVRCP_H_
+
+/**
+ * @brief Audio Video Remote Control Profile (AVRCP)
+ * @defgroup bt_avrcp Audio Video Remote Control Profile (AVRCP)
+ * @ingroup bluetooth
+ * @{
+ */
 
 #ifdef __cplusplus
 extern "C" {
@@ -279,9 +287,15 @@ typedef enum __packed {
 	BT_AVRCP_STATUS_SUCCESS = BT_AVRCP_STATUS_OPERATION_COMPLETED,
 } bt_avrcp_status_t;
 
-/** @brief AVRCP CT structure */
+/**
+ * @struct bt_avrcp_ct
+ * @brief AVRCP CT structure
+ */
 struct bt_avrcp_ct;
-/** @brief AVRCP TG structure */
+/**
+ * @struct bt_avrcp_tg
+ * @brief AVRCP TG structure
+ */
 struct bt_avrcp_tg;
 
 struct bt_avrcp_unit_info_rsp {
@@ -1869,7 +1883,7 @@ struct bt_avrcp_tg_cb {
 	 *  @param tid The transaction label of the request.
 	 *  @param buf The buffer containing the PASS THROUGH command payload.
 	 *             The application can parse this payload according to the format defined
-	 *             in @ref bt_avrcp_passthrough_rsp. Note that the data is encoded
+	 *             in @ref bt_avrcp_passthrough_cmd. Note that the data is encoded
 	 *             in big-endian format.
 	 */
 	void (*passthrough_req)(struct bt_avrcp_tg *tg, uint8_t tid, struct net_buf *buf);
@@ -1926,8 +1940,8 @@ struct bt_avrcp_tg_cb {
 	 *
 	 *  @param tg AVRCP TG connection object.
 	 *  @param tid The transaction label of the command.
-	 *  @param buf The buffer containing the GET_PLAYER_APP_SETTING_VAL_TEXT command payload,
-	 *            formatted as @ref bt_avrcp_get_player_app_setting_val_text_cmd.
+	 *  @param buf The buffer containing the GET_PLAYER_APP_SETTING_ATTR_TEXT command payload,
+	 *            formatted as @ref bt_avrcp_get_player_app_setting_attr_text_cmd.
 	 *            The application should parse fields in big-endian order.
 	 */
 	void (*get_player_app_setting_attr_text)(struct bt_avrcp_tg *tg, uint8_t tid,
@@ -2422,4 +2436,8 @@ int bt_avrcp_tg_browsing_general_reject(struct bt_avrcp_tg *tg, uint8_t tid, uin
 }
 #endif
 
-#endif /* ZEPHYR_INCLUDE_BLUETOOTH_AVRCP_H_ */
+/**
+ * @}
+ */
+
+#endif /* ZEPHYR_INCLUDE_BLUETOOTH_CLASSIC_AVRCP_H_ */

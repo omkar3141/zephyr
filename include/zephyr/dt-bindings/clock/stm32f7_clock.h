@@ -3,10 +3,18 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+
+/**
+ * @file
+ * @brief DT bindings for STM32F7 clock system
+ */
+
 #ifndef ZEPHYR_INCLUDE_DT_BINDINGS_CLOCK_STM32F7_CLOCK_H_
 #define ZEPHYR_INCLUDE_DT_BINDINGS_CLOCK_STM32F7_CLOCK_H_
 
-#include "stm32_common_clocks.h"
+#include <zephyr/dt-bindings/clock/stm32_common_clocks.h>
+
+/** @cond INTERNAL_HIDDEN */
 
 /** Domain clocks */
 
@@ -35,19 +43,21 @@
 #define STM32_SRC_PLL_P		(STM32_SRC_HSE + 1)
 #define STM32_SRC_PLL_Q		(STM32_SRC_PLL_P + 1)
 #define STM32_SRC_PLL_R		(STM32_SRC_PLL_Q + 1)
-/** Peripheral bus clock */
-#define STM32_SRC_PCLK		(STM32_SRC_PLL_R + 1)
-#define STM32_SRC_TIMPCLK1	(STM32_SRC_PCLK + 1)
-#define STM32_SRC_TIMPCLK2	(STM32_SRC_TIMPCLK1 + 1)
-
-#define STM32_SRC_PLLI2S_R      (STM32_SRC_TIMPCLK2 + 1)
-
-/* PLLSAI clocks */
+/** PLLI2S clock outputs */
+#define STM32_SRC_PLLI2S_P	(STM32_SRC_PLL_R + 1)
+#define STM32_SRC_PLLI2S_Q	(STM32_SRC_PLLI2S_P + 1)
+#define STM32_SRC_PLLI2S_POST_Q	(STM32_SRC_PLLI2S_Q + 1)
+#define STM32_SRC_PLLI2S_R	(STM32_SRC_PLLI2S_POST_Q + 1)
+/* PLLSAI clock outputs */
 #define STM32_SRC_PLLSAI_P	(STM32_SRC_PLLI2S_R + 1)
 #define STM32_SRC_PLLSAI_Q	(STM32_SRC_PLLSAI_P + 1)
-#define STM32_SRC_PLLSAI_DIVQ	(STM32_SRC_PLLSAI_Q + 1)
-#define STM32_SRC_PLLSAI_R	(STM32_SRC_PLLSAI_DIVQ + 1)
-#define STM32_SRC_PLLSAI_DIVR	(STM32_SRC_PLLSAI_R + 1)
+#define STM32_SRC_PLLSAI_POST_Q	(STM32_SRC_PLLSAI_Q + 1)
+#define STM32_SRC_PLLSAI_R	(STM32_SRC_PLLSAI_POST_Q + 1)
+#define STM32_SRC_PLLSAI_POST_R	(STM32_SRC_PLLSAI_R + 1)
+/** Peripheral bus clock */
+#define STM32_SRC_PCLK		(STM32_SRC_PLLSAI_POST_R + 1)
+#define STM32_SRC_TIMPCLK1	(STM32_SRC_PCLK + 1)
+#define STM32_SRC_TIMPCLK2	(STM32_SRC_TIMPCLK1 + 1)
 
 /** @brief RCC_CFGRx register offset */
 #define CFGR_REG		0x08
@@ -69,6 +79,18 @@
 #define MCO_PRE_DIV_3 5
 #define MCO_PRE_DIV_4 6
 #define MCO_PRE_DIV_5 7
+
+/** MCO1 clock output */
+#define MCO1_SEL_HSI		0
+#define MCO1_SEL_LSE		1
+#define MCO1_SEL_HSE		2
+#define MCO1_SEL_PLL		3
+
+/** MCO2 clock output */
+#define MCO2_SEL_SYSCLK		0
+#define MCO2_SEL_PLL2S		1
+#define MCO2_SEL_HSE		2
+#define MCO2_SEL_PLL		3
 
 /** BDCR devices */
 #define RTC_SEL(val)		STM32_DT_CLOCK_SELECT((val), 9, 8, BDCR_REG)
@@ -97,5 +119,7 @@
 #define SDMMC1_SEL(val)		STM32_DT_CLOCK_SELECT((val), 28, 28, DCKCFGR2_REG)
 #define SDMMC2_SEL(val)		STM32_DT_CLOCK_SELECT((val), 29, 29, DCKCFGR2_REG)
 #define DSI_SEL(val)		STM32_DT_CLOCK_SELECT((val), 30, 30, DCKCFGR2_REG)
+
+/** @endcond */
 
 #endif /* ZEPHYR_INCLUDE_DT_BINDINGS_CLOCK_STM32F7_CLOCK_H_ */

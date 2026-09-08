@@ -7,6 +7,7 @@
 
 #include <zephyr/drivers/can.h>
 #include <zephyr/ztest.h>
+#include <zephyr/ztest_error_hook.h>
 
 #include "common.h"
 
@@ -82,8 +83,7 @@ static void tx_ext_callback_2(const struct device *dev, int error, void *user_da
  *
  * See @a can_rx_callback_t() for argument description.
  */
-static void rx_std_callback_1(const struct device *dev, struct can_frame *frame,
-			      void *user_data)
+static void rx_std_callback_1(const struct device *dev, struct can_frame *frame, void *user_data)
 {
 	struct can_filter *filter = user_data;
 
@@ -99,8 +99,7 @@ static void rx_std_callback_1(const struct device *dev, struct can_frame *frame,
  *
  * See @a can_rx_callback_t() for argument description.
  */
-static void rx_std_callback_2(const struct device *dev, struct can_frame *frame,
-			      void *user_data)
+static void rx_std_callback_2(const struct device *dev, struct can_frame *frame, void *user_data)
 {
 	struct can_filter *filter = user_data;
 
@@ -150,8 +149,7 @@ static void rx_std_mask_callback_2(const struct device *dev, struct can_frame *f
  *
  * See @a can_rx_callback_t() for argument description.
  */
-static void rx_ext_callback_1(const struct device *dev, struct can_frame *frame,
-			      void *user_data)
+static void rx_ext_callback_1(const struct device *dev, struct can_frame *frame, void *user_data)
 {
 	struct can_filter *filter = user_data;
 
@@ -167,8 +165,7 @@ static void rx_ext_callback_1(const struct device *dev, struct can_frame *frame,
  *
  * See @a can_rx_callback_t() for argument description.
  */
-static void rx_ext_callback_2(const struct device *dev, struct can_frame *frame,
-			      void *user_data)
+static void rx_ext_callback_2(const struct device *dev, struct can_frame *frame, void *user_data)
 {
 	struct can_filter *filter = user_data;
 
@@ -228,7 +225,7 @@ static void send_test_frame(const struct device *dev, const struct can_frame *fr
 
 	err = can_send(dev, frame, TEST_SEND_TIMEOUT, NULL, NULL);
 	zassert_not_equal(err, -EBUSY, "arbitration lost in loopback mode");
-	zassert_equal(err, 0, "failed to send frame (err %d)", err);
+	zassert_ok(err, "failed to send frame (err %d)", err);
 }
 
 /**
@@ -248,50 +245,7 @@ static void send_test_frame_nowait(const struct device *dev, const struct can_fr
 
 	err = can_send(dev, frame, TEST_SEND_TIMEOUT, callback, (void *)frame);
 	zassert_not_equal(err, -EBUSY, "arbitration lost in loopback mode");
-	zassert_equal(err, 0, "failed to send frame (err %d)", err);
-}
-
-/**
- * @brief Add a CAN message queue with asserts.
- *
- * @param dev    Pointer to the device structure for the driver instance.
- * @param filter CAN filter for the CAN message queue.
- *
- * @return CAN filter ID.
- */
-static inline int add_rx_msgq(const struct device *dev, const struct can_filter *filter)
-{
-	int filter_id;
-
-	filter_id = can_add_rx_filter_msgq(dev, &can_msgq, filter);
-	zassert_not_equal(filter_id, -ENOSPC, "no filters available");
-	zassert_true(filter_id >= 0, "negative filter number");
-
-	return filter_id;
-}
-
-/**
- * @brief Add a CAN filter with asserts.
- *
- * @param dev      Pointer to the device structure for the driver instance.
- * @param filter   CAN filter.
- * @param callback Receive callback function.
- *
- * @return CAN filter ID.
- */
-static inline int add_rx_filter(const struct device *dev,
-				const struct can_filter *filter,
-				can_rx_callback_t callback)
-{
-	int filter_id;
-
-	k_sem_reset(&rx_callback_sem);
-
-	filter_id = can_add_rx_filter(dev, callback, (void *)filter, filter);
-	zassert_not_equal(filter_id, -ENOSPC, "no filters available");
-	zassert_true(filter_id >= 0, "negative filter number");
-
-	return filter_id;
+	zassert_ok(err, "failed to send frame (err %d)", err);
 }
 
 /**
@@ -302,10 +256,8 @@ static inline int add_rx_filter(const struct device *dev,
  * @param frame1  CAN frame 1
  * @param frame2  CAN frame 2
  */
-static void send_receive(const struct can_filter *filter1,
-			 const struct can_filter *filter2,
-			 const struct can_frame *frame1,
-			 const struct can_frame *frame2)
+static void send_receive(const struct can_filter *filter1, const struct can_filter *filter2,
+			 const struct can_frame *frame1, const struct can_frame *frame2)
 {
 	struct can_frame frame_buffer;
 	uint32_t mask = 0U;
@@ -313,13 +265,13 @@ static void send_receive(const struct can_filter *filter1,
 	int filter_id_2;
 	int err;
 
-	filter_id_1 = add_rx_msgq(can_dev, filter1);
+	filter_id_1 = can_common_add_rx_msgq(can_dev, filter1);
 	zassert_not_equal(filter_id_1, -ENOSPC, "no filters available");
 	zassert_true(filter_id_1 >= 0, "negative filter number");
 	send_test_frame(can_dev, frame1);
 
 	err = k_msgq_get(&can_msgq, &frame_buffer, TEST_RECEIVE_TIMEOUT);
-	zassert_equal(err, 0, "receive timeout");
+	zassert_ok(err, "receive timeout");
 
 	if ((filter1->flags & CAN_FILTER_IDE) != 0) {
 		if (filter1->mask != CAN_EXT_ID_MASK) {
@@ -338,25 +290,29 @@ static void send_receive(const struct can_filter *filter1,
 
 	if ((frame1->flags & CAN_FRAME_IDE) != 0) {
 		if (filter1->mask == CAN_EXT_ID_MASK) {
-			filter_id_1 = add_rx_filter(can_dev, filter1, rx_ext_callback_1);
-			filter_id_2 = add_rx_filter(can_dev, filter2, rx_ext_callback_2);
+			filter_id_1 = can_common_add_rx_filter(can_dev, filter1, rx_ext_callback_1);
+			filter_id_2 = can_common_add_rx_filter(can_dev, filter2, rx_ext_callback_2);
 			send_test_frame_nowait(can_dev, frame1, tx_ext_callback_1);
 			send_test_frame_nowait(can_dev, frame2, tx_ext_callback_2);
 		} else {
-			filter_id_1 = add_rx_filter(can_dev, filter1, rx_ext_mask_callback_1);
-			filter_id_2 = add_rx_filter(can_dev, filter2, rx_ext_mask_callback_2);
+			filter_id_1 =
+				can_common_add_rx_filter(can_dev, filter1, rx_ext_mask_callback_1);
+			filter_id_2 =
+				can_common_add_rx_filter(can_dev, filter2, rx_ext_mask_callback_2);
 			send_test_frame_nowait(can_dev, frame1, tx_ext_callback_1);
 			send_test_frame_nowait(can_dev, frame2, tx_ext_callback_2);
 		}
 	} else {
 		if (filter1->mask == CAN_STD_ID_MASK) {
-			filter_id_1 = add_rx_filter(can_dev, filter1, rx_std_callback_1);
-			filter_id_2 = add_rx_filter(can_dev, filter2, rx_std_callback_2);
+			filter_id_1 = can_common_add_rx_filter(can_dev, filter1, rx_std_callback_1);
+			filter_id_2 = can_common_add_rx_filter(can_dev, filter2, rx_std_callback_2);
 			send_test_frame_nowait(can_dev, frame1, tx_std_callback_1);
 			send_test_frame_nowait(can_dev, frame2, tx_std_callback_2);
 		} else {
-			filter_id_1 = add_rx_filter(can_dev, filter1, rx_std_mask_callback_1);
-			filter_id_2 = add_rx_filter(can_dev, filter2, rx_std_mask_callback_2);
+			filter_id_1 =
+				can_common_add_rx_filter(can_dev, filter1, rx_std_mask_callback_1);
+			filter_id_2 =
+				can_common_add_rx_filter(can_dev, filter2, rx_std_mask_callback_2);
 			send_test_frame_nowait(can_dev, frame1, tx_std_callback_1);
 			send_test_frame_nowait(can_dev, frame2, tx_std_callback_2);
 		}
@@ -369,16 +325,16 @@ static void send_receive(const struct can_filter *filter1,
 	zassert_true(filter_id_2 >= 0, "negative filter number");
 
 	err = k_sem_take(&rx_callback_sem, TEST_RECEIVE_TIMEOUT);
-	zassert_equal(err, 0, "receive timeout");
+	zassert_ok(err, "receive timeout");
 
 	err = k_sem_take(&rx_callback_sem, TEST_RECEIVE_TIMEOUT);
-	zassert_equal(err, 0, "receive timeout");
+	zassert_ok(err, "receive timeout");
 
 	err = k_sem_take(&tx_callback_sem, TEST_SEND_TIMEOUT);
-	zassert_equal(err, 0, "missing TX callback");
+	zassert_ok(err, "missing TX callback");
 
 	err = k_sem_take(&tx_callback_sem, TEST_SEND_TIMEOUT);
-	zassert_equal(err, 0, "missing TX callback");
+	zassert_ok(err, "missing TX callback");
 
 	can_remove_rx_filter(can_dev, filter_id_1);
 	can_remove_rx_filter(can_dev, filter_id_2);
@@ -393,8 +349,7 @@ static void send_receive(const struct can_filter *filter1,
  * @param data_frame  CAN data frame
  * @param rtr_frame   CAN RTR frame
  */
-static void send_receive_rtr(const struct can_filter *filter,
-			     const struct can_frame *data_frame,
+static void send_receive_rtr(const struct can_filter *filter, const struct can_frame *data_frame,
 			     const struct can_frame *rtr_frame)
 {
 	struct can_frame frame;
@@ -412,16 +367,16 @@ static void send_receive_rtr(const struct can_filter *filter,
 		can_remove_rx_filter(can_dev, filter_id);
 		ztest_test_skip();
 	}
-	zassert_equal(err, 0, "failed to send RTR frame (err %d)", err);
+	zassert_ok(err, "failed to send RTR frame (err %d)", err);
 
 	err = k_msgq_get(&can_msgq, &frame, TEST_RECEIVE_TIMEOUT);
-	zassert_equal(err, 0, "receive timeout");
+	zassert_ok(err, "receive timeout");
 	assert_frame_equal(&frame, rtr_frame, 0);
 
 	/* Verify that filter matches data frame */
 	send_test_frame(can_dev, data_frame);
 	err = k_msgq_get(&can_msgq, &frame, TEST_RECEIVE_TIMEOUT);
-	zassert_equal(err, 0, "receive timeout");
+	zassert_ok(err, "receive timeout");
 	assert_frame_equal(&frame, data_frame, 0);
 
 	can_remove_rx_filter(can_dev, filter_id);
@@ -436,7 +391,7 @@ ZTEST_USER(can_classic, test_get_core_clock)
 	int err;
 
 	err = can_get_core_clock(can_dev, &rate);
-	zassert_equal(err, 0, "failed to get CAN core clock rate (err %d)", err);
+	zassert_ok(err, "failed to get CAN core clock rate (err %d)", err);
 	zassert_not_equal(rate, 0, "CAN core clock rate is 0");
 }
 
@@ -449,7 +404,7 @@ ZTEST_USER(can_classic, test_classic_get_capabilities)
 	int err;
 
 	err = can_get_capabilities(can_dev, &cap);
-	zassert_equal(err, 0, "failed to get CAN capabilities (err %d)", err);
+	zassert_ok(err, "failed to get CAN capabilities (err %d)", err);
 	zassert_not_equal(cap & CAN_MODE_LOOPBACK, 0, "CAN loopback mode not supported");
 }
 
@@ -499,16 +454,16 @@ ZTEST_USER(can_classic, test_set_bitrate_too_low)
 	}
 
 	err = can_stop(can_dev);
-	zassert_equal(err, 0, "failed to stop CAN controller (err %d)", err);
+	zassert_ok(err, "failed to stop CAN controller (err %d)", err);
 
 	err = can_set_bitrate(can_dev, min - 1);
 	zassert_equal(err, -ENOTSUP, "too low bitrate accepted");
 
 	err = can_set_bitrate(can_dev, CONFIG_CAN_DEFAULT_BITRATE);
-	zassert_equal(err, 0, "failed to restore default bitrate");
+	zassert_ok(err, "failed to restore default bitrate");
 
 	err = can_start(can_dev);
-	zassert_equal(err, 0, "failed to start CAN controller (err %d)", err);
+	zassert_ok(err, "failed to start CAN controller (err %d)", err);
 }
 
 /**
@@ -520,13 +475,13 @@ ZTEST_USER(can_classic, test_set_bitrate_too_high)
 	int err;
 
 	err = can_stop(can_dev);
-	zassert_equal(err, 0, "failed to stop CAN controller (err %d)", err);
+	zassert_ok(err, "failed to stop CAN controller (err %d)", err);
 
 	err = can_set_bitrate(can_dev, max + 1);
 	zassert_equal(err, -ENOTSUP, "too high bitrate accepted");
 
 	err = can_start(can_dev);
-	zassert_equal(err, 0, "failed to start CAN controller (err %d)", err);
+	zassert_ok(err, "failed to start CAN controller (err %d)", err);
 }
 
 /**
@@ -549,16 +504,16 @@ ZTEST_USER(can_classic, test_set_bitrate)
 	int err;
 
 	err = can_stop(can_dev);
-	zassert_equal(err, 0, "failed to stop CAN controller (err %d)", err);
+	zassert_ok(err, "failed to stop CAN controller (err %d)", err);
 
 	err = can_set_bitrate(can_dev, TEST_BITRATE_1);
-	zassert_equal(err, 0, "failed to set bitrate");
+	zassert_ok(err, "failed to set bitrate");
 
 	err = can_set_bitrate(can_dev, CONFIG_CAN_DEFAULT_BITRATE);
-	zassert_equal(err, 0, "failed to restore default bitrate");
+	zassert_ok(err, "failed to restore default bitrate");
 
 	err = can_start(can_dev);
-	zassert_equal(err, 0, "failed to start CAN controller (err %d)", err);
+	zassert_ok(err, "failed to start CAN controller (err %d)", err);
 }
 
 /**
@@ -569,16 +524,16 @@ ZTEST_USER(can_classic, test_set_timing_min)
 	int err;
 
 	err = can_stop(can_dev);
-	zassert_equal(err, 0, "failed to stop CAN controller (err %d)", err);
+	zassert_ok(err, "failed to stop CAN controller (err %d)", err);
 
 	err = can_set_timing(can_dev, can_get_timing_min(can_dev));
-	zassert_equal(err, 0, "failed to set minimum timing parameters (err %d)", err);
+	zassert_ok(err, "failed to set minimum timing parameters (err %d)", err);
 
 	err = can_set_bitrate(can_dev, CONFIG_CAN_DEFAULT_BITRATE);
-	zassert_equal(err, 0, "failed to restore default bitrate");
+	zassert_ok(err, "failed to restore default bitrate");
 
 	err = can_start(can_dev);
-	zassert_equal(err, 0, "failed to start CAN controller (err %d)", err);
+	zassert_ok(err, "failed to start CAN controller (err %d)", err);
 }
 
 /**
@@ -589,16 +544,16 @@ ZTEST_USER(can_classic, test_set_timing_max)
 	int err;
 
 	err = can_stop(can_dev);
-	zassert_equal(err, 0, "failed to stop CAN controller (err %d)", err);
+	zassert_ok(err, "failed to stop CAN controller (err %d)", err);
 
 	err = can_set_timing(can_dev, can_get_timing_max(can_dev));
-	zassert_equal(err, 0, "failed to set maximum timing parameters (err %d)", err);
+	zassert_ok(err, "failed to set maximum timing parameters (err %d)", err);
 
 	err = can_set_bitrate(can_dev, CONFIG_CAN_DEFAULT_BITRATE);
-	zassert_equal(err, 0, "failed to restore default bitrate");
+	zassert_ok(err, "failed to restore default bitrate");
 
 	err = can_start(can_dev);
-	zassert_equal(err, 0, "failed to start CAN controller (err %d)", err);
+	zassert_ok(err, "failed to start CAN controller (err %d)", err);
 }
 
 /**
@@ -621,22 +576,24 @@ ZTEST(can_classic, test_add_filter)
 {
 	int filter_id;
 
-	filter_id = add_rx_filter(can_dev, &test_std_filter_1, rx_std_callback_1);
+	filter_id = can_common_add_rx_filter(can_dev, &test_std_filter_1, rx_std_callback_1);
 	can_remove_rx_filter(can_dev, filter_id);
 
-	filter_id = add_rx_filter(can_dev, &test_ext_filter_1, rx_ext_callback_1);
+	filter_id = can_common_add_rx_filter(can_dev, &test_ext_filter_1, rx_ext_callback_1);
 	can_remove_rx_filter(can_dev, filter_id);
 
-	filter_id = add_rx_msgq(can_dev, &test_std_filter_1);
+	filter_id = can_common_add_rx_msgq(can_dev, &test_std_filter_1);
 	can_remove_rx_filter(can_dev, filter_id);
 
-	filter_id = add_rx_msgq(can_dev, &test_ext_filter_1);
+	filter_id = can_common_add_rx_msgq(can_dev, &test_ext_filter_1);
 	can_remove_rx_filter(can_dev, filter_id);
 
-	filter_id = add_rx_filter(can_dev, &test_std_masked_filter_1, rx_std_mask_callback_1);
+	filter_id = can_common_add_rx_filter(can_dev, &test_std_masked_filter_1,
+					     rx_std_mask_callback_1);
 	can_remove_rx_filter(can_dev, filter_id);
 
-	filter_id = add_rx_filter(can_dev, &test_ext_masked_filter_1, rx_ext_mask_callback_1);
+	filter_id = can_common_add_rx_filter(can_dev, &test_ext_masked_filter_1,
+					     rx_ext_mask_callback_1);
 	can_remove_rx_filter(can_dev, filter_id);
 }
 
@@ -747,7 +704,7 @@ static void add_remove_max_filters(bool ide)
 
 	for (i = 0; i < max; i++) {
 		filter.id++;
-		filter_ids[i] = add_rx_msgq(can_dev, &filter);
+		filter_ids[i] = can_common_add_rx_msgq(can_dev, &filter);
 	}
 
 	filter.id++;
@@ -775,6 +732,35 @@ ZTEST_USER(can_classic, test_max_ext_filters)
 	add_remove_max_filters(true);
 }
 
+#if defined(CONFIG_USERSPACE) && defined(CONFIG_DYNAMIC_OBJECTS)
+/**
+ * @brief Test that a dynamically allocated message queue is rejected from user mode.
+ *
+ * The CAN RX filter retains the message queue pointer for as long as the filter is
+ * installed, but a dynamically allocated kernel object is freed as soon as the last
+ * thread holding permission on it releases it or terminates. Accepting one would
+ * leave the filter with a dangling pointer, which a later matching frame would
+ * write through - potentially into an unrelated object which has since reused the
+ * memory. The syscall must therefore refuse it.
+ */
+ZTEST_USER(can_classic, test_add_rx_filter_msgq_dynamic)
+{
+	struct k_msgq *msgq;
+	int err;
+
+	msgq = k_object_alloc(K_OBJ_MSGQ);
+	zassert_not_null(msgq, "failed to allocate message queue object");
+
+	err = k_msgq_alloc_init(msgq, sizeof(struct can_frame), 5);
+	zassert_ok(err, "failed to initialize message queue (err %d)", err);
+
+	ztest_set_fault_valid(true);
+	(void)can_add_rx_filter_msgq(can_dev, msgq, &test_std_filter_1);
+
+	zassert_unreachable("dynamically allocated message queue was accepted");
+}
+#endif /* CONFIG_USERSPACE && CONFIG_DYNAMIC_OBJECTS */
+
 /**
  * @brief Test that no message is received when nothing was sent.
  */
@@ -784,7 +770,7 @@ ZTEST_USER(can_classic, test_receive_timeout)
 	int filter_id;
 	int err;
 
-	filter_id = add_rx_msgq(can_dev, &test_std_filter_1);
+	filter_id = can_common_add_rx_msgq(can_dev, &test_std_filter_1);
 
 	err = k_msgq_get(&can_msgq, &frame, TEST_RECEIVE_TIMEOUT);
 	zassert_equal(err, -EAGAIN, "received a frame without sending one");
@@ -804,7 +790,7 @@ ZTEST(can_classic, test_send_callback)
 	send_test_frame_nowait(can_dev, &test_std_frame_1, tx_std_callback_1);
 
 	err = k_sem_take(&tx_callback_sem, TEST_SEND_TIMEOUT);
-	zassert_equal(err, 0, "missing TX callback");
+	zassert_ok(err, "missing TX callback");
 }
 
 /**
@@ -888,8 +874,7 @@ ZTEST(can_classic, test_send_ext_id_dlc_of_range)
  */
 ZTEST(can_classic, test_send_receive_std_id)
 {
-	send_receive(&test_std_filter_1, &test_std_filter_2,
-		     &test_std_frame_1, &test_std_frame_2);
+	send_receive(&test_std_filter_1, &test_std_filter_2, &test_std_frame_1, &test_std_frame_2);
 }
 
 /**
@@ -898,21 +883,21 @@ ZTEST(can_classic, test_send_receive_std_id)
 ZTEST(can_classic, test_send_receive_std_id_no_data)
 {
 	const struct can_frame frame = {
-		.flags   = 0,
-		.id      = TEST_CAN_STD_ID_1,
-		.dlc     = 0,
-		.data    = { 0 }
+		.flags = 0,
+		.id = TEST_CAN_STD_ID_1,
+		.dlc = 0,
+		.data = {0},
 	};
 	struct can_frame frame_buffer;
 	int filter_id;
 	int err;
 
-	filter_id = add_rx_msgq(can_dev, &test_std_filter_1);
+	filter_id = can_common_add_rx_msgq(can_dev, &test_std_filter_1);
 	err = can_send(can_dev, &frame, TEST_SEND_TIMEOUT, NULL, NULL);
-	zassert_equal(err, 0, "failed to send frame without data (err %d)", err);
+	zassert_ok(err, "failed to send frame without data (err %d)", err);
 
 	err = k_msgq_get(&can_msgq, &frame_buffer, TEST_RECEIVE_TIMEOUT);
-	zassert_equal(err, 0, "receive timeout");
+	zassert_ok(err, "receive timeout");
 
 	assert_frame_equal(&frame, &frame_buffer, 0);
 
@@ -924,8 +909,7 @@ ZTEST(can_classic, test_send_receive_std_id_no_data)
  */
 ZTEST(can_classic, test_send_receive_ext_id)
 {
-	send_receive(&test_ext_filter_1, &test_ext_filter_2,
-		     &test_ext_frame_1, &test_ext_frame_2);
+	send_receive(&test_ext_filter_1, &test_ext_filter_2, &test_ext_frame_1, &test_ext_frame_2);
 }
 
 /**
@@ -933,8 +917,8 @@ ZTEST(can_classic, test_send_receive_ext_id)
  */
 ZTEST(can_classic, test_send_receive_std_id_masked)
 {
-	send_receive(&test_std_masked_filter_1, &test_std_masked_filter_2,
-		     &test_std_frame_1, &test_std_frame_2);
+	send_receive(&test_std_masked_filter_1, &test_std_masked_filter_2, &test_std_frame_1,
+		     &test_std_frame_2);
 }
 
 /**
@@ -942,8 +926,8 @@ ZTEST(can_classic, test_send_receive_std_id_masked)
  */
 ZTEST(can_classic, test_send_receive_ext_id_masked)
 {
-	send_receive(&test_ext_masked_filter_1, &test_ext_masked_filter_2,
-		     &test_ext_frame_1, &test_ext_frame_2);
+	send_receive(&test_ext_masked_filter_1, &test_ext_masked_filter_2, &test_ext_frame_1,
+		     &test_ext_frame_2);
 }
 
 /**
@@ -958,7 +942,7 @@ ZTEST_USER(can_classic, test_send_receive_msgq)
 	int err;
 	int i;
 
-	filter_id = add_rx_msgq(can_dev, &test_std_filter_1);
+	filter_id = can_common_add_rx_msgq(can_dev, &test_std_filter_1);
 
 	k_msgq_get_attrs(&can_msgq, &attrs);
 	nframes = attrs.max_msgs;
@@ -969,7 +953,7 @@ ZTEST_USER(can_classic, test_send_receive_msgq)
 
 	for (i = 0; i < nframes; i++) {
 		err = k_msgq_get(&can_msgq, &frame, TEST_RECEIVE_TIMEOUT);
-		zassert_equal(err, 0, "receive timeout");
+		zassert_ok(err, "receive timeout");
 		assert_frame_equal(&frame, &test_std_frame_1, 0);
 	}
 
@@ -979,7 +963,7 @@ ZTEST_USER(can_classic, test_send_receive_msgq)
 
 	for (i = 0; i < nframes; i++) {
 		err = k_msgq_get(&can_msgq, &frame, TEST_RECEIVE_TIMEOUT);
-		zassert_equal(err, 0, "receive timeout");
+		zassert_ok(err, "receive timeout");
 		assert_frame_equal(&frame, &test_std_frame_1, 0);
 	}
 
@@ -1017,7 +1001,7 @@ ZTEST_USER(can_classic, test_reject_std_id_rtr)
 
 	Z_TEST_SKIP_IFDEF(CONFIG_CAN_ACCEPT_RTR);
 
-	filter_id = add_rx_msgq(can_dev, &test_std_filter_1);
+	filter_id = can_common_add_rx_msgq(can_dev, &test_std_filter_1);
 
 	err = can_send(can_dev, &test_std_rtr_frame_1, TEST_SEND_TIMEOUT, NULL, NULL);
 	if (err == -ENOTSUP) {
@@ -1025,7 +1009,7 @@ ZTEST_USER(can_classic, test_reject_std_id_rtr)
 		can_remove_rx_filter(can_dev, filter_id);
 		ztest_test_skip();
 	}
-	zassert_equal(err, 0, "failed to send RTR frame (err %d)", err);
+	zassert_ok(err, "failed to send RTR frame (err %d)", err);
 
 	err = k_msgq_get(&can_msgq, &frame_buffer, TEST_RECEIVE_TIMEOUT);
 	zassert_equal(err, -EAGAIN, "received a frame that should be rejected");
@@ -1044,7 +1028,7 @@ ZTEST_USER(can_classic, test_reject_ext_id_rtr)
 
 	Z_TEST_SKIP_IFDEF(CONFIG_CAN_ACCEPT_RTR);
 
-	filter_id = add_rx_msgq(can_dev, &test_ext_filter_1);
+	filter_id = can_common_add_rx_msgq(can_dev, &test_ext_filter_1);
 
 	err = can_send(can_dev, &test_ext_rtr_frame_1, TEST_SEND_TIMEOUT, NULL, NULL);
 	if (err == -ENOTSUP) {
@@ -1052,7 +1036,7 @@ ZTEST_USER(can_classic, test_reject_ext_id_rtr)
 		can_remove_rx_filter(can_dev, filter_id);
 		ztest_test_skip();
 	}
-	zassert_equal(err, 0, "failed to send RTR frame (err %d)", err);
+	zassert_ok(err, "failed to send RTR frame (err %d)", err);
 
 	err = k_msgq_get(&can_msgq, &frame_buffer, TEST_RECEIVE_TIMEOUT);
 	zassert_equal(err, -EAGAIN, "received a frame that should be rejected");
@@ -1069,7 +1053,7 @@ ZTEST(can_classic, test_send_receive_wrong_id)
 	int filter_id;
 	int err;
 
-	filter_id = add_rx_msgq(can_dev, &test_std_filter_1);
+	filter_id = can_common_add_rx_msgq(can_dev, &test_std_filter_1);
 
 	send_test_frame(can_dev, &test_std_frame_2);
 
@@ -1121,7 +1105,7 @@ ZTEST_USER(can_classic, test_recover)
 	int err;
 
 	err = can_get_capabilities(can_dev, &cap);
-	zassert_equal(err, 0, "failed to get CAN capabilities (err %d)", err);
+	zassert_ok(err, "failed to get CAN capabilities (err %d)", err);
 
 	if ((cap & CAN_MODE_MANUAL_RECOVERY) != 0U) {
 		/* Check that manual recovery fails when not in manual recovery mode */
@@ -1129,32 +1113,32 @@ ZTEST_USER(can_classic, test_recover)
 		zassert_equal(err, -ENOTSUP, "wrong error return code (err %d)", err);
 
 		err = can_stop(can_dev);
-		zassert_equal(err, 0, "failed to stop CAN controller (err %d)", err);
+		zassert_ok(err, "failed to stop CAN controller (err %d)", err);
 
 		/* Enter manual recovery mode */
 		err = can_set_mode(can_dev, CAN_MODE_NORMAL | CAN_MODE_MANUAL_RECOVERY);
-		zassert_equal(err, 0, "failed to set manual recovery mode (err %d)", err);
+		zassert_ok(err, "failed to set manual recovery mode (err %d)", err);
 		zassert_equal(CAN_MODE_NORMAL | CAN_MODE_MANUAL_RECOVERY, can_get_mode(can_dev));
 
 		err = can_start(can_dev);
-		zassert_equal(err, 0, "failed to start CAN controller (err %d)", err);
+		zassert_ok(err, "failed to start CAN controller (err %d)", err);
 	}
 
 	err = can_recover(can_dev, TEST_RECOVER_TIMEOUT);
 
 	if ((cap & CAN_MODE_MANUAL_RECOVERY) != 0U) {
-		zassert_equal(err, 0, "failed to recover (err %d)", err);
+		zassert_ok(err, "failed to recover (err %d)", err);
 
 		err = can_stop(can_dev);
-		zassert_equal(err, 0, "failed to stop CAN controller (err %d)", err);
+		zassert_ok(err, "failed to stop CAN controller (err %d)", err);
 
 		/* Restore loopback mode */
 		err = can_set_mode(can_dev, CAN_MODE_LOOPBACK);
-		zassert_equal(err, 0, "failed to set loopback-mode (err %d)", err);
+		zassert_ok(err, "failed to set loopback-mode (err %d)", err);
 		zassert_equal(CAN_MODE_LOOPBACK, can_get_mode(can_dev));
 
 		err = can_start(can_dev);
-		zassert_equal(err, 0, "failed to start CAN controller (err %d)", err);
+		zassert_ok(err, "failed to start CAN controller (err %d)", err);
 	} else {
 		/* Check that manual recovery fails when not supported */
 		zassert_equal(err, -ENOSYS, "wrong error return code (err %d)", err);
@@ -1171,16 +1155,16 @@ ZTEST_USER(can_classic, test_get_state)
 	int err;
 
 	err = can_get_state(can_dev, NULL, NULL);
-	zassert_equal(err, 0, "failed to get CAN state without destinations (err %d)", err);
+	zassert_ok(err, "failed to get CAN state without destinations (err %d)", err);
 
 	err = can_get_state(can_dev, &state, NULL);
-	zassert_equal(err, 0, "failed to get CAN state (err %d)", err);
+	zassert_ok(err, "failed to get CAN state (err %d)", err);
 
 	err = can_get_state(can_dev, NULL, &err_cnt);
-	zassert_equal(err, 0, "failed to get CAN error counters (err %d)", err);
+	zassert_ok(err, "failed to get CAN error counters (err %d)", err);
 
 	err = can_get_state(can_dev, &state, &err_cnt);
-	zassert_equal(err, 0, "failed to get CAN state + error counters (err %d)", err);
+	zassert_ok(err, "failed to get CAN state + error counters (err %d)", err);
 }
 
 /**
@@ -1193,35 +1177,35 @@ ZTEST_USER(can_classic, test_filters_preserved_through_mode_change)
 	int filter_id;
 	int err;
 
-	filter_id = add_rx_msgq(can_dev, &test_std_filter_1);
+	filter_id = can_common_add_rx_msgq(can_dev, &test_std_filter_1);
 	send_test_frame(can_dev, &test_std_frame_1);
 
 	err = k_msgq_get(&can_msgq, &frame, TEST_RECEIVE_TIMEOUT);
-	zassert_equal(err, 0, "receive timeout");
+	zassert_ok(err, "receive timeout");
 	assert_frame_equal(&frame, &test_std_frame_1, 0);
 
 	err = can_stop(can_dev);
-	zassert_equal(err, 0, "failed to stop CAN controller (err %d)", err);
+	zassert_ok(err, "failed to stop CAN controller (err %d)", err);
 
 	err = can_get_state(can_dev, &state, NULL);
-	zassert_equal(err, 0, "failed to get CAN state (err %d)", err);
+	zassert_ok(err, "failed to get CAN state (err %d)", err);
 	zassert_equal(state, CAN_STATE_STOPPED, "CAN controller not stopped");
 
 	err = can_set_mode(can_dev, CAN_MODE_NORMAL);
-	zassert_equal(err, 0, "failed to set normal mode (err %d)", err);
+	zassert_ok(err, "failed to set normal mode (err %d)", err);
 	zassert_equal(CAN_MODE_NORMAL, can_get_mode(can_dev));
 
 	err = can_set_mode(can_dev, CAN_MODE_LOOPBACK);
-	zassert_equal(err, 0, "failed to set loopback-mode (err %d)", err);
+	zassert_ok(err, "failed to set loopback-mode (err %d)", err);
 	zassert_equal(CAN_MODE_LOOPBACK, can_get_mode(can_dev));
 
 	err = can_start(can_dev);
-	zassert_equal(err, 0, "failed to start CAN controller (err %d)", err);
+	zassert_ok(err, "failed to start CAN controller (err %d)", err);
 
 	send_test_frame(can_dev, &test_std_frame_1);
 
 	err = k_msgq_get(&can_msgq, &frame, TEST_RECEIVE_TIMEOUT);
-	zassert_equal(err, 0, "receive timeout");
+	zassert_ok(err, "receive timeout");
 	assert_frame_equal(&frame, &test_std_frame_1, 0);
 
 	can_remove_rx_filter(can_dev, filter_id);
@@ -1237,36 +1221,36 @@ ZTEST_USER(can_classic, test_filters_preserved_through_bitrate_change)
 	int filter_id;
 	int err;
 
-	filter_id = add_rx_msgq(can_dev, &test_std_filter_1);
+	filter_id = can_common_add_rx_msgq(can_dev, &test_std_filter_1);
 	send_test_frame(can_dev, &test_std_frame_1);
 
 	err = k_msgq_get(&can_msgq, &frame, TEST_RECEIVE_TIMEOUT);
-	zassert_equal(err, 0, "receive timeout");
+	zassert_ok(err, "receive timeout");
 	assert_frame_equal(&frame, &test_std_frame_1, 0);
 
 	err = can_stop(can_dev);
-	zassert_equal(err, 0, "failed to stop CAN controller (err %d)", err);
+	zassert_ok(err, "failed to stop CAN controller (err %d)", err);
 
 	err = can_get_state(can_dev, &state, NULL);
-	zassert_equal(err, 0, "failed to get CAN state (err %d)", err);
+	zassert_ok(err, "failed to get CAN state (err %d)", err);
 	zassert_equal(state, CAN_STATE_STOPPED, "CAN controller not stopped");
 
 	err = can_set_bitrate(can_dev, TEST_BITRATE_2);
-	zassert_equal(err, 0, "failed to set bitrate 2");
+	zassert_ok(err, "failed to set bitrate 2");
 
 	err = can_set_bitrate(can_dev, TEST_BITRATE_1);
-	zassert_equal(err, 0, "failed to set bitrate 1");
+	zassert_ok(err, "failed to set bitrate 1");
 
 	err = can_set_bitrate(can_dev, CONFIG_CAN_DEFAULT_BITRATE);
-	zassert_equal(err, 0, "failed to restore default bitrate");
+	zassert_ok(err, "failed to restore default bitrate");
 
 	err = can_start(can_dev);
-	zassert_equal(err, 0, "failed to start CAN controller (err %d)", err);
+	zassert_ok(err, "failed to start CAN controller (err %d)", err);
 
 	send_test_frame(can_dev, &test_std_frame_1);
 
 	err = k_msgq_get(&can_msgq, &frame, TEST_RECEIVE_TIMEOUT);
-	zassert_equal(err, 0, "receive timeout");
+	zassert_ok(err, "receive timeout");
 	assert_frame_equal(&frame, &test_std_frame_1, 0);
 
 	can_remove_rx_filter(can_dev, filter_id);
@@ -1282,17 +1266,17 @@ ZTEST_USER(can_classic, test_filters_added_while_stopped)
 	int err;
 
 	err = can_stop(can_dev);
-	zassert_equal(err, 0, "failed to stop CAN controller (err %d)", err);
+	zassert_ok(err, "failed to stop CAN controller (err %d)", err);
 
-	filter_id = add_rx_msgq(can_dev, &test_std_filter_1);
+	filter_id = can_common_add_rx_msgq(can_dev, &test_std_filter_1);
 
 	err = can_start(can_dev);
-	zassert_equal(err, 0, "failed to start CAN controller (err %d)", err);
+	zassert_ok(err, "failed to start CAN controller (err %d)", err);
 
 	send_test_frame(can_dev, &test_std_frame_1);
 
 	err = k_msgq_get(&can_msgq, &frame, TEST_RECEIVE_TIMEOUT);
-	zassert_equal(err, 0, "receive timeout");
+	zassert_ok(err, "receive timeout");
 	assert_frame_equal(&frame, &test_std_frame_1, 0);
 
 	can_remove_rx_filter(can_dev, filter_id);
@@ -1306,14 +1290,14 @@ ZTEST_USER(can_classic, test_stop_while_stopped)
 	int err;
 
 	err = can_stop(can_dev);
-	zassert_equal(err, 0, "failed to stop CAN controller (err %d)", err);
+	zassert_ok(err, "failed to stop CAN controller (err %d)", err);
 
 	err = can_stop(can_dev);
 	zassert_not_equal(err, 0, "stopped CAN controller while stopped");
 	zassert_equal(err, -EALREADY, "wrong error return code (err %d)", err);
 
 	err = can_start(can_dev);
-	zassert_equal(err, 0, "failed to start CAN controller (err %d)", err);
+	zassert_ok(err, "failed to start CAN controller (err %d)", err);
 }
 
 /**
@@ -1337,21 +1321,21 @@ ZTEST_USER(can_classic, test_recover_while_stopped)
 	int err;
 
 	err = can_get_capabilities(can_dev, &cap);
-	zassert_equal(err, 0, "failed to get CAN capabilities (err %d)", err);
+	zassert_ok(err, "failed to get CAN capabilities (err %d)", err);
 
 	if ((cap & CAN_MODE_MANUAL_RECOVERY) == 0U) {
 		ztest_test_skip();
 	}
 
 	err = can_stop(can_dev);
-	zassert_equal(err, 0, "failed to stop CAN controller (err %d)", err);
+	zassert_ok(err, "failed to stop CAN controller (err %d)", err);
 
 	err = can_recover(can_dev, K_NO_WAIT);
 	zassert_not_equal(err, 0, "recovered bus while stopped");
 	zassert_equal(err, -ENETDOWN, "wrong error return code (err %d)", err);
 
 	err = can_start(can_dev);
-	zassert_equal(err, 0, "failed to start CAN controller (err %d)", err);
+	zassert_ok(err, "failed to start CAN controller (err %d)", err);
 }
 
 /**
@@ -1362,14 +1346,14 @@ ZTEST_USER(can_classic, test_send_while_stopped)
 	int err;
 
 	err = can_stop(can_dev);
-	zassert_equal(err, 0, "failed to stop CAN controller (err %d)", err);
+	zassert_ok(err, "failed to stop CAN controller (err %d)", err);
 
 	err = can_send(can_dev, &test_std_frame_1, TEST_SEND_TIMEOUT, NULL, NULL);
 	zassert_not_equal(err, 0, "sent a frame in stopped state");
 	zassert_equal(err, -ENETDOWN, "wrong error return code (err %d)", err);
 
 	err = can_start(can_dev);
-	zassert_equal(err, 0, "failed to start CAN controller (err %d)", err);
+	zassert_ok(err, "failed to start CAN controller (err %d)", err);
 }
 
 /**
@@ -1389,7 +1373,7 @@ ZTEST_USER(can_classic, test_set_bitrate_while_started)
  */
 ZTEST_USER(can_classic, test_set_timing_while_started)
 {
-	struct can_timing timing = { 0 };
+	struct can_timing timing = {0};
 	int err;
 
 	err = can_calc_timing(can_dev, &timing, TEST_BITRATE_1, TEST_SAMPLE_POINT);

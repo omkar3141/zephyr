@@ -8,6 +8,7 @@
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/display.h>
+#include <zephyr/pm/device.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/drivers/mipi_dbi.h>
 
@@ -48,12 +49,8 @@ struct st7796s_config {
 	uint8_t madctl; /* Memory data access control */
 	uint8_t te_mode; /* Tearing enable mode */
 	uint32_t te_delay; /* Tearing enable delay */
+	uint16_t te_scanline; /* Tear scanline */
 	bool rgb_is_inverted;
-};
-
-/* Display data struct */
-struct st7796s_data {
-	enum display_orientation orientation;
 };
 
 static int st7796s_send_cmd(const struct device *dev,
@@ -110,19 +107,19 @@ static int st7796s_get_pixelfmt(const struct device *dev)
 	 * Zephyr uses little endian byte order when the pixel format has
 	 * multiple bytes.
 	 *
-	 * For BGR565, Red is placed in byte 1 and Blue in byte 0.
-	 * For RGB565, Red is placed in byte 0 and Blue in byte 1.
+	 * For RGB565, Red is placed in byte 1 and Blue in byte 0.
+	 * For RGB565X, Red is placed in byte 0 and Blue in byte 1.
 	 *
 	 * This is not an issue when using a 16-bit interface.
 	 * For RGB565, this would map to Red being in D[11:15] and
-	 * Blue in D[0:4] and vice versa for BGR565.
+	 * Blue in D[0:4] and vice versa for RGB565X.
 	 *
 	 * However this is an issue when using a 8-bit interface.
-	 * For BGR565, Blue is placed in byte 0 as mentioned earlier.
+	 * For RGB565, Blue is placed in byte 0 as mentioned earlier.
 	 * However the controller expects Red to be in D[3:7] of byte 0.
 	 *
-	 * Hence we report pixel format as RGB when MADCTL setting is BGR
-	 * and vice versa.
+	 * Hence we report pixel format as RGB565 when MADCTL setting is
+	 * RGB565X and vice versa.
 	 */
 	if (config->dbi_config.mode == MIPI_DBI_MODE_8080_BUS_8_BIT) {
 		/*
@@ -134,7 +131,7 @@ static int st7796s_get_pixelfmt(const struct device *dev)
 		    config->rgb_is_inverted) {
 			return PIXEL_FORMAT_RGB_565;
 		} else {
-			return PIXEL_FORMAT_BGR_565;
+			return PIXEL_FORMAT_RGB_565X;
 		}
 	}
 
@@ -150,7 +147,7 @@ static int st7796s_get_pixelfmt(const struct device *dev)
 	    config->rgb_is_inverted) {
 		return PIXEL_FORMAT_RGB_565;
 	} else {
-		return PIXEL_FORMAT_BGR_565;
+		return PIXEL_FORMAT_RGB_565X;
 	}
 }
 
@@ -172,6 +169,9 @@ static int st7796s_write(const struct device *dev,
 
 	mipi_desc.buf_size = desc->width * desc->height * ST7796S_PIXEL_SIZE;
 	mipi_desc.frame_incomplete = desc->frame_incomplete;
+	mipi_desc.pitch = desc->pitch;
+	mipi_desc.width = desc->width;
+	mipi_desc.height = desc->height;
 
 	ret =  mipi_dbi_command_write(config->mipi_dbi,
 				      &config->dbi_config, ST7796S_CMD_RAMWR,
@@ -190,16 +190,15 @@ static int st7796s_write(const struct device *dev,
 static void st7796s_get_capabilities(const struct device *dev,
 				     struct display_capabilities *capabilities)
 {
-	struct st7796s_data *data = dev->data;
 	const struct st7796s_config *config = dev->config;
 
 	memset(capabilities, 0, sizeof(struct display_capabilities));
 
 	capabilities->current_pixel_format = st7796s_get_pixelfmt(dev);
-
+	capabilities->supported_pixel_formats = capabilities->current_pixel_format;
 	capabilities->x_resolution = config->width;
 	capabilities->y_resolution = config->height;
-	capabilities->current_orientation = data->orientation;
+	capabilities->current_orientation = DISPLAY_ORIENTATION_NORMAL;
 }
 
 static int st7796s_lcd_config(const struct device *dev)
@@ -291,6 +290,21 @@ static int st7796s_lcd_config(const struct device *dev)
 		return ret;
 	}
 
+	/* Configure tear scanline if specified */
+	if (config->te_scanline > 0) {
+		uint8_t scanline_params[2];
+
+		/* STE command takes two parameters: N15-N8 and N7-N0 */
+		scanline_params[0] = (config->te_scanline >> 8) & 0xFF; /* N15-N8 */
+		scanline_params[1] = config->te_scanline & 0xFF;        /* N7-N0 */
+
+		ret = st7796s_send_cmd(dev, ST7796S_CMD_STE, scanline_params,
+				       sizeof(scanline_params));
+		if (ret < 0) {
+			return ret;
+		}
+	}
+
 	/* Attempt to enable TE signal */
 	ret = mipi_dbi_configure_te(config->mipi_dbi, config->te_mode,
 				    config->te_delay);
@@ -314,91 +328,114 @@ static int st7796s_lcd_config(const struct device *dev)
 	return st7796s_send_cmd(dev, ST7796S_CMD_CSCON, &param, sizeof(param));
 }
 
-static int st7796s_set_orientation(const struct device *dev,
-				   const enum display_orientation orientation)
+static int st7796s_set_pixel_format(const struct device *dev,
+				    const enum display_pixel_format pixel_format)
 {
-	struct st7796s_data *data = dev->data;
-	uint8_t tx_data = ST7796S_MADCTL_BGR;
+	/* Just check again the current pixel format as changing format at
+	 * runtime is not supported
+	 */
+	if (pixel_format == st7796s_get_pixelfmt(dev)) {
+		return 0;
+	}
+
+	return -ENOTSUP;
+}
+
+static int st7796s_pm_action(const struct device *dev, enum pm_device_action action)
+{
+	const struct st7796s_config *config = dev->config;
 	int ret;
+	uint8_t param;
 
-	if (orientation == DISPLAY_ORIENTATION_NORMAL) {
-		/* works 0° - default */
-		tx_data |= ST7796S_MADCTL_MV;
-	} else if (orientation == DISPLAY_ORIENTATION_ROTATED_90) {
-		/* works CW 90° */
-		tx_data |= ST7796S_MADCTL_MY;
-	} else if (orientation == DISPLAY_ORIENTATION_ROTATED_180) {
-		/* works CW 180° */
-		tx_data |= ST7796S_MADCTL_MX | ST7796S_MADCTL_MY | ST7796S_MADCTL_MV;
-	} else if (orientation == DISPLAY_ORIENTATION_ROTATED_270) {
-		/* works CW 270° */
-		tx_data |= ST7796S_MADCTL_MX;
-	} else {
-		return -EINVAL;
+	switch (action) {
+	case PM_DEVICE_ACTION_TURN_ON:
+		/* Since VDDI comes up before reset pin is low, we must reset display
+		 * state. Pulse for 100 MS, per datasheet
+		 */
+		ret = mipi_dbi_reset(config->mipi_dbi, 100);
+		if (ret < 0) {
+			return ret;
+		}
+		/* Delay an additional 100ms after reset */
+		if (k_can_yield()) {
+			k_msleep(100);
+		} else {
+			k_busy_wait(100 * USEC_PER_MSEC);
+		}
+
+		/* Configure controller parameters */
+		ret = st7796s_lcd_config(dev);
+		if (ret < 0) {
+			LOG_ERR("Could not set LCD configuration (%d)", ret);
+			return ret;
+		}
+
+		if (config->inverted) {
+			ret = st7796s_send_cmd(dev, ST7796S_CMD_INVON, NULL, 0);
+		} else {
+			ret = st7796s_send_cmd(dev, ST7796S_CMD_INVOFF, NULL, 0);
+		}
+		if (ret < 0) {
+			return ret;
+		}
+
+		param = ST7796S_CONTROL_16BIT;
+		ret = st7796s_send_cmd(dev, ST7796S_CMD_COLMOD, &param, sizeof(param));
+		if (ret < 0) {
+			return ret;
+		}
+
+		param = config->madctl;
+		ret = st7796s_send_cmd(dev, ST7796S_CMD_MADCTL, &param, sizeof(param));
+		if (ret < 0) {
+			return ret;
+		}
+		break;
+	case PM_DEVICE_ACTION_SUSPEND:
+		ret = st7796s_send_cmd(dev, ST7796S_CMD_DISPOFF, NULL, 0);
+		if (ret < 0) {
+			return ret;
+		}
+		if (k_can_yield()) {
+			k_msleep(10);
+		} else {
+			k_busy_wait(10 * USEC_PER_MSEC);
+		}
+		ret = st7796s_send_cmd(dev, ST7796S_CMD_SLPIN, NULL, 0);
+		if (ret < 0) {
+			return ret;
+		}
+		if (k_can_yield()) {
+			k_msleep(120);
+		} else {
+			k_busy_wait(120 * USEC_PER_MSEC);
+		}
+		break;
+	case PM_DEVICE_ACTION_RESUME:
+		ret = st7796s_send_cmd(dev, ST7796S_CMD_SLPOUT, NULL, 0);
+		if (ret < 0) {
+			return ret;
+		}
+		if (k_can_yield()) {
+			k_msleep(120);
+		} else {
+			k_busy_wait(120 * USEC_PER_MSEC);
+		}
+		ret = st7796s_send_cmd(dev, ST7796S_CMD_DISPON, NULL, 0);
+		if (ret < 0) {
+			return ret;
+		}
+		break;
+	default:
+		return -ENOTSUP;
 	}
-
-	ret = st7796s_send_cmd(dev, ST7796S_CMD_MADCTL, &tx_data, 1U);
-	if (ret < 0) {
-		return ret;
-	}
-
-	data->orientation = orientation;
 
 	return 0;
 }
 
 static int st7796s_init(const struct device *dev)
 {
-	const struct st7796s_config *config = dev->config;
-	int ret;
-	uint8_t param;
-
-	/* Since VDDI comes up before reset pin is low, we must reset display
-	 * state. Pulse for 100 MS, per datasheet
-	 */
-	ret = mipi_dbi_reset(config->mipi_dbi, 100);
-	if (ret < 0) {
-		return ret;
-	}
-	/* Delay an additional 100ms after reset */
-	k_msleep(100);
-
-	/* Configure controller parameters */
-	ret = st7796s_lcd_config(dev);
-	if (ret < 0) {
-		LOG_ERR("Could not set LCD configuration (%d)", ret);
-		return ret;
-	}
-
-	if (config->inverted) {
-		ret = st7796s_send_cmd(dev, ST7796S_CMD_INVON, NULL, 0);
-	} else {
-		ret = st7796s_send_cmd(dev, ST7796S_CMD_INVOFF, NULL, 0);
-	}
-	if (ret < 0) {
-		return ret;
-	}
-
-	param = ST7796S_CONTROL_16BIT;
-	ret = st7796s_send_cmd(dev, ST7796S_CMD_COLMOD, &param, sizeof(param));
-	if (ret < 0) {
-		return ret;
-	}
-
-	param = config->madctl;
-	ret = st7796s_send_cmd(dev, ST7796S_CMD_MADCTL, &param, sizeof(param));
-	if (ret < 0) {
-		return ret;
-	}
-
-	/* Exit sleep */
-	st7796s_send_cmd(dev, ST7796S_CMD_SLPOUT, NULL, 0);
-	/* Delay 5ms after sleep out command, per datasheet */
-	k_msleep(5);
-	/* Turn on display */
-	st7796s_send_cmd(dev, ST7796S_CMD_DISPON, NULL, 0);
-
-	return 0;
+	return pm_device_driver_init(dev, st7796s_pm_action);
 }
 
 static DEVICE_API(display, st7796s_api) = {
@@ -406,7 +443,7 @@ static DEVICE_API(display, st7796s_api) = {
 	.blanking_off = st7796s_blanking_off,
 	.write = st7796s_write,
 	.get_capabilities = st7796s_get_capabilities,
-	.set_orientation = st7796s_set_orientation,
+	.set_pixel_format = st7796s_set_pixel_format,
 };
 
 
@@ -416,11 +453,14 @@ static DEVICE_API(display, st7796s_api) = {
 		.dbi_config = {							\
 			.config = MIPI_DBI_SPI_CONFIG_DT(			\
 						DT_DRV_INST(n),			\
-						SPI_OP_MODE_MASTER |		\
+						SPI_OP_MODE_CONTROLLER |	\
 						SPI_WORD_SET(8),		\
 						0),				\
-			.mode = DT_INST_STRING_UPPER_TOKEN_OR(n, mipi_mode,     \
+			.mode = DT_INST_STRING_UPPER_TOKEN_OR(n, mipi_mode,	\
 						MIPI_DBI_MODE_SPI_4WIRE),	\
+			.color_coding = DT_INST_STRING_UPPER_TOKEN_OR(n,	\
+						color_coding,			\
+						MIPI_DBI_MODE_RGB565),		\
 		},								\
 		.width = DT_INST_PROP(n, width),				\
 		.height = DT_INST_PROP(n, height),				\
@@ -442,10 +482,12 @@ static DEVICE_API(display, st7796s_api) = {
 		.rgb_is_inverted = DT_INST_PROP(n, rgb_is_inverted),		\
 		.te_mode = MIPI_DBI_TE_MODE_DT_INST(n, te_mode),                \
 		.te_delay = DT_INST_PROP(n, te_delay),                          \
+		.te_scanline = DT_INST_PROP(n, tear_scanline),                  \
 	};									\
 										\
+	PM_DEVICE_DT_INST_DEFINE(n, st7796s_pm_action);				\
 	DEVICE_DT_INST_DEFINE(n, st7796s_init,					\
-			NULL,							\
+			PM_DEVICE_DT_INST_GET(n),				\
 			NULL,							\
 			&st7796s_config_##n,					\
 			POST_KERNEL, CONFIG_DISPLAY_INIT_PRIORITY,		\

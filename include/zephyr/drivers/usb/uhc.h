@@ -15,6 +15,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/net_buf.h>
+#include <zephyr/drivers/usb/usb_buf.h>
 #include <zephyr/usb/usb_ch9.h>
 #include <zephyr/sys/dlist.h>
 
@@ -54,11 +55,16 @@ enum usb_device_speed {
 #define UHC_INTERFACES_MAX 32
 
 struct usb_host_interface {
+	/** Pointer to the interface descriptor */
 	struct usb_desc_header *dhp;
+	/** Pointer to the association interface descriptor, if any */
+	struct usb_association_descriptor *iad;
+	/** Alternate setting selected for this interface */
 	uint8_t alternate;
 };
 
 struct usb_host_ep {
+	/** Pointer to the endpoint descriptor */
 	struct usb_ep_descriptor *desc;
 };
 
@@ -115,7 +121,7 @@ struct uhc_transfer {
 	/** dlist node */
 	sys_dnode_t node;
 	/** Control transfer setup packet */
-	uint8_t setup_pkt[8];
+	__aligned(USB_BUF_ALIGN) uint8_t setup_pkt[USB_BUF_ROUND_UP(8)];
 	/** Transfer data buffer */
 	struct net_buf *buf;
 	/** Endpoint to which request is associated */
@@ -200,7 +206,6 @@ struct uhc_event {
 };
 
 /**
- * @typedef uhc_event_cb_t
  * @brief Callback to submit UHC event to higher layer.
  *
  * At the higher level, the event is to be inserted into a message queue.
@@ -288,7 +293,7 @@ static inline bool uhc_is_enabled(const struct device *dev)
 /**
  * @cond INTERNAL_HIDDEN
  */
-struct uhc_api {
+__subsystem struct uhc_driver_api {
 	int (*lock)(const struct device *dev);
 	int (*unlock)(const struct device *dev);
 
@@ -324,7 +329,7 @@ struct uhc_api {
  */
 static inline int uhc_bus_reset(const struct device *dev)
 {
-	const struct uhc_api *api = dev->api;
+	const struct uhc_driver_api *api = DEVICE_API_GET(uhc, dev);
 	int ret;
 
 	api->lock(dev);
@@ -346,7 +351,7 @@ static inline int uhc_bus_reset(const struct device *dev)
  */
 static inline int uhc_sof_enable(const struct device *dev)
 {
-	const struct uhc_api *api = dev->api;
+	const struct uhc_driver_api *api = DEVICE_API_GET(uhc, dev);
 	int ret;
 
 	api->lock(dev);
@@ -369,7 +374,7 @@ static inline int uhc_sof_enable(const struct device *dev)
  */
 static inline int uhc_bus_suspend(const struct device *dev)
 {
-	const struct uhc_api *api = dev->api;
+	const struct uhc_driver_api *api = DEVICE_API_GET(uhc, dev);
 	int ret;
 
 	api->lock(dev);
@@ -392,7 +397,7 @@ static inline int uhc_bus_suspend(const struct device *dev)
  */
 static inline int uhc_bus_resume(const struct device *dev)
 {
-	const struct uhc_api *api = dev->api;
+	const struct uhc_driver_api *api = DEVICE_API_GET(uhc, dev);
 	int ret;
 
 	api->lock(dev);

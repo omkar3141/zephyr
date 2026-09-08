@@ -184,7 +184,6 @@ struct stream {
 };
 
 struct flash_stm32_qspi_config {
-	QUADSPI_TypeDef *regs;
 	struct stm32_pclken pclken;
 	irq_config_func_t irq_config;
 	size_t flash_size;
@@ -302,11 +301,8 @@ static inline int qspi_prepare_quad_program(const struct device *dev,
  */
 static int qspi_send_cmd(const struct device *dev, const QSPI_CommandTypeDef *cmd)
 {
-	const struct flash_stm32_qspi_config *dev_cfg = dev->config;
 	struct flash_stm32_qspi_data *dev_data = dev->data;
 	HAL_StatusTypeDef hal_ret;
-
-	ARG_UNUSED(dev_cfg);
 
 	LOG_DBG("Instruction 0x%x", cmd->Instruction);
 
@@ -317,7 +313,7 @@ static int qspi_send_cmd(const struct device *dev, const QSPI_CommandTypeDef *cm
 		LOG_ERR("%d: Failed to send QSPI instruction", hal_ret);
 		return -EIO;
 	}
-	LOG_DBG("CCR 0x%x", dev_cfg->regs->CCR);
+	LOG_DBG("CCR 0x%x", dev_data->hqspi.Instance->CCR);
 
 	k_sem_take(&dev_data->sync, K_FOREVER);
 
@@ -330,11 +326,8 @@ static int qspi_send_cmd(const struct device *dev, const QSPI_CommandTypeDef *cm
 static int qspi_read_access(const struct device *dev, QSPI_CommandTypeDef *cmd,
 			    uint8_t *data, size_t size)
 {
-	const struct flash_stm32_qspi_config *dev_cfg = dev->config;
 	struct flash_stm32_qspi_data *dev_data = dev->data;
 	HAL_StatusTypeDef hal_ret;
-
-	ARG_UNUSED(dev_cfg);
 
 	cmd->NbData = size;
 
@@ -367,11 +360,8 @@ static int qspi_read_access(const struct device *dev, QSPI_CommandTypeDef *cmd,
 static int qspi_write_access(const struct device *dev, QSPI_CommandTypeDef *cmd,
 			     const uint8_t *data, size_t size)
 {
-	const struct flash_stm32_qspi_config *dev_cfg = dev->config;
 	struct flash_stm32_qspi_data *dev_data = dev->data;
 	HAL_StatusTypeDef hal_ret;
-
-	ARG_UNUSED(dev_cfg);
 
 	LOG_DBG("Instruction 0x%x", cmd->Instruction);
 
@@ -394,7 +384,7 @@ static int qspi_write_access(const struct device *dev, QSPI_CommandTypeDef *cmd,
 		LOG_ERR("%d: Failed to read data", hal_ret);
 		return -EIO;
 	}
-	LOG_DBG("CCR 0x%x", dev_cfg->regs->CCR);
+	LOG_DBG("CCR 0x%x", dev_data->hqspi.Instance->CCR);
 
 	k_sem_take(&dev_data->sync, K_FOREVER);
 
@@ -418,7 +408,7 @@ static int qspi_read_jedec_id(const struct device *dev, uint8_t *id)
 		.AddressSize = QSPI_ADDRESS_NONE,
 		.DummyCycles = dummy_cycles,
 		.InstructionMode = QSPI_INSTRUCTION_1_LINE,
-		.AddressMode = QSPI_ADDRESS_1_LINE,
+		.AddressMode = QSPI_ADDRESS_NONE,
 		.DataMode = QSPI_DATA_1_LINE,
 		.NbData = JESD216_READ_ID_LEN,
 	};
@@ -538,7 +528,7 @@ static bool qspi_address_is_valid(const struct device *dev, off_t addr,
 	return (addr >= 0) && ((uint64_t)addr + (uint64_t)size <= flash_size);
 }
 
-#ifdef CONFIG_STM32_MEMMAP
+#ifdef CONFIG_FLASH_STM32_NOR_MEMMAP
 /* Must be called inside qspi_lock_thread(). */
 static int stm32_qspi_set_memory_mapped(const struct device *dev)
 {
@@ -615,7 +605,7 @@ static int flash_stm32_qspi_read(const struct device *dev, off_t addr,
 		return 0;
 	}
 
-#ifdef CONFIG_STM32_MEMMAP
+#ifdef CONFIG_FLASH_STM32_NOR_MEMMAP
 	qspi_lock_thread(dev);
 
 	/* Do reads through memory-mapping instead of indirect */
@@ -791,7 +781,7 @@ static int flash_stm32_qspi_write(const struct device *dev, off_t addr,
 
 	qspi_lock_thread(dev);
 
-#ifdef CONFIG_STM32_MEMMAP
+#ifdef CONFIG_FLASH_STM32_NOR_MEMMAP
 	if (stm32_qspi_is_memory_mapped(dev)) {
 		/* Abort ongoing transfer to force CS high/BUSY deasserted */
 		ret = stm32_qspi_abort(dev);
@@ -870,7 +860,7 @@ static int flash_stm32_qspi_erase(const struct device *dev, off_t addr,
 	qspi_set_address_size(dev, &cmd_erase);
 	qspi_lock_thread(dev);
 
-#ifdef CONFIG_STM32_MEMMAP
+#ifdef CONFIG_FLASH_STM32_NOR_MEMMAP
 	if (stm32_qspi_is_memory_mapped(dev)) {
 		/* Abort ongoing transfer to force CS high/BUSY deasserted */
 		ret = stm32_qspi_abort(dev);
@@ -1479,7 +1469,7 @@ static void flash_stm32_qspi_gpio_reset(const struct device *dev)
 
 	/* Generate RESETn pulse for the flash memory */
 	gpio_pin_configure_dt(&dev_cfg->reset, GPIO_OUTPUT_ACTIVE);
-	k_msleep(DT_INST_PROP(0, reset_gpios_duration));
+	k_msleep(DT_INST_PROP_OR(0, reset_gpios_duration, 1));
 	gpio_pin_set_dt(&dev_cfg->reset, 0);
 }
 #endif
@@ -1751,7 +1741,7 @@ static int flash_stm32_qspi_init(const struct device *dev)
 		LOG_DBG("Write Un-protected");
 	}
 
-#ifdef CONFIG_STM32_MEMMAP
+#ifdef CONFIG_FLASH_STM32_NOR_MEMMAP
 	ret = stm32_qspi_set_memory_mapped(dev);
 	if (ret != 0) {
 		LOG_ERR("Failed to enable memory-mapped mode: %d", ret);
@@ -1795,9 +1785,6 @@ static int flash_stm32_qspi_init(const struct device *dev)
 			(NULL))						\
 		},
 
-#define QSPI_FLASH_MODULE(drv_id, flash_id) 				\
-		(DT_DRV_INST(drv_id), qspi_nor_flash_##flash_id)
-
 static void flash_stm32_qspi_irq_config_func(const struct device *dev);
 
 #define DT_WRITEOC_PROP_OR(inst, default_value)                                              \
@@ -1816,7 +1803,6 @@ static void flash_stm32_qspi_irq_config_func(const struct device *dev);
 PINCTRL_DT_DEFINE(STM32_QSPI_NODE);
 
 static const struct flash_stm32_qspi_config flash_stm32_qspi_cfg = {
-	.regs = (QUADSPI_TypeDef *)DT_REG_ADDR(STM32_QSPI_NODE),
 	.pclken = STM32_CLOCK_INFO(0, STM32_QSPI_NODE),
 	.irq_config = flash_stm32_qspi_irq_config_func,
 	.flash_size = (DT_INST_PROP(0, size) / 8) << STM32_QSPI_DOUBLE_FLASH,

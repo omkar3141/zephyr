@@ -15,8 +15,8 @@
 			reg = <0x2f0bf800 DT_SIZE_K(1)>;
 		};
 
-		cpurad_cpuapp_ipc_shm_b: memory@2f0bfC00 {
-			reg = <0x2f0bfC00 DT_SIZE_K(1)>;
+		cpurad_cpuapp_ipc_shm_b: memory@2f0bfc00 {
+			reg = <0x2f0bfc00 DT_SIZE_K(1)>;
 		};
 	};
 
@@ -45,6 +45,6 @@ ipc1: &cpuapp_cpurad_ipc_b {
 	mbox-names = "rx", "tx";
 	tx-region = <&cpuapp_cpurad_ipc_shm_b>;
 	rx-region = <&cpurad_cpuapp_ipc_shm_b>;
-	tx-blocks = <32>;
-	rx-blocks = <32>;
+	tx-blocks = <15>;
+	rx-blocks = <15>;
 };

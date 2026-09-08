@@ -7,10 +7,13 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(app_mqtt, LOG_LEVEL_DBG);
 
-#include <zephyr/kernel.h>
-#include <zephyr/net/socket.h>
-#include <zephyr/net/mqtt.h>
 #include <zephyr/data/json.h>
+#include <zephyr/kernel.h>
+#include <zephyr/net/mqtt.h>
+#include <zephyr/posix/arpa/inet.h>
+#include <zephyr/posix/netdb.h>
+#include <zephyr/posix/poll.h>
+#include <zephyr/posix/sys/socket.h>
 #include <zephyr/random/random.h>
 
 #include "mqtt_client.h"
@@ -125,8 +128,7 @@ static void on_mqtt_publish(struct mqtt_client *const client, const struct mqtt_
 	int rc;
 	uint8_t payload[CONFIG_NET_SAMPLE_MQTT_PAYLOAD_SIZE];
 
-	rc = mqtt_read_publish_payload(client, payload,
-					CONFIG_NET_SAMPLE_MQTT_PAYLOAD_SIZE);
+	rc = mqtt_read_publish_payload(client, payload, sizeof(payload) - 1);
 	if (rc < 0) {
 		LOG_ERR("Failed to read received MQTT payload [%d]", rc);
 		return;
@@ -499,11 +501,11 @@ int app_mqtt_init(struct mqtt_client *client)
 	tls_config->cipher_list = NULL;
 	tls_config->sec_tag_list = m_sec_tags;
 	tls_config->sec_tag_count = ARRAY_SIZE(m_sec_tags);
-#if defined(CONFIG_MBEDTLS_SERVER_NAME_INDICATION)
+#if defined(CONFIG_MBEDTLS_SSL_SERVER_NAME_INDICATION)
 	tls_config->hostname = TLS_SNI_HOSTNAME;
 #else
 	tls_config->hostname = NULL;
-#endif /* CONFIG_MBEDTLS_SERVER_NAME_INDICATION */
+#endif /* CONFIG_MBEDTLS_SSL_SERVER_NAME_INDICATION */
 #endif /* CONFIG_MQTT_LIB_TLS */
 
 	return rc;

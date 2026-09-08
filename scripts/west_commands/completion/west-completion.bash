@@ -392,18 +392,17 @@ __set_comp_west_projs()
 
 __set_comp_west_boards()
 {
-	boards=( $(__west_x boards --format='{name}|{qualifiers}' "$@") )
-	for i in ${!boards[@]}; do
-		name="${boards[$i]%%|*}"
-		transformed_board="${boards[$i]//|//}"
-		boards[$i]="${transformed_board//,/\ ${name}\/}"
-	done
-	__set_comp ${boards[@]}
+	__set_comp "$(__west_x boards --all-targets "$@")"
 }
 
 __set_comp_west_shields()
 {
 	__set_comp "$(__west_x shields "$@")"
+}
+
+__set_comp_west_snippets()
+{
+	__set_comp "$(__west_x snippets --format={name} "$@")"
 }
 
 __comp_west_west()
@@ -663,6 +662,10 @@ __comp_west_completion()
 
 __comp_west_boards()
 {
+	local bool_opts="
+		--all-targets -a
+	"
+
 	local other_opts="
 		--format -f
 		--name -n
@@ -674,7 +677,7 @@ __comp_west_boards()
 		--soc-root
 	"
 
-	all_opts="$dir_opts $other_opts"
+	all_opts="$bool_opts $dir_opts $other_opts"
 
 	case "$prev" in
 		$(__west_to_extglob "$other_opts") )
@@ -703,6 +706,37 @@ __comp_west_shields()
 
 	local dir_opts="
 		--board-root
+	"
+
+	all_opts="$dir_opts $other_opts"
+
+	case "$prev" in
+		$(__west_to_extglob "$other_opts") )
+			# We don't know how to autocomplete these.
+			return
+			;;
+		$(__west_to_extglob "$dir_opts") )
+			__set_comp_dirs
+			return
+			;;
+	esac
+
+	case "$cur" in
+		-*)
+			__set_comp $all_opts
+			;;
+	esac
+}
+
+__comp_west_snippets()
+{
+	local other_opts="
+		--format -f
+		--name -n
+	"
+
+	local dir_opts="
+		--snippet-root
 	"
 
 	all_opts="$dir_opts $other_opts"
@@ -763,6 +797,10 @@ __comp_west_build()
 			;;
 		--shield)
 			__set_comp_west_shields
+			return
+			;;
+		--snippet|-S)
+			__set_comp_west_snippets
 			return
 			;;
 		--pristine|-p)
@@ -904,6 +942,11 @@ __comp_west_debugserver()
 }
 
 __comp_west_attach()
+{
+	__comp_west_runner_cmd
+}
+
+__comp_west_rtt()
 {
 	__comp_west_runner_cmd
 }
@@ -1223,6 +1266,7 @@ __comp_west()
 		completion
 		boards
 		shields
+		snippets
 		build
 		twister
 		sign

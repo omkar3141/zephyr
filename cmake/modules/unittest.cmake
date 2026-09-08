@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-cmake_minimum_required(VERSION 3.20.0)
+cmake_minimum_required(VERSION 3.28.0)
 
 include(extensions)
 include(west)
@@ -62,6 +62,7 @@ set(INCL_GENERATED_DIR ${APPLICATION_BINARY_DIR}/zephyr/include/generated/zephyr
 set(INCL_GENERATED_SYSCALL_DIR ${INCL_GENERATED_DIR}/syscalls)
 list(APPEND INCL_GENERATED_HEADERS
   ${INCL_GENERATED_DIR}/devicetree_generated.h
+  ${INCL_GENERATED_DIR}/heap_constants.h
   ${INCL_GENERATED_DIR}/offsets.h
   ${INCL_GENERATED_DIR}/syscall_list.h
   ${INCL_GENERATED_DIR}/syscall_macros.h
@@ -70,6 +71,7 @@ list(APPEND INCL_GENERATED_HEADERS
   ${INCL_GENERATED_SYSCALL_DIR}/log_core.h
   ${INCL_GENERATED_SYSCALL_DIR}/log_ctrl.h
   ${INCL_GENERATED_SYSCALL_DIR}/log_msg.h
+  ${INCL_GENERATED_SYSCALL_DIR}/sleep.h
   ${INCL_GENERATED_SYSCALL_DIR}/sys_clock.h
 )
 

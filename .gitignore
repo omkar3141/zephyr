@@ -17,6 +17,7 @@
 build*/
 !doc/build/
 !scripts/build
+!share/sysbuild/build
 !tests/drivers/build_all
 !scripts/pylib/build_helpers
 cscope.*
@@ -72,7 +73,7 @@ Cargo.lock
 
 # Normal west builds will place the Rust target directory under the build directory.  However,
 # sometimes IDEs and such will litter these target directories as well.
-target/
+/target/
 
 # CI output
 compliance.xml
@@ -89,24 +90,28 @@ tags
 .idea
 
 # from check_compliance.py
-# zephyr-keep-sorted-start
+# zephyr-keep-sorted-start ignorecase
 BinaryFiles.txt
 BoardYml.txt
 Checkpatch.txt
 ClangFormat.txt
+CMakeStyle.txt
+DeviceAPI.txt
+DeviceMmioCheck.txt
 DevicetreeBindings.txt
 DevicetreeLinting.txt
 GitDiffCheck.txt
 Gitlint.txt
-Identity.txt
 ImageSize.txt
 Kconfig.txt
 KconfigBasic.txt
 KconfigBasicNoModules.txt
+KconfigFormat.txt
 KconfigHWMv2.txt
 KeepSorted.txt
 LicenseAndCopyrightCheck.txt
 MaintainersFormat.txt
+MmuRegionsCheck.txt
 ModulesMaintainers.txt
 Nits.txt
 Pylint.txt
@@ -123,3 +128,6 @@ ZephyrModuleFile.txt
 
 # Node dependecies
 node_modules
+
+# Log file from mplab_ipe runner
+MPLABXLog.xml

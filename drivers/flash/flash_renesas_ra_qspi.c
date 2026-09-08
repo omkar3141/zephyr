@@ -13,7 +13,6 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/drivers/pinctrl.h>
 #include <zephyr/drivers/flash.h>
-#include <zephyr/drivers/flash/ra_flash_api_extensions.h>
 #include "spi_nor.h"
 #include "r_spi_flash_api.h"
 #include "r_qspi.h"
@@ -463,7 +462,7 @@ static const struct flash_parameters *qspi_flash_ra_get_parameters(const struct 
 
 	return &qspi_flash_ra_config_para;
 }
-static const struct flash_driver_api qspi_flash_ra_api = {
+static DEVICE_API(flash, qspi_flash_ra_api) = {
 	.erase = qspi_flash_ra_erase,
 	.write = qspi_flash_ra_write,
 	.read = qspi_flash_ra_read,

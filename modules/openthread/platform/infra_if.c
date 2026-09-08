@@ -7,10 +7,10 @@
 #include "openthread/platform/infra_if.h"
 #include "icmpv6.h"
 #include "ipv6.h"
+#include "route_ipv6.h"
 #include "openthread_border_router.h"
 #include <common/code_utils.hpp>
 #include <platform-zephyr.h>
-#include <route.h>
 #include <zephyr/kernel.h>
 #include <zephyr/net/ethernet.h>
 #include <zephyr/net/icmp.h>
@@ -24,7 +24,6 @@
 #include <icmpv6.h>
 
 #if defined(CONFIG_OPENTHREAD_ZEPHYR_BORDER_ROUTER_NAT64_TRANSLATOR)
-#include <zephyr/net/icmp.h>
 #include <zephyr/net/net_pkt_filter.h>
 #include <openthread/nat64.h>
 #endif /* CONFIG_OPENTHREAD_ZEPHYR_BORDER_ROUTER_NAT64_TRANSLATOR */
@@ -39,6 +38,7 @@ static struct net_in6_addr mcast_addr;
 
 static void infra_if_handle_backbone_icmp6(struct otbr_msg_ctx *msg_ctx_ptr);
 static void handle_ra_from_ot(const uint8_t *buffer, uint16_t buffer_length);
+
 #if defined(CONFIG_OPENTHREAD_ZEPHYR_BORDER_ROUTER_NAT64_TRANSLATOR)
 #define MAX_SERVICES CONFIG_OPENTHREAD_ZEPHYR_BORDER_ROUTER_NAT64_SERVICES
 
@@ -154,13 +154,7 @@ otError infra_if_init(otInstance *instance, struct net_if *ail_iface)
 	net_ipv6_addr_create_ll_allrouters_mcast(&mcast_addr);
 	ret = net_ipv6_mld_join(ail_iface, &mcast_addr);
 
-	VerifyOrExit((ret == 0 || ret == -EALREADY), error = OT_ERROR_FAILED);
-
-#if defined(CONFIG_OPENTHREAD_ZEPHYR_BORDER_ROUTER_NAT64_TRANSLATOR)
-	for (uint8_t i = 0; i < MAX_SERVICES; i++) {
-		sockfd_raw[i].fd = -1;
-	}
-#endif /* CONFIG_OPENTHREAD_ZEPHYR_BORDER_ROUTER_NAT64_TRANSLATOR */
+	VerifyOrExit((ret == 0), error = OT_ERROR_FAILED);
 exit:
 	return error;
 }
@@ -174,17 +168,6 @@ otError infra_if_deinit(void)
 
 	VerifyOrExit(net_ipv6_mld_leave(ail_iface_ptr, &mcast_addr) == 0,
 		     error = OT_ERROR_FAILED);
-
-#if defined(CONFIG_OPENTHREAD_ZEPHYR_BORDER_ROUTER_NAT64_TRANSLATOR)
-	VerifyOrExit(raw_infra_if_sock != -1);
-	VerifyOrExit(zsock_close(raw_infra_if_sock) == 0);
-
-	sockfd_raw[0].fd = -1;
-	raw_infra_if_sock = -1;
-
-	net_socket_service_register(&handle_infra_if_raw_recv, sockfd_raw,
-				    ARRAY_SIZE(sockfd_raw), NULL);
-#endif /* CONFIG_OPENTHREAD_ZEPHYR_BORDER_ROUTER_NAT64_TRANSLATOR */
 
 exit:
 	ail_iface_ptr = NULL;
@@ -216,14 +199,17 @@ static void handle_ra_from_ot(const uint8_t *buffer, uint16_t buffer_length)
 							      (struct net_in6_addr *)pio->prefix,
 							      pio->prefix_len, pio->valid_lifetime);
 			i += sizeof(struct net_icmpv6_nd_opt_prefix_info);
-			net_ipv6_addr_generate_iid(
+			if (net_ipv6_addr_generate_iid(
 				ail_iface_ptr, (struct net_in6_addr *)pio->prefix,
 				COND_CODE_1(CONFIG_NET_IPV6_IID_STABLE,
 				     ((uint8_t *)&ail_iface_ptr->config.ip.ipv6->network_counter),
 				     (NULL)), COND_CODE_1(CONFIG_NET_IPV6_IID_STABLE,
 				     (sizeof(ail_iface_ptr->config.ip.ipv6->network_counter)),
 				     (0U)), 0U, &addr_to_add_from_pio,
-							       net_if_get_link_addr(ail_iface_ptr));
+				net_if_get_link_addr(ail_iface_ptr)) < 0) {
+				break;
+			}
+
 			ifaddr = net_if_ipv6_addr_lookup(&addr_to_add_from_pio, NULL);
 			if (ifaddr != NULL) {
 				net_if_addr_set_lf(ifaddr, true);
@@ -245,9 +231,11 @@ static void handle_ra_from_ot(const uint8_t *buffer, uint16_t buffer_length)
 				       sizeof(br_omr_addr->mFields.m8));
 				net_ipv6_nbr_add(ot_iface, &nexthop, net_if_get_link_addr(ot_iface),
 						 false, NET_IPV6_NBR_STATE_STALE);
-				route_added = net_route_add(ot_iface, &rio_prefix, rio->prefix_len,
-							    &nexthop, rio->route_lifetime,
-							    rio->flags.prf);
+				route_added = net_route_ipv6_add(ot_iface, &rio_prefix,
+								 rio->prefix_len,
+								 &nexthop,
+								 rio->route_lifetime,
+								 rio->flags.prf);
 			}
 			break;
 		default:
@@ -256,9 +244,9 @@ static void handle_ra_from_ot(const uint8_t *buffer, uint16_t buffer_length)
 	}
 }
 
-static int handle_icmp6_input(struct net_icmp_ctx *ctx, struct net_pkt *pkt,
-			      struct net_icmp_ip_hdr *hdr,
-			      struct net_icmp_hdr *icmp_hdr, void *user_data)
+static enum net_verdict handle_icmp6_input(struct net_icmp_ctx *ctx, struct net_pkt *pkt,
+					   struct net_icmp_ip_hdr *hdr,
+					   struct net_icmp_hdr *icmp_hdr, void *user_data)
 {
 	uint16_t length = net_pkt_get_len(pkt);
 	struct otbr_msg_ctx *req = NULL;
@@ -281,10 +269,10 @@ static int handle_icmp6_input(struct net_icmp_ctx *ctx, struct net_pkt *pkt,
 
 exit:
 	if (error == OT_ERROR_NONE) {
-		return 0;
+		return NET_CONTINUE;
 	}
 
-	return -1;
+	return NET_DROP;
 }
 
 static void infra_if_handle_backbone_icmp6(struct otbr_msg_ctx *msg_ctx_ptr)
@@ -328,6 +316,10 @@ otError infra_if_nat64_init(void)
 					  .sin_port = 0,
 					  .sin_addr = NET_INADDR_ANY_INIT};
 
+	for (uint8_t i = 0; i < MAX_SERVICES; i++) {
+		sockfd_raw[i].fd = -1;
+	}
+
 	raw_infra_if_sock = zsock_socket(NET_AF_INET, NET_SOCK_RAW, NET_IPPROTO_IP);
 	VerifyOrExit(raw_infra_if_sock >= 0, error = OT_ERROR_FAILED);
 	VerifyOrExit(zsock_bind(raw_infra_if_sock, (struct net_sockaddr *)&anyaddr,
@@ -343,6 +335,28 @@ otError infra_if_nat64_init(void)
 
 	npf_insert_ipv4_recv_rule(&ot_nat64_drop_pkt_process);
 	npf_append_ipv4_recv_rule(&npf_default_ok);
+
+exit:
+	return error;
+}
+
+otError infra_if_nat64_deinit(void)
+{
+	otError error = OT_ERROR_NONE;
+
+	VerifyOrExit(raw_infra_if_sock != -1, error = OT_ERROR_INVALID_STATE);
+	VerifyOrExit(zsock_close(raw_infra_if_sock) == 0, error = OT_ERROR_FAILED);
+
+	sockfd_raw[0].fd = -1;
+	raw_infra_if_sock = -1;
+
+	VerifyOrExit(net_socket_service_register(&handle_infra_if_raw_recv, sockfd_raw,
+						 ARRAY_SIZE(sockfd_raw), NULL) == 0,
+		     error = OT_ERROR_FAILED);
+
+	VerifyOrExit(npf_remove_ipv4_recv_rule(&ot_nat64_drop_pkt_process) &&
+		     npf_remove_ipv4_recv_rule(&npf_default_ok),
+		     error = OT_ERROR_FAILED);
 
 exit:
 	return error;

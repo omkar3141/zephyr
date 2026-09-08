@@ -250,46 +250,15 @@ typedef enum {
 #include "reg/mec172x_defs.h"
 #include "reg/mec172x_ecia.h"
 #include "reg/mec172x_ecs.h"
-#include "reg/mec172x_espi_iom.h"
-#include "reg/mec172x_espi_saf.h"
-#include "reg/mec172x_espi_vw.h"
 #include "reg/mec172x_gpio.h"
 #include "reg/mec172x_i2c_smb.h"
 #include "reg/mec172x_p80bd.h"
 #include "reg/mec172x_pcr.h"
-#include "reg/mec172x_qspi.h"
 #include "reg/mec172x_vbat.h"
 #include "reg/mec172x_emi.h"
 
 /* common peripheral register defines */
-#include <reg/mec_acpi_ec.h>
-#include <reg/mec_adc.h>
-#include <reg/mec_global_cfg.h>
-#include <reg/mec_kbc.h>
-#include <reg/mec_keyscan.h>
-#include <reg/mec_peci.h>
-#include <reg/mec_ps2.h>
-#include <reg/mec_pwm.h>
-#include <reg/mec_tach.h>
-#include <reg/mec_tfdp.h>
-#include <reg/mec_timers.h>
-#include <reg/mec_uart.h>
-#include <reg/mec_vci.h>
-#include <reg/mec_wdt.h>
-#include <reg/mec_gpio.h>
-
-/* common SoC API */
-#include <soc_dt.h>
-#include <soc_ecia.h>
-#include <soc_espi_channels.h>
-#include <soc_gpio.h>
-#include <soc_i2c.h>
-#include <soc_mmcr.h>
-#include <soc_pcr.h>
-#include <soc_pins.h>
-
-/* MEC172x SAF V2 */
-#include "soc_espi_saf_v2.h"
+#include <soc_common.h>
 
 #endif
 #endif

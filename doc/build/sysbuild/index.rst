@@ -512,6 +512,14 @@ applications as sysbuild domains. Call this CMake function from your
 application's :file:`sysbuild.cmake` file, or any other CMake file you know will
 run as part sysbuild CMake invocation.
 
+A variant image can also added using the ``ExternalZephyrVariantProject_Add()`` function which
+will duplicate an existing image in the sysbuild project, and allows for slight differences in
+configuration. An example use case for this feature is to change the chosen flash node of an image
+but having the rest of the configuration identical to the base image. When this is used, neither
+sysbuild itself nor the image will have the extra Kconfig targets made for it such as menuconfig,
+guiconfig, hardenconfig or traceconfig, as the base image can be used for viewing/adjusting
+these instead.
+
 Targeting the same board
 ========================
 
@@ -805,6 +813,22 @@ As a result, ``my_sample`` will be flashed after ``sample_a`` and ``sample_b``
    If ``my_sample`` had been created with ``BUILD_ONLY TRUE``, then the above
    call to ``sysbuild_add_dependencies()`` would have produced an error.
 
+.. _sysbuild_merged_hex_files:
+
+Merged hex files
+****************
+
+Sysbuild supports creating merged hex files, which will be created one per unique board target
+in a sysbuild project and can be enabled with :kconfig:option:`SB_CONFIG_MERGED_HEX_FILES`.
+The output filename format will be :file:`merged_<NORMALIZED_BOARD_TARGET>.hex`. This is ideal
+for creating production images for deployment, it requires that all images output hex files.
+If a sysbuild project builds multiple images for the same board target but for **different**
+devices (e.g. 3 images for 3 different boards as part of a test), then this option should remain
+disabled. Hex files will be merged as per the flashing order they have been configured in, any
+overlapping data from previous addresses that conflicts with later merged hex files will be
+overwritten with the later hex file data - see :ref:`sysbuild_zephyr_application_dependencies`
+for how to configure the flashing order of sysbuild images.
+
 Adding non-Zephyr applications to sysbuild
 ******************************************
 
@@ -891,17 +915,39 @@ Sysbuild but not all preset macros will work as expected.
 
    Using CMake presets with sysbuild requires CMake version 3.27 or higher.
 
-As described in :ref:`sysbuild` then sysbuild is a higher-level build system which means that when
-CMake presets are used together with sysbuild, then the preset is consumed and processed by sysbuild
-itself and result is passed to the application.
+As described in :ref:`sysbuild` sysbuild is a higher-level build system overseeing
+the build of multiple applications. This means for the build process two preset files apply:
+one for the high level sysbuild CMake process and one for the individual application build process.
 
-Running sysbuild with preset.
+The high level sysbuild preset file is located in the application's sysbuild
+configuration folder ``<application>/sysbuild/CMakePresets.json``. See :ref:`sysbuild_application_configuration`.
+You can set variables that apply to sysbuild itself and to all images that are part of the sysbuild project.
+Or use domain specific variables to set variables for a specific image, see :ref:`sysbuild_cmake_namespace`
+
+Example snippet sysbuild preset file:
+
+.. code-block:: json
+
+   "cacheVariables": {
+      "CMAKE_MESSAGE_LOG_LEVEL": "STATUS",
+      "BOARD": "Board name of project",
+      "BOARD_QUALIFIERS": "Qualifier for all applications in the sysbuild project",
+      "<domain>_BOARD_QUALIFIERS": "Board qualifier for a specific domain"
+   }
+
+The application preset file is located in the application's source folder ``<application>/CMakePresets.json``
+and is only used for the build process of the application itself. This is the CMake default behaviour.
+Selecting a preset for a specific application is currently not possible `#111494 <https://github.com/zephyrproject-rtos/zephyr/issues/111494>`_.
+
+Running sysbuild with a preset selection
+========================================
+
+Here is an example of how to run sysbuild with the ``release`` preset:
 
 .. tabs::
 
    .. group-tab:: ``west build``
 
-      Here is an example where preset ``release`` should be used.
       For details, see :ref:`west-multi-domain-builds` in the ``west build documentation``.
 
       .. zephyr-app-commands::
@@ -914,15 +960,13 @@ Running sysbuild with preset.
 
    .. group-tab:: ``cmake``
 
-      Here is an example using CMake and Ninja.
-
       .. code-block:: shell
 
-         APP_DIR=samples/hello_world cmake -Bbuild -GNinja -DBOARD=reel_board share/sysbuild
+         APP_DIR=samples/hello_world cmake -Bbuild -GNinja -DBOARD=reel_board --preset=release share/sysbuild
          ninja -Cbuild
 
-      When using CMake presets with sysbuild then ``APP_DIR`` must be set in environment in order
-      for Sysbuild CMake to be able to include the ``CMakePresets.json`` from the main Zephyr
+      When using CMake presets with sysbuild, ``APP_DIR`` must be set as an environment variable
+      in order for sysbuild's CMake process to be able to include the ``CMakePresets.json`` from the
       application's source directory.
 
 .. note::

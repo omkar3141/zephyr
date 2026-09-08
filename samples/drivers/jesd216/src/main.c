@@ -14,8 +14,8 @@
 
 #if DT_HAS_COMPAT_STATUS_OKAY(jedec_spi_nor)
 #define FLASH_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(jedec_spi_nor)
-#elif DT_HAS_COMPAT_STATUS_OKAY(jedec_mspi_nor)
-#define FLASH_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(jedec_mspi_nor)
+#elif DT_HAS_COMPAT_STATUS_OKAY(jedec_nor)
+#define FLASH_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(jedec_nor)
 #elif DT_HAS_COMPAT_STATUS_OKAY(nordic_qspi_nor)
 #define FLASH_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(nordic_qspi_nor)
 #elif DT_HAS_COMPAT_STATUS_OKAY(st_stm32_qspi_nor)
@@ -38,6 +38,8 @@
 #define FLASH_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(renesas_rz_qspi_xspi)
 #elif DT_HAS_COMPAT_STATUS_OKAY(renesas_rz_qspi_spibsc)
 #define FLASH_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(renesas_rz_qspi_spibsc)
+#elif DT_HAS_COMPAT_STATUS_OKAY(renesas_rza2m_qspi_spibsc)
+#define FLASH_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(renesas_rza2m_qspi_spibsc)
 #elif DT_HAS_COMPAT_STATUS_OKAY(sifli_sf32lb_mpi_qspi_nor)
 #define FLASH_NODE DT_COMPAT_GET_ANY_STATUS_OKAY(sifli_sf32lb_mpi_qspi_nor)
 #else

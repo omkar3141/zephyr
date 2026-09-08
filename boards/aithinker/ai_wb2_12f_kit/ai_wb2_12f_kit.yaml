@@ -22,4 +22,9 @@ supported:
   - spi
   - flash
   - input
+  - pwm
+  - adc
+  - entropy
+  - crypto
+  - counter
 vendor: bflb

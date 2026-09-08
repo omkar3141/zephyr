@@ -4,27 +4,28 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <errno.h>
-#include <soc.h>
-#include <stm32_bitops.h>
-#include <stm32_ll_i2c.h>
-#include <stm32_ll_rcc.h>
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/drivers/clock_control/stm32_clock_control.h>
 #include <zephyr/drivers/i2c.h>
 #include <zephyr/drivers/i2c/rtio.h>
 #include <zephyr/drivers/pinctrl.h>
 #include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
 #include <zephyr/pm/device.h>
 #include <zephyr/pm/device_runtime.h>
 #include <zephyr/sys/util.h>
 
-#define LOG_LEVEL CONFIG_I2C_LOG_LEVEL
-#include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(i2c_ll_stm32_v1_rtio);
+#include <soc.h>
+#include <stm32_bitops.h>
+#include <stm32_ll_i2c.h>
+#include <stm32_ll_rcc.h>
+
+#include <errno.h>
 
 #include "i2c_stm32.h"
 #include "i2c-priv.h"
+
+LOG_MODULE_REGISTER(i2c_ll_stm32_v1_rtio, CONFIG_I2C_LOG_LEVEL);
 
 #define I2C_REQUEST_WRITE       0x00
 #define I2C_REQUEST_READ        0x01
@@ -64,28 +65,30 @@ static void i2c_stm32_generate_start_condition(I2C_TypeDef *i2c)
 	LL_I2C_GenerateStartCondition(i2c);
 }
 
-static void i2c_stm32_master_mode_end(const struct device *dev, int status)
+static void i2c_stm32_controller_mode_end(const struct device *dev, int status)
 {
 	const struct i2c_stm32_config *cfg = dev->config;
-	struct i2c_stm32_data *data = dev->data;
-	struct i2c_rtio *ctx = data->ctx;
 	I2C_TypeDef *i2c = cfg->i2c;
+	bool disable_i2c = true;
 
 	i2c_stm32_disable_transfer_interrupts(dev);
 
 #if defined(CONFIG_I2C_TARGET)
-	data->master_active = false;
-	if (data->slave_attached) {
+	struct i2c_stm32_data *data = dev->data;
+
+	data->controller_active = false;
+	if (data->target_attached) {
 		i2c_stm32_enable_transfer_interrupts(dev);
 		LL_I2C_AcknowledgeNextData(i2c, LL_I2C_ACK);
-		return;
+		disable_i2c = false;
 	}
 #endif
 
-	LL_I2C_Disable(i2c);
-	if ((data->xfer_len == 0U) && i2c_rtio_complete(ctx, status)) {
-		i2c_stm32_start(dev);
+	if (disable_i2c) {
+		LL_I2C_Disable(i2c);
 	}
+
+	i2c_stm32_rtio_complete(dev, status);
 }
 
 static void handle_sb(const struct device *dev)
@@ -94,29 +97,29 @@ static void handle_sb(const struct device *dev)
 	struct i2c_stm32_data *data = dev->data;
 	I2C_TypeDef *i2c = cfg->i2c;
 
-	uint16_t saddr = data->slave_address;
-	uint8_t slave;
+	uint16_t saddr = data->target_address;
+	uint8_t target;
 
 	if ((data->xfer_flags & I2C_MSG_ADDR_10_BITS) != 0) {
-		slave = ((saddr & 0x0300) >> 7) & 0xFF;
-		slave |= HEADER;
+		target = ((saddr & 0x0300) >> 7) & 0xFF;
+		target |= HEADER;
 
 		if (data->is_restart == 0U) {
 			data->is_restart = 1U;
 		} else {
-			slave |= I2C_REQUEST_READ;
+			target |= I2C_REQUEST_READ;
 			data->is_restart = 0U;
 		}
-		LL_I2C_TransmitData8(i2c, slave);
+		LL_I2C_TransmitData8(i2c, target);
 	} else {
-		slave = (saddr << 1) & 0xFF;
+		target = (saddr << 1) & 0xFF;
 		if ((data->xfer_flags & I2C_MSG_READ) != 0) {
-			LL_I2C_TransmitData8(i2c, slave | I2C_REQUEST_READ);
+			LL_I2C_TransmitData8(i2c, target | I2C_REQUEST_READ);
 			if (data->xfer_len == 2) {
 				LL_I2C_EnableBitPOS(i2c);
 			}
 		} else {
-			LL_I2C_TransmitData8(i2c, slave | I2C_REQUEST_WRITE);
+			LL_I2C_TransmitData8(i2c, target | I2C_REQUEST_WRITE);
 		}
 	}
 }
@@ -162,6 +165,7 @@ static void handle_addr(const struct device *dev)
 		LL_I2C_EnableBitPOS(i2c);
 	}
 	LL_I2C_ClearFlag_ADDR(i2c);
+	LL_I2C_EnableIT_BUF(i2c);
 }
 
 static void handle_txe(const struct device *dev)
@@ -182,6 +186,11 @@ static void handle_txe(const struct device *dev)
 		LL_I2C_TransmitData8(i2c, *data->xfer_buf);
 		data->xfer_buf++;
 	} else {
+		/* All bytes sent. Disable the BUF interrupt so the level-triggered
+		 * TXE flag cannot re-fire the ISR while completing the transfer.
+		 */
+		LL_I2C_DisableIT_BUF(i2c);
+
 		if ((data->xfer_flags & I2C_MSG_STOP) != 0) {
 			LL_I2C_GenerateStopCondition(i2c);
 		}
@@ -189,7 +198,7 @@ static void handle_txe(const struct device *dev)
 			/* Read DR to clear BTF flag */
 			LL_I2C_ReceiveData8(i2c);
 		}
-		i2c_stm32_master_mode_end(dev, 0);
+		i2c_stm32_controller_mode_end(dev, 0);
 	}
 }
 
@@ -204,7 +213,7 @@ static void handle_rxne(const struct device *dev)
 		if ((data->xfer_flags & I2C_MSG_STOP) != 0) {
 			LL_I2C_GenerateStopCondition(i2c);
 		}
-		i2c_stm32_master_mode_end(dev, 0);
+		i2c_stm32_controller_mode_end(dev, 0);
 		break;
 	case 1:
 		LL_I2C_AcknowledgeNextData(i2c, LL_I2C_NACK);
@@ -217,7 +226,7 @@ static void handle_rxne(const struct device *dev)
 		data->xfer_len--;
 		*data->xfer_buf = LL_I2C_ReceiveData8(i2c);
 		data->xfer_buf++;
-		i2c_stm32_master_mode_end(dev, 0);
+		i2c_stm32_controller_mode_end(dev, 0);
 		break;
 	case 2:
 		/*
@@ -272,7 +281,7 @@ static void handle_btf(const struct device *dev)
 				*data->xfer_buf = LL_I2C_ReceiveData8(i2c);
 				data->xfer_buf++;
 			}
-			i2c_stm32_master_mode_end(dev, 0);
+			i2c_stm32_controller_mode_end(dev, 0);
 			break;
 		case 3:
 			/* Set NACK before reading N-2 byte*/
@@ -294,12 +303,12 @@ static void i2c_stm32_target_event(const struct device *dev)
 	struct i2c_stm32_data *data = dev->data;
 	I2C_TypeDef *i2c = cfg->i2c;
 	const struct i2c_target_callbacks *target_cb =
-		data->slave_cfg->callbacks;
+		data->target_cfg->callbacks;
 
 	if (LL_I2C_IsActiveFlag_TXE(i2c) && LL_I2C_IsActiveFlag_BTF(i2c)) {
 		uint8_t val;
 
-		target_cb->read_processed(data->slave_cfg, &val);
+		target_cb->read_processed(data->target_cfg, &val);
 		LL_I2C_TransmitData8(i2c, val);
 		return;
 	}
@@ -307,7 +316,7 @@ static void i2c_stm32_target_event(const struct device *dev)
 	if (LL_I2C_IsActiveFlag_RXNE(i2c)) {
 		uint8_t val = LL_I2C_ReceiveData8(i2c);
 
-		if (target_cb->write_received(data->slave_cfg, val)) {
+		if (target_cb->write_received(data->target_cfg, val)) {
 			LL_I2C_AcknowledgeNextData(i2c, LL_I2C_NACK);
 		}
 		return;
@@ -319,7 +328,7 @@ static void i2c_stm32_target_event(const struct device *dev)
 
 	if (LL_I2C_IsActiveFlag_STOP(i2c)) {
 		LL_I2C_ClearFlag_STOP(i2c);
-		target_cb->stop(data->slave_cfg);
+		target_cb->stop(data->target_cfg);
 		/* Prepare to ACK next transmissions address byte */
 		LL_I2C_AcknowledgeNextData(i2c, LL_I2C_ACK);
 	}
@@ -328,12 +337,12 @@ static void i2c_stm32_target_event(const struct device *dev)
 		uint32_t dir = LL_I2C_GetTransferDirection(i2c);
 
 		if (dir == LL_I2C_DIRECTION_READ) {
-			target_cb->write_requested(data->slave_cfg);
+			target_cb->write_requested(data->target_cfg);
 			LL_I2C_EnableIT_RX(i2c);
 		} else {
 			uint8_t val;
 
-			target_cb->read_requested(data->slave_cfg, &val);
+			target_cb->read_requested(data->target_cfg, &val);
 			LL_I2C_TransmitData8(i2c, val);
 			LL_I2C_EnableIT_TX(i2c);
 		}
@@ -355,12 +364,16 @@ int i2c_stm32_target_register(const struct device *dev, struct i2c_target_config
 		return -EINVAL;
 	}
 
-	if (data->slave_attached) {
+	if (data->target_attached) {
 		return -EBUSY;
 	}
 
-	if (data->master_active) {
+	if (data->controller_active) {
 		return -EBUSY;
+	}
+
+	if ((config->flags & I2C_TARGET_FLAGS_ADDR_10_BITS) != 0) {
+		return -ENOTSUP;
 	}
 
 	bitrate_cfg = i2c_map_dt_bitrate(cfg->bitrate);
@@ -371,15 +384,18 @@ int i2c_stm32_target_register(const struct device *dev, struct i2c_target_config
 		return ret;
 	}
 
-	data->slave_cfg = config;
+	ret = pm_device_runtime_get(dev);
+	if (ret < 0) {
+		LOG_ERR_PM_DEVICE_RUNTIME_GET(dev, ret);
+		return ret;
+	}
+
+	data->target_cfg = config;
 
 	LL_I2C_Enable(i2c);
 
-	if (data->slave_cfg->flags == I2C_TARGET_FLAGS_ADDR_10_BITS)	{
-		return -ENOTSUP;
-	}
 	LL_I2C_SetOwnAddress1(i2c, config->address << 1U, LL_I2C_OWNADDRESS1_7BIT);
-	data->slave_attached = true;
+	data->target_attached = true;
 
 	LOG_DBG("i2c: target registered");
 
@@ -395,11 +411,11 @@ int i2c_stm32_target_unregister(const struct device *dev, struct i2c_target_conf
 	struct i2c_stm32_data *data = dev->data;
 	I2C_TypeDef *i2c = cfg->i2c;
 
-	if (!data->slave_attached) {
+	if (!data->target_attached) {
 		return -EINVAL;
 	}
 
-	if (data->master_active) {
+	if (data->controller_active) {
 		return -EBUSY;
 	}
 
@@ -410,7 +426,9 @@ int i2c_stm32_target_unregister(const struct device *dev, struct i2c_target_conf
 	LL_I2C_ClearFlag_ADDR(i2c);
 	LL_I2C_Disable(i2c);
 
-	data->slave_attached = false;
+	(void)pm_device_runtime_put(dev);
+
+	data->target_attached = false;
 
 	LOG_DBG("i2c: target unregistered");
 
@@ -425,7 +443,7 @@ void i2c_stm32_event(const struct device *dev)
 	I2C_TypeDef *i2c = cfg->i2c;
 
 #if defined(CONFIG_I2C_TARGET)
-	if (data->slave_attached && !data->master_active) {
+	if (data->target_attached && !data->controller_active) {
 		i2c_stm32_target_event(dev);
 		return;
 	}
@@ -434,15 +452,21 @@ void i2c_stm32_event(const struct device *dev)
 	if (LL_I2C_IsActiveFlag_SB(i2c)) {
 		handle_sb(dev);
 	} else if (LL_I2C_IsActiveFlag_ADD10(i2c)) {
-		LL_I2C_TransmitData8(i2c, data->slave_address);
+		LL_I2C_TransmitData8(i2c, data->target_address);
 	} else if (LL_I2C_IsActiveFlag_ADDR(i2c)) {
 		handle_addr(dev);
 	} else if (LL_I2C_IsActiveFlag_BTF(i2c)) {
 		handle_btf(dev);
-	} else if (LL_I2C_IsActiveFlag_TXE(i2c) && ((data->xfer_flags & I2C_MSG_READ) == 0)) {
-		handle_txe(dev);
-	} else if (LL_I2C_IsActiveFlag_RXNE(i2c) && ((data->xfer_flags & I2C_MSG_READ) != 0)) {
-		handle_rxne(dev);
+	} else {
+		bool is_write = (data->xfer_flags & I2C_MSG_READ) == 0;
+
+		if (LL_I2C_IsActiveFlag_TXE(i2c) && is_write) {
+			handle_txe(dev);
+		} else if (LL_I2C_IsActiveFlag_TXE(i2c) && !is_write) {
+			LL_I2C_DisableIT_BUF(i2c);
+		} else if (LL_I2C_IsActiveFlag_RXNE(i2c) && !is_write) {
+			handle_rxne(dev);
+		}
 	}
 }
 
@@ -455,9 +479,9 @@ int i2c_stm32_error(const struct device *dev)
 	struct i2c_stm32_data *data = dev->data;
 	i2c_target_error_cb_t error_cb = NULL;
 
-	if (data->slave_attached && !data->master_active &&
-	    data->slave_cfg != NULL && data->slave_cfg->callbacks != NULL) {
-		error_cb = data->slave_cfg->callbacks->error;
+	if (data->target_attached && !data->controller_active &&
+	    data->target_cfg != NULL && data->target_cfg->callbacks != NULL) {
+		error_cb = data->target_cfg->callbacks->error;
 	}
 #endif
 
@@ -466,7 +490,7 @@ int i2c_stm32_error(const struct device *dev)
 		LL_I2C_GenerateStopCondition(i2c);
 #if defined(CONFIG_I2C_TARGET)
 		if (error_cb != NULL) {
-			error_cb(data->slave_cfg, I2C_ERROR_GENERIC);
+			error_cb(data->target_cfg, I2C_ERROR_GENERIC);
 		}
 #endif
 		goto error;
@@ -475,7 +499,7 @@ int i2c_stm32_error(const struct device *dev)
 		LL_I2C_ClearFlag_ARLO(i2c);
 #if defined(CONFIG_I2C_TARGET)
 		if (error_cb != NULL) {
-			error_cb(data->slave_cfg, I2C_ERROR_ARBITRATION);
+			error_cb(data->target_cfg, I2C_ERROR_ARBITRATION);
 		}
 #endif
 		goto error;
@@ -483,9 +507,28 @@ int i2c_stm32_error(const struct device *dev)
 
 	if (LL_I2C_IsActiveFlag_BERR(i2c)) {
 		LL_I2C_ClearFlag_BERR(i2c);
+		/* Address "Spurious Bus Error detection in controller mode"
+		 * erratum, that affects STM32 I2C v1 controller, referenced
+		 * in multiple errata sheets document like:
+		 * - ES0182 (STM32F41x/41x) Rev 18, section 2.10.1
+		 *
+		 * Workaround: clear the BERR flag and let the ongoing
+		 * transfer continue. If a real bus error has occurred,
+		 * the transfer will eventually time out.
+		 */
 #if defined(CONFIG_I2C_TARGET)
 		if (error_cb != NULL) {
-			error_cb(data->slave_cfg, I2C_ERROR_GENERIC);
+			error_cb(data->target_cfg, I2C_ERROR_GENERIC);
+		}
+		goto error;
+#endif
+	}
+
+	if (LL_I2C_IsActiveFlag_OVR(i2c)) {
+		LL_I2C_ClearFlag_OVR(i2c);
+#if defined(CONFIG_I2C_TARGET)
+		if (error_cb != NULL) {
+			error_cb(data->target_cfg, I2C_ERROR_GENERIC);
 		}
 #endif
 		goto error;
@@ -494,18 +537,18 @@ int i2c_stm32_error(const struct device *dev)
 	return 0;
 error:
 #if defined(CONFIG_I2C_TARGET)
-	if (!data->slave_attached || data->master_active) {
-		i2c_stm32_master_mode_end(dev, -EIO);
+	if (!data->target_attached || data->controller_active) {
+		i2c_stm32_controller_mode_end(dev, -EIO);
 	}
 #else
-	i2c_stm32_master_mode_end(dev, -EIO);
+	i2c_stm32_controller_mode_end(dev, -EIO);
 #endif
 	return -EIO;
 
 }
 
-int i2c_stm32_msg_start(const struct device *dev, uint8_t flags,
-			uint8_t *buf, size_t buf_len, uint16_t i2c_addr)
+int i2c_stm32_msg_start(const struct device *dev, uint8_t flags, uint8_t *buf, size_t buf_len,
+			uint16_t i2c_addr)
 {
 	const struct i2c_stm32_config *cfg = dev->config;
 	struct i2c_stm32_data *data = dev->data;
@@ -516,9 +559,9 @@ int i2c_stm32_msg_start(const struct device *dev, uint8_t flags,
 	data->xfer_flags = flags;
 	data->msg_len = buf_len;
 	data->is_restart = 0;
-	data->slave_address = i2c_addr;
+	data->target_address = i2c_addr;
 #if defined(CONFIG_I2C_TARGET)
-	data->master_active = true;
+	data->controller_active = true;
 #endif
 
 	LL_I2C_Enable(i2c);

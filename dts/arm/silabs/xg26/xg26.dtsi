@@ -15,6 +15,7 @@
 / {
 	chosen {
 		silabs,sleeptimer = &sysrtc0;
+		zephyr,crc = &gpcrc;
 		zephyr,entropy = &se;
 		zephyr,flash-controller = &msc;
 	};
@@ -220,7 +221,7 @@
 		};
 
 		burtc0: burtc@5000c000 {
-			compatible = "silabs,gecko-burtc";
+			compatible = "silabs,burtc-counter";
 			reg = <0x5000c000 0x4000>;
 			clocks = <&cmu CLOCK_BURTC CLOCK_BRANCH_EM4GRPACLK>;
 			interrupt-names = "burtc";
@@ -280,6 +281,7 @@
 		msc: flash-controller@50030000 {
 			compatible = "silabs,series2-flash-controller";
 			reg = <0x50030000 0x4000>;
+			ranges;
 			#address-cells = <1>;
 			#size-cells = <1>;
 			clocks = <&cmu CLOCK_MSC CLOCK_BRANCH_HCLK>;
@@ -288,6 +290,8 @@
 
 			flash0: flash@8000000 {
 				compatible = "soc-nv-flash";
+				#address-cells = <1>;
+				#size-cells = <1>;
 				erase-block-size = <8192>;
 				write-block-size = <4>;
 			};
@@ -361,7 +365,9 @@
 			compatible = "silabs,ldma";
 			reg = <0x50040000 0x4000>;
 			#dma-cells = <1>;
-			clocks = <&cmu CLOCK_LDMA0 CLOCK_BRANCH_HCLK>;
+			clock-names = "ldma", "xbar";
+			clocks = <&cmu CLOCK_LDMA0 CLOCK_BRANCH_HCLK>,
+				 <&cmu CLOCK_LDMAXBAR0 CLOCK_BRANCH_PCLK>;
 			dma-channels = <8>;
 			interrupt-names = "ldma";
 			interrupts = <35 2>;
@@ -377,6 +383,11 @@
 			interrupt-names = "timer0";
 			interrupts = <4 2>;
 			status = "disabled";
+
+			counter {
+				compatible = "silabs,timer-counter";
+				status = "disabled";
+			};
 
 			pwm {
 				compatible = "silabs,timer-pwm";
@@ -395,6 +406,11 @@
 			interrupts = <5 2>;
 			status = "disabled";
 
+			counter {
+				compatible = "silabs,timer-counter";
+				status = "disabled";
+			};
+
 			pwm {
 				compatible = "silabs,timer-pwm";
 				#pwm-cells = <3>;
@@ -411,6 +427,11 @@
 			interrupt-names = "timer2";
 			interrupts = <6 2>;
 			status = "disabled";
+
+			counter {
+				compatible = "silabs,timer-counter";
+				status = "disabled";
+			};
 
 			pwm {
 				compatible = "silabs,timer-pwm";
@@ -429,6 +450,11 @@
 			interrupts = <7 2>;
 			status = "disabled";
 
+			counter {
+				compatible = "silabs,timer-counter";
+				status = "disabled";
+			};
+
 			pwm {
 				compatible = "silabs,timer-pwm";
 				#pwm-cells = <3>;
@@ -445,6 +471,11 @@
 			interrupt-names = "timer4";
 			interrupts = <8 2>;
 			status = "disabled";
+
+			counter {
+				compatible = "silabs,timer-counter";
+				status = "disabled";
+			};
 
 			pwm {
 				compatible = "silabs,timer-pwm";
@@ -463,6 +494,11 @@
 			interrupts = <9 2>;
 			status = "disabled";
 
+			counter {
+				compatible = "silabs,timer-counter";
+				status = "disabled";
+			};
+
 			pwm {
 				compatible = "silabs,timer-pwm";
 				#pwm-cells = <3>;
@@ -479,6 +515,11 @@
 			interrupt-names = "timer6";
 			interrupts = <10 2>;
 			status = "disabled";
+
+			counter {
+				compatible = "silabs,timer-counter";
+				status = "disabled";
+			};
 
 			pwm {
 				compatible = "silabs,timer-pwm";
@@ -497,6 +538,11 @@
 			interrupts = <11 2>;
 			status = "disabled";
 
+			counter {
+				compatible = "silabs,timer-counter";
+				status = "disabled";
+			};
+
 			pwm {
 				compatible = "silabs,timer-pwm";
 				#pwm-cells = <3>;
@@ -513,6 +559,11 @@
 			interrupt-names = "timer8";
 			interrupts = <12 2>;
 			status = "disabled";
+
+			counter {
+				compatible = "silabs,timer-counter";
+				status = "disabled";
+			};
 
 			pwm {
 				compatible = "silabs,timer-pwm";
@@ -531,6 +582,11 @@
 			interrupts = <13 2>;
 			status = "disabled";
 
+			counter {
+				compatible = "silabs,timer-counter";
+				status = "disabled";
+			};
+
 			pwm {
 				compatible = "silabs,timer-pwm";
 				#pwm-cells = <3>;
@@ -543,6 +599,13 @@
 			reg = <0x50084000 0x80>;
 			clocks = <&cmu CLOCK_BURAM CLOCK_BRANCH_INVALID>;
 			status = "disabled";
+		};
+
+		gpcrc: gpcrc@50088000 {
+			compatible = "silabs,gpcrc";
+			reg = <0x50088000 0x4000>;
+			clocks = <&cmu CLOCK_GPCRC0 CLOCK_BRANCH_PCLK>;
+			status = "okay";
 		};
 
 		eusart1: eusart@5008c000 {
@@ -593,7 +656,7 @@
 		usart1: usart@500a4000 {
 			compatible = "silabs,usart-uart";
 			reg = <0x500a4000 0x4000>;
-			clocks = <&cmu CLOCK_USART1 CLOCK_BRANCH_INVALID>;
+			clocks = <&cmu CLOCK_USART1 CLOCK_BRANCH_PCLK>;
 			interrupt-names = "rx", "tx";
 			interrupts = <16 2>, <17 2>;
 			status = "disabled";
@@ -602,7 +665,7 @@
 		usart2: usart@500a8000 {
 			compatible = "silabs,usart-uart";
 			reg = <0x500a8000 0x4000>;
-			clocks = <&cmu CLOCK_USART2 CLOCK_BRANCH_INVALID>;
+			clocks = <&cmu CLOCK_USART2 CLOCK_BRANCH_PCLK>;
 			interrupt-names = "rx", "tx";
 			interrupts = <18 2>, <19 2>;
 			status = "disabled";

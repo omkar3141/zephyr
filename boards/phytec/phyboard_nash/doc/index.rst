@@ -1,4 +1,4 @@
-.. _phyboard_nash:
+.. zephyr:board:: phyboard_nash
 
 phyBOARD-Nash i.MX93
 ####################
@@ -52,41 +52,7 @@ More information about the board can be found at the `PHYTEC website`_.
 Supported Features
 ==================
 
-The ``phyboard_nash/mimx9352/a55`` board target supports the following hardware
-features:
-
-+-----------+------------+-------------------------------------+
-| Interface | Controller | Driver/Component                    |
-+===========+============+=====================================+
-| GIC-v4    | on-chip    | interrupt controller                |
-+-----------+------------+-------------------------------------+
-| ARM TIMER | on-chip    | system clock                        |
-+-----------+------------+-------------------------------------+
-| CLOCK     | on-chip    | clock_control                       |
-+-----------+------------+-------------------------------------+
-| PINMUX    | on-chip    | pinmux                              |
-+-----------+------------+-------------------------------------+
-| UART      | on-chip    | serial port                         |
-+-----------+------------+-------------------------------------+
-| TPM       | on-chip    | TPM Counter                         |
-+-----------+------------+-------------------------------------+
-
-The ``phyboard_nash/mimx9352/m33`` board target supports the following hardware
-features:
-
-+-----------+------------+-------------------------------------+
-| Interface | Controller | Driver/Component                    |
-+===========+============+=====================================+
-| NVIC      | on-chip    | interrupt controller                |
-+-----------+------------+-------------------------------------+
-| SYSTICK   | on-chip    | systick                             |
-+-----------+------------+-------------------------------------+
-| CLOCK     | on-chip    | clock_control                       |
-+-----------+------------+-------------------------------------+
-| PINMUX    | on-chip    | pinmux                              |
-+-----------+------------+-------------------------------------+
-| UART      | on-chip    | serial port                         |
-+-----------+------------+-------------------------------------+
+.. zephyr:board-supported-hw::
 
 Devices
 ========
@@ -175,4 +141,4 @@ For more information refer to the `PHYTEC website`_.
 .. _PHYTEC website:
    https://www.phytec.eu/en/produkte/development-kits/phyboard-nash/
 .. _phyCORE-i.MX93 BSP Manual:
-   https://phytec.github.io/doc-bsp-yocto/bsp/imx9/imx93/imx93.html
+   https://phytec.github.io/doc-bsp-yocto/bsp/imx9/imx9.html

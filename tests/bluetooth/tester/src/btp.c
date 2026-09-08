@@ -23,7 +23,7 @@
 #include <zephyr/sys/__assert.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/util.h>
-#include <zephyr/sys_clock.h>
+#include <zephyr/sys/clock.h>
 #include <zephyr/toolchain.h>
 #include <zephyr/types.h>
 
@@ -53,7 +53,7 @@ static struct btp_buf *delayed_cmd;
 static struct {
 	const struct btp_handler *handlers;
 	size_t num;
-} service_handler[BTP_SERVICE_ID_MAX + 1];
+} service_handler[BTP_SERVICE_ID_COUNT];
 
 static struct net_buf_simple *rsp_buf = NET_BUF_SIMPLE(BTP_MTU);
 static K_MUTEX_DEFINE(rsp_buf_mutex);

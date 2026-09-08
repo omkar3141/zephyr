@@ -7,6 +7,11 @@
 #include <ite/it8xxx2.dtsi>
 
 / {
+	pinctrl: pin-controller {
+		compatible = "ite,it8xxx2-pinctrl";
+		status = "okay";
+	};
+
 	soc {
 		sram0: memory@80100000 {
 			compatible = "mmio-sram";
@@ -438,13 +443,6 @@
 			#gpio-cells = <2>;
 		};
 
-		pinctrl: pin-controller {
-			compatible = "ite,it8xxx2-pinctrl";
-			#address-cells = <1>;
-			#size-cells = <1>;
-			status = "okay";
-		};
-
 		pinctrla: pinctrl@f01660 {
 			compatible = "ite,it8xxx2-pinctrl-func";
 			reg = <0x00f01660 8     /* GPCR */
@@ -452,7 +450,7 @@
 			func3-gcr = <NO_FUNC NO_FUNC NO_FUNC NO_FUNC
 				     0xf02032 0xf02032 0xf03e10 0xf03e10>;
 			func3-en-mask = <0 0 0 0
-					 0x02 0x02 0x10 0x0C>;
+					 0x02 0x02 0x10 0x0c>;
 			func4-gcr = <NO_FUNC NO_FUNC NO_FUNC NO_FUNC
 				     NO_FUNC NO_FUNC NO_FUNC NO_FUNC>;
 			func4-en-mask = <0 0 0 0
@@ -656,7 +654,7 @@
 		pinctrlk: pinctrl@f016b0 {
 			compatible = "ite,it8xxx2-pinctrl-func";
 			reg = <0x00f016b0 8     /* GPCR */
-			       0x00f03e3A 1>;   /* PDSCK */
+			       0x00f03e3a 1>;   /* PDSCK */
 			func3-gcr = <NO_FUNC NO_FUNC NO_FUNC NO_FUNC
 				     NO_FUNC NO_FUNC NO_FUNC NO_FUNC>;
 			func3-en-mask = <0 0 0 0
@@ -676,7 +674,7 @@
 		pinctrll: pinctrl@f016b8 {
 			compatible = "ite,it8xxx2-pinctrl-func";
 			reg = <0x00f016b8 8     /* GPCR */
-			       0x00f03e3B 1>;   /* PDSCL */
+			       0x00f03e3b 1>;   /* PDSCL */
 			func3-gcr = <NO_FUNC NO_FUNC NO_FUNC NO_FUNC
 				     NO_FUNC NO_FUNC NO_FUNC NO_FUNC>;
 			func3-en-mask = <0 0 0 0

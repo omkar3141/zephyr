@@ -63,7 +63,6 @@ void pm_policy_state_all_lock_put(void)
 #endif
 }
 
-
 void pm_policy_state_lock_get(enum pm_state state, uint8_t substate_id)
 {
 #if DT_HAS_COMPAT_STATUS_OKAY(zephyr_power_state)
@@ -84,7 +83,7 @@ void pm_policy_state_lock_get(enum pm_state state, uint8_t substate_id)
 
 void pm_policy_state_constraints_get(struct pm_state_constraints *constraints)
 {
-	for (int i = 0; i < constraints->count; i++) {
+	for (size_t i = 0; i < constraints->count; i++) {
 		pm_policy_state_lock_get(constraints->list[i].state,
 					 constraints->list[i].substate_id);
 	}
@@ -111,7 +110,7 @@ void pm_policy_state_lock_put(enum pm_state state, uint8_t substate_id)
 
 void pm_policy_state_constraints_put(struct pm_state_constraints *constraints)
 {
-	for (int i = 0; i < constraints->count; i++) {
+	for (size_t i = 0; i < constraints->count; i++) {
 		pm_policy_state_lock_put(constraints->list[i].state,
 					 constraints->list[i].substate_id);
 	}
@@ -168,7 +167,7 @@ bool pm_policy_state_any_active(void)
 static void pm_policy_latency_update_locked(int32_t max_latency_us)
 {
 	for (size_t i = 0; i < ARRAY_SIZE(substates); i++) {
-		if (substates[i].exit_latency_us >= max_latency_us) {
+		if (substates[i].exit_latency_us > max_latency_us) {
 			latency_mask &= ~BIT(i);
 		} else {
 			latency_mask |= BIT(i);

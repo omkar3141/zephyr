@@ -200,11 +200,14 @@
 
 			#address-cells = <1>;
 			#size-cells = <1>;
+			ranges;
 
 			flash0: flash@10000000 {
 				compatible = "soc-nv-flash";
 				write-block-size = <1>;
 				erase-block-size = <DT_SIZE_K(4)>;
+				#address-cells = <1>;
+				#size-cells = <1>;
 			};
 		};
 
@@ -405,6 +408,13 @@
 			status = "disabled";
 		};
 
+		vreg: vreg@40100000 {
+			compatible = "raspberrypi,core-supply-regulator";
+			reg = <0x40100000 0x200>;
+			status = "disabled";
+			raspberrypi,brown-out-detection;
+		};
+
 		dma: dma@50000000 {
 			compatible = "raspberrypi,pico-dma";
 			reg = <0x50000000 DT_SIZE_K(64)>;
@@ -469,6 +479,33 @@
 			reg = <0x400f0000 DT_SIZE_K(4)>;
 			status = "disabled";
 		};
+
+		sio: sio@d0000000 {
+			compatible = "raspberrypi,pico-sio";
+			reg = <0xd0000000 DT_SIZE_K(80)>;
+
+			mbox: mbox {
+				compatible = "raspberrypi,pico-mbox";
+				interrupts = <25 RPI_PICO_DEFAULT_IRQ_PRIORITY>;
+				interrupt-names = "mbox";
+				fifo-depth = <4>;
+				#mbox-cells = <0>;
+				status = "disabled";
+			};
+		};
+	};
+
+	ipm_mbox: ipm-mbox {
+		/*
+		 * The zephyr,mbox-ipm driver expects two mailbox
+		 * channels, but the mailbox block in the RP2350
+		 * implements a single instance per core. Point the
+		 * two driver channels to the same single mbox.
+		 */
+		compatible = "zephyr,mbox-ipm";
+		mboxes = <&mbox>, <&mbox>;
+		mbox-names = "tx", "rx";
+		status = "disabled";
 	};
 
 	pinctrl: pin-controller {
@@ -478,6 +515,6 @@
 
 	die_temp: dietemp {
 		compatible = "raspberrypi,pico-temp";
-		status = "disabled";
+		status = "okay";
 	};
 };

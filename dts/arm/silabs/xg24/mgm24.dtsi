@@ -5,3 +5,12 @@
  */
 
 #include <silabs/xg24/efr32xg24.dtsi>
+
+&radio {
+	pa-2p4ghz = "highest";
+
+	ieee802154: ieee802154 {
+		compatible = "silabs,efr32-ieee802154";
+		status = "disabled";
+	};
+};

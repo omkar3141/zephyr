@@ -498,14 +498,6 @@ static int uart_ft9001_irq_is_pending(const struct device *dev)
 }
 
 /**
- * @brief Update interrupt status
- */
-static int uart_ft9001_irq_update(const struct device *dev)
-{
-	return 1;
-}
-
-/**
  * @brief Set interrupt callback
  */
 static void uart_ft9001_irq_callback_set(const struct device *dev, uart_irq_callback_user_data_t cb,
@@ -532,7 +524,7 @@ static void uart_ft9001_isr(const struct device *dev)
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 
 /* UART driver API structure */
-static const struct uart_driver_api uart_ft9001_driver_api = {
+static DEVICE_API(uart, uart_ft9001_driver_api) = {
 	.poll_in = uart_ft9001_poll_in,
 	.poll_out = uart_ft9001_poll_out,
 	.err_check = uart_ft9001_err_check,
@@ -553,7 +545,6 @@ static const struct uart_driver_api uart_ft9001_driver_api = {
 	.irq_err_enable = uart_ft9001_irq_err_enable,
 	.irq_err_disable = uart_ft9001_irq_err_disable,
 	.irq_is_pending = uart_ft9001_irq_is_pending,
-	.irq_update = uart_ft9001_irq_update,
 	.irq_callback_set = uart_ft9001_irq_callback_set,
 #endif
 };

@@ -39,21 +39,24 @@
 			clock-source = <ESP32_CPU_CLK_SRC_PLL>;
 			clock-frequency = <DT_FREQ_M(240)>;
 			xtal-freq = <DT_FREQ_M(40)>;
+			d-cache-line-size = <4>;
 		};
 
 		power-states {
 			light_sleep: light_sleep {
 				compatible = "zephyr,power-state";
 				power-state-name = "standby";
-				min-residency-us = <200>;
-				exit-latency-us = <60>;
+				min-residency-us = <1000>;
+				exit-latency-us = <0>;
 			};
 
 			deep_sleep: deep_sleep {
+				/* Deep sleep must be entered using pm_state_force()
+				 * or sys_poweroff() calls only
+				 */
 				compatible = "zephyr,power-state";
 				power-state-name = "soft-off";
-				min-residency-us = <2000>;
-				exit-latency-us = <212>;
+				status = "disabled";
 			};
 		};
 	};
@@ -105,9 +108,9 @@
 			zephyr,memory-region = "DCACHE0";
 		};
 
-		dcache1: dcache1@3f500000 {
+		dcache1: dcache1@3f800000 {
 			compatible = "zephyr,memory-region";
-			reg = <0x3f500000 DT_SIZE_K(10752)>;
+			reg = <0x3f800000 DT_SIZE_M(4)>;
 			zephyr,memory-region = "DCACHE1";
 
 			psram0: psram0 {
@@ -126,6 +129,12 @@
 			compatible = "zephyr,memory-region", "mmio-sram";
 			reg = <0x50000000 DT_SIZE_K(8)>;
 			zephyr,memory-region = "RTC_SLOW_RAM";
+		};
+
+		instr_mem: memory@40020000 {
+			compatible = "zephyr,memory-region";
+			reg = <0x40020000 DT_SIZE_K(320)>;
+			zephyr,memory-region = "IRAM";
 		};
 
 		icache0: icache0@40080000 {
@@ -153,7 +162,7 @@
 		};
 
 		rtc_timer: rtc_timer@3f408004 {
-			reg = <0x3f408004 0xC>;
+			reg = <0x3f408004 0xc>;
 			compatible = "espressif,esp32-rtc-timer";
 			clocks = <&clock ESP32_MODULE_MAX>;
 			interrupts = <RTC_CORE_INTR_SOURCE IRQ_DEFAULT_PRIORITY 0>;
@@ -167,12 +176,15 @@
 
 			#address-cells = <1>;
 			#size-cells = <1>;
+			ranges;
 
 			flash0: flash@0 {
 				compatible = "soc-nv-flash";
 				erase-block-size = <4096>;
 				write-block-size = <4>;
-				/* Flash size is specified in SOC/SIP dtsi */
+				#address-cells = <1>;
+				#size-cells = <1>;
+				/* reg and ranges are specified in SOC/SIP dtsi */
 			};
 		};
 
@@ -450,6 +462,16 @@
 			reg = <0x6003a000 0x1000>;
 			clocks = <&clock ESP32_AES_MODULE>;
 			status = "okay";
+		};
+
+		rmt: rmt@3f416000 {
+			compatible = "espressif,esp32-rmt";
+			#pulse-io-cells = <1>;
+			reg = <0x3f416000 0x1000>;
+			interrupts = <RMT_INTR_SOURCE IRQ_DEFAULT_PRIORITY 0>;
+			interrupt-parent = <&intc>;
+			clocks = <&clock ESP32_RMT_MODULE>;
+			status = "disabled";
 		};
 	};
 };

@@ -16,41 +16,38 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(adc_shell);
 
-#define CMD_HELP_ACQ_TIME 			\
-	"Configure acquisition time."		\
-	"\nUsage: acq_time <time> <unit>"	\
-	"\nunits: us, ns, ticks\n"
+#define CMD_HELP_ACQ_TIME \
+	SHELL_HELP("Configure acquisition time", \
+		   "<time> <unit>\nunits: us, ns, ticks")
 
-#define CMD_HELP_CHANNEL			\
-	"Configure ADC channel\n"		\
+#define CMD_HELP_CHANNEL \
+	SHELL_HELP("Configure ADC channel", "<subcommand> [args]")
 
-#define CMD_HELP_CH_ID				\
-	"Configure channel id\n"		\
-	"Usage: id <channel_id>\n"
+#define CMD_HELP_CH_ID \
+	SHELL_HELP("Configure channel id", "<channel_id>")
 
-#define CMD_HELP_DIFF				\
-	"Configure differential\n"		\
-	"Usage: differential <0||1>\n"
+#define CMD_HELP_DIFF \
+	SHELL_HELP("Configure differential", "<0|1>")
 
-#define CMD_HELP_CH_NEG				\
-	"Configure channel negative input\n"	\
-	"Usage: negative <negative_input_id>\n"
+#define CMD_HELP_CH_NEG \
+	SHELL_HELP("Configure channel negative input", "<negative_input_id>")
 
-#define CMD_HELP_CH_POS				\
-	"Configure channel positive input\n"	\
-	"Usage: positive <positive_input_id>\n"
+#define CMD_HELP_CH_POS \
+	SHELL_HELP("Configure channel positive input", "<positive_input_id>")
 
-#define CMD_HELP_READ				\
-	"Read adc value\n"			\
-	"Usage: read <channel>\n"
+#define CMD_HELP_READ                                                                              \
+	SHELL_HELP("Read adc value. Prints periodically if period is provided",                    \
+		   "<channel> [period_ms]")
 
-#define CMD_HELP_RES				\
-	"Configure resolution\n"		\
-	"Usage: resolution <resolution>\n"
+#define CMD_HELP_RES \
+	SHELL_HELP("Configure resolution", "<resolution>")
 
-#define CMD_HELP_REF	"Configure reference\n"
-#define CMD_HELP_GAIN	"Configure gain.\n"
-#define CMD_HELP_PRINT	"Print current configuration"
+#define CMD_HELP_REF	SHELL_HELP("Configure reference", NULL)
+#define CMD_HELP_GAIN	SHELL_HELP("Configure gain", NULL)
+#define CMD_HELP_PRINT	SHELL_HELP("Print current configuration", NULL)
+
+static const char *cmd_adc_dev_get_help =
+	SHELL_HELP("Select subcommand for ADC property label", NULL);
 
 #define ADC_HDL_LIST_ENTRY(node_id)                                                                \
 	{                                                                                          \
@@ -88,6 +85,7 @@ static struct adc_hdl {
 	DT_FOREACH_STATUS_OKAY(ite_it51xxx_adc, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(ite_it8xxx2_adc, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(lltc_ltc2451, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(m5stack_m5pm1_adc, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(maxim_max11102, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(maxim_max11103, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(maxim_max11105, ADC_HDL_LIST_ENTRY)
@@ -99,8 +97,10 @@ static struct adc_hdl {
 	DT_FOREACH_STATUS_OKAY(maxim_max11117, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(maxim_max11253, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(maxim_max11254, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(maxim_max2253x, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(microchip_mcp3204, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(microchip_mcp3208, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(microchip_mcp3221, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(microchip_xec_adc, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(nordic_nrf_adc, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(nordic_nrf_saadc, ADC_HDL_LIST_ENTRY)
@@ -122,6 +122,12 @@ static struct adc_hdl {
 	DT_FOREACH_STATUS_OKAY(st_stm32f1_adc, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(st_stm32f4_adc, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(telink_b91_adc, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_adc081c021, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_adc081c027, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_adc101c021, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_adc101c027, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_adc121c021, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_adc121c027, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(ti_ads1013, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(ti_ads1014, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(ti_ads1015, ADC_HDL_LIST_ENTRY)
@@ -131,7 +137,22 @@ static struct adc_hdl {
 	DT_FOREACH_STATUS_OKAY(ti_ads1115, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(ti_ads1119, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(ti_ads114s08, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads1220, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(ti_ads7052, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7828, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7830, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7950, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7951, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7952, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7953, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7954, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7955, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7956, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7957, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7958, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7959, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7960, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_ads7961, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(ti_cc13xx_cc26xx_adc, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(ti_cc32xx_adc, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(ti_lmp90077, ADC_HDL_LIST_ENTRY)
@@ -142,6 +163,7 @@ static struct adc_hdl {
 	DT_FOREACH_STATUS_OKAY(ti_lmp90098, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(ti_lmp90099, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(ti_lmp90100, ADC_HDL_LIST_ENTRY)
+	DT_FOREACH_STATUS_OKAY(ti_mspm0_adc12, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(ti_tla2021, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(ti_tla2022, ADC_HDL_LIST_ENTRY)
 	DT_FOREACH_STATUS_OKAY(ti_tla2024, ADC_HDL_LIST_ENTRY)
@@ -373,6 +395,16 @@ static int cmd_adc_ref(const struct shell *sh, size_t argc, char **argv,
 	return retval;
 }
 
+static void adc_shell_read_bypass_cb(const struct shell *sh, uint8_t *data, size_t len,
+				     void *user_data)
+{
+	ARG_UNUSED(sh);
+	ARG_UNUSED(data);
+	ARG_UNUSED(len);
+
+	*(bool *)user_data = true;
+}
+
 #define BUFFER_SIZE 1
 static int cmd_adc_read(const struct shell *sh, size_t argc, char **argv)
 {
@@ -400,7 +432,75 @@ static int cmd_adc_read(const struct shell *sh, size_t argc, char **argv)
 		shell_print(sh, "read: %i", m_sample_buffer[0]);
 	}
 
-	return retval;
+	if (argc == 2) { /* One-time print; Non-periodic */
+		return retval;
+	}
+
+	/* Periodic print; argc=3 */
+	int period_ms = strtol(argv[2], NULL, 10);
+
+	if (period_ms < 1) {
+		shell_error(sh, "<period_ms> must be at least 1");
+		return -EINVAL;
+	}
+
+	bool stop = false;
+	bool msg_one_shot = true;
+
+	shell_set_bypass(sh, adc_shell_read_bypass_cb, &stop);
+
+	while (!stop) {
+		retval = adc_read(adc->dev, &sequence);
+		if (retval >= 0) {
+			shell_print(sh, "read: %i", m_sample_buffer[0]);
+		} else {
+			break;
+		}
+
+		if (msg_one_shot) {
+			msg_one_shot = false;
+			shell_print(sh, "Hit any key to exit");
+		}
+
+		k_msleep(period_ms);
+	}
+
+	shell_set_bypass(sh, NULL, NULL);
+
+	return stop ? 0 : retval;
+}
+
+static void adc_shell_print_acq_time(const struct shell *sh, uint16_t acq_time)
+{
+	const char *unit;
+
+	if (acq_time == ADC_ACQ_TIME_DEFAULT) {
+		shell_print(sh, "Acquisition Time: default");
+		return;
+	}
+
+	if (acq_time == ADC_ACQ_TIME_MAX) {
+		shell_print(sh, "Acquisition Time: max");
+		return;
+	}
+
+	switch (ADC_ACQ_TIME_UNIT(acq_time)) {
+	case ADC_ACQ_TIME_MICROSECONDS:
+		unit = "us";
+		break;
+	case ADC_ACQ_TIME_NANOSECONDS:
+		unit = "ns";
+		break;
+	case ADC_ACQ_TIME_TICKS:
+		unit = "ticks";
+		break;
+	default:
+		shell_print(sh, "Acquisition Time: invalid (%u)", acq_time);
+		return;
+	}
+
+	shell_print(sh, "Acquisition Time: %u %s", (unsigned int)ADC_ACQ_TIME_VALUE(acq_time),
+		    unit);
 }
 
 static int cmd_adc_print(const struct shell *sh, size_t argc, char **argv)
@@ -408,40 +508,36 @@ static int cmd_adc_print(const struct shell *sh, size_t argc, char **argv)
 	/* -1 index of ADC label name */
 	struct adc_hdl *adc = get_adc(argv[-1]);
 
-	shell_print(sh, "%s:\n"
-			   "Gain: %s\n"
-			   "Reference: %s\n"
-			   "Acquisition Time: %u\n"
-			   "Channel ID: %u\n"
-			   "Differential: %u\n"
-			   "Resolution: %u",
-			   adc->dev->name,
-			   chosen_gain,
-			   chosen_reference,
-			   adc->channel_config.acquisition_time,
-			   adc->channel_config.channel_id,
-			   adc->channel_config.differential,
-			   adc->resolution);
+	shell_print(sh,
+		    "%s:\n"
+		    "Gain: %s\n"
+		    "Reference: %s",
+		    adc->dev->name, chosen_gain, chosen_reference);
+
+	adc_shell_print_acq_time(sh, adc->channel_config.acquisition_time);
+
+	shell_print(sh,
+		    "Channel ID: %u\n"
+		    "Differential: %u\n"
+		    "Resolution: %u",
+		    adc->channel_config.channel_id, adc->channel_config.differential,
+		    adc->resolution);
 #if CONFIG_ADC_CONFIGURABLE_INPUTS
-	shell_print(sh, "Input positive: %u",
-		    adc->channel_config.input_positive);
+	shell_print(sh, "Input positive: %u", adc->channel_config.input_positive);
 	if (adc->channel_config.differential != 0) {
-		shell_print(sh, "Input negative: %u",
-			    adc->channel_config.input_negative);
+		shell_print(sh, "Input negative: %u", adc->channel_config.input_negative);
 	}
 #endif
 	return 0;
 }
 
-SHELL_SUBCMD_DICT_SET_CREATE(sub_ref_cmds, cmd_adc_ref,
-	(VDD_1, ADC_REF_VDD_1, "VDD"),
-	(VDD_1_2, ADC_REF_VDD_1_2, "VDD/2"),
-	(VDD_1_3, ADC_REF_VDD_1_3, "VDD/3"),
-	(VDD_1_4, ADC_REF_VDD_1_4, "VDD/4"),
-	(INTERNAL, ADC_REF_INTERNAL, "Internal"),
-	(EXTERNAL_0, ADC_REF_EXTERNAL0, "External, input 0"),
-	(EXTERNAL_1, ADC_REF_EXTERNAL1, "External, input 1")
-);
+SHELL_SUBCMD_DICT_SET_CREATE(sub_ref_cmds, cmd_adc_ref, (VDD_1, ADC_REF_VDD_1, "VDD"),
+			     (VDD_1_2, ADC_REF_VDD_1_2, "VDD/2"),
+			     (VDD_1_3, ADC_REF_VDD_1_3, "VDD/3"),
+			     (VDD_1_4, ADC_REF_VDD_1_4, "VDD/4"),
+			     (INTERNAL, ADC_REF_INTERNAL, "Internal"),
+			     (EXTERNAL_0, ADC_REF_EXTERNAL0, "External, input 0"),
+			     (EXTERNAL_1, ADC_REF_EXTERNAL1, "External, input 1"));
 
 SHELL_SUBCMD_DICT_SET_CREATE(sub_gain_cmds, cmd_adc_gain,
 	(GAIN_1_6, ADC_GAIN_1_6, "x 1/6"),
@@ -476,7 +572,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_adc_cmds,
 	SHELL_CMD_ARG(channel, &sub_channel_cmds, CMD_HELP_CHANNEL, NULL, 3, 0),
 	SHELL_CMD(gain, &sub_gain_cmds, CMD_HELP_GAIN, NULL),
 	SHELL_CMD_ARG(print, NULL, CMD_HELP_PRINT, cmd_adc_print, 1, 0),
-	SHELL_CMD_ARG(read, NULL, CMD_HELP_READ, cmd_adc_read, 2, 0),
+	SHELL_CMD_ARG(read, NULL, CMD_HELP_READ, cmd_adc_read, 2, 1),
 	SHELL_CMD(reference, &sub_ref_cmds, CMD_HELP_REF, NULL),
 	SHELL_CMD_ARG(resolution, NULL, CMD_HELP_RES, cmd_adc_reso, 2, 0),
 	SHELL_SUBCMD_SET_END /* Array terminated. */
@@ -488,11 +584,11 @@ static void cmd_adc_dev_get(size_t idx, struct shell_static_entry *entry)
 		entry->syntax  = adc_list[idx].dev->name;
 		entry->handler = NULL;
 		entry->subcmd  = &sub_adc_cmds;
-		entry->help    = "Select subcommand for ADC property label.";
+		entry->help    = cmd_adc_dev_get_help;
 	} else {
 		entry->syntax  = NULL;
 	}
 }
 SHELL_DYNAMIC_CMD_CREATE(sub_adc_dev, cmd_adc_dev_get);
 
-SHELL_CMD_REGISTER(adc, &sub_adc_dev, "ADC commands", NULL);
+SHELL_CMD_REGISTER(adc, &sub_adc_dev, SHELL_HELP("ADC commands", NULL), NULL);

@@ -5,7 +5,7 @@
 #
 
 identifier: frdm_mcxa266
-name: NXP FRDM MCXA266
+name: NXP FRDM-MCXA266
 type: mcu
 arch: arm
 ram: 240
@@ -23,6 +23,14 @@ supported:
   - watchdog
   - counter
   - dma
+  - dac
   - i3c
   - entropy
+  - can
+  - arduino_gpio
+  - usbd
+  - edac
+  - pwm
+  - rtc
+  - crc
 vendor: nxp

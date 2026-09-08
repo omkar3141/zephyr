@@ -129,6 +129,7 @@ class DeviceAdapter(abc.ABC):
         :returns: List of output lines without trailing newlines
         :raises AssertionError: If timeout expires before condition is met
         """
+        __tracebackhide__ = True  # pylint: disable=unused-variable
         self.check_connection(connection_index)
         return self.connections[connection_index].readlines_until(**kwargs)
 
@@ -223,3 +224,7 @@ class DeviceAdapter(abc.ABC):
         Added to keep backward compatibility as it is used in fixtures.
         """
         return self.connections and self.connections[0].is_device_connected()
+
+    def is_reader_started(self) -> bool:
+        """Check if the reader thread is started."""
+        return self._reader_started.is_set()

@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2020 Lemonbeat GmbH
+ * Copyright 2026 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -21,19 +22,19 @@
 		compatible = "gpio-leds";
 
 		green_led: led_1 {
-			gpios = <&gpio1 7 0>;
+			gpios = <&gpio1 7 GPIO_ACTIVE_LOW>;
 			label = "User LD2";
 			status = "disabled";
 		};
 
 		blue_led: led_2 {
-			gpios = <&gpio1 4 0>;
+			gpios = <&gpio1 4 GPIO_ACTIVE_LOW>;
 			label = "User LD3";
 			status = "disabled";
 		};
 
 		red_led: led_3 {
-			gpios = <&gpio1 6 0>;
+			gpios = <&gpio1 6 GPIO_ACTIVE_LOW>;
 			label = "User LD4";
 			status = "disabled";
 		};
@@ -92,6 +93,14 @@
 	};
 };
 
+&gint0 {
+	status = "okay";
+};
+
+&gint1 {
+	status = "okay";
+};
+
 &flexcomm0 {
 	compatible = "nxp,lpc-usart";
 	current-speed = <115200>;
@@ -108,6 +117,9 @@ arduino_i2c: &flexcomm4 {
 	#size-cells = <0>;
 	pinctrl-0 = <&pinmux_flexcomm4_i2c>;
 	pinctrl-names = "default";
+	scl-gpios = <&gpio1 20 GPIO_ACTIVE_HIGH>;
+	sda-gpios = <&gpio1 21 GPIO_ACTIVE_HIGH>;
+	recover-bus-on-init;
 
 	mma8652fc: mma8652fc@1d {
 		compatible = "nxp,fxos8700", "nxp,mma8652fc";
@@ -124,3 +136,23 @@ arduino_spi: &hs_lspi {
 arduino_gpio: &gpio1 {};
 
 mikrobus_spi: &hs_lspi {};
+
+&ctimer0 {
+	status = "okay";
+};
+
+&ctimer1 {
+	status = "okay";
+};
+
+&ctimer2 {
+	status = "okay";
+};
+
+&ctimer3 {
+	status = "okay";
+};
+
+&ctimer4 {
+	status = "okay";
+};

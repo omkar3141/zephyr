@@ -42,6 +42,7 @@ LOG_MODULE_REGISTER(ls0xx, CONFIG_DISPLAY_LOG_LEVEL);
 #define LS0XX_BIT_WRITECMD    0x01
 #define LS0XX_BIT_VCOM        0x02
 #define LS0XX_BIT_CLEAR       0x04
+#define LS0XX_VCOM_PRIO       CONFIG_LS0XX_VCOM_THREAD_PRIO
 
 /* These timings are based on:
  * - A view that 1 frame dropped at 10fps is more than any reasonable wait.
@@ -148,8 +149,8 @@ static void ls0xx_vcom_toggle(void *a, void *b, void *c)
 		}
 		/* Sleep before giving semaphore based on errors in testing */
 		k_sleep(K_TICKS(LS0XX_BUS_RETURN_DELAY_TICKS));
-	    k_sem_give(&ls0xx_bus_sem);
 		spi_release_dt(&config->bus);
+		k_sem_give(&ls0xx_bus_sem);
 		k_msleep(config->serial_vcom_int);
 #endif /* DT_INST_NODE_HAS_PROP(0, extcomin_gpios) */
 	}
@@ -172,8 +173,8 @@ static int ls0xx_clear(const struct device *dev)
 		err = -EBUSY;
 	}
 	k_sleep(K_TICKS(LS0XX_BUS_RETURN_DELAY_TICKS));
-	k_sem_give(&ls0xx_bus_sem);
 	spi_release_dt(&config->bus);
+	k_sem_give(&ls0xx_bus_sem);
 
 	return err;
 }
@@ -229,8 +230,8 @@ static int ls0xx_update_display(const struct device *dev,
 		err = -EBUSY;
 	}
 	k_sleep(K_TICKS(LS0XX_BUS_RETURN_DELAY_TICKS));
-	k_sem_give(&ls0xx_bus_sem);
 	spi_release_dt(&config->bus);
+	k_sem_give(&ls0xx_bus_sem);
 
 	return err;
 }
@@ -329,7 +330,7 @@ static int ls0xx_init(const struct device *dev)
 	/* Start thread for toggling VCOM */
 	k_tid_t vcom_toggle_tid = k_thread_create(
 		&vcom_toggle_thread, vcom_toggle_stack, K_THREAD_STACK_SIZEOF(vcom_toggle_stack),
-		ls0xx_vcom_toggle, (void *)dev, NULL, NULL, 3, 0, K_NO_WAIT);
+		ls0xx_vcom_toggle, (void *)dev, NULL, NULL, LS0XX_VCOM_PRIO, 0, K_NO_WAIT);
 	k_thread_name_set(vcom_toggle_tid, "ls0xx_vcom");
 #endif /* USE_VCOM_THREAD */
 
@@ -341,7 +342,7 @@ static struct ls0xx_data ls0xx_dev_data;
 
 static const struct ls0xx_config ls0xx_config = {
 	.bus = SPI_DT_SPEC_INST_GET(
-		0, SPI_OP_MODE_MASTER | SPI_WORD_SET(8) |
+		0, SPI_OP_MODE_CONTROLLER | SPI_WORD_SET(8) |
 		SPI_TRANSFER_LSB | SPI_CS_ACTIVE_HIGH |
 		SPI_HOLD_ON_CS | SPI_LOCK_ON),
 #if DT_INST_NODE_HAS_PROP(0, disp_en_gpios)

@@ -10,12 +10,12 @@
 #include <zephyr/irq.h>
 #include <zephyr/kernel.h>
 #include <zephyr/spinlock.h>
-#include <zephyr/sys_clock.h>
+#include <zephyr/sys/clock.h>
 #include <zephyr/sys/util.h>
 #include "stm32wb0x_hal_radio_timer.h"
 
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(radio_timer_driver);
+LOG_MODULE_REGISTER(radio_timer_driver, CONFIG_KERNEL_LOG_LEVEL);
 
 /* Max HS startup time expressed in system time (1953 us / 2.4414 us) */
 #define MAX_HS_STARTUP_TIME	DT_PROP(DT_NODELABEL(radio_timer), max_hs_startup_time)
@@ -32,10 +32,6 @@ LOG_MODULE_REGISTER(radio_timer_driver);
 BUILD_ASSERT(DT_NODE_HAS_STATUS(DT_NODELABEL(clk_lsi), disabled),
 	     "LSI is not supported yet");
 
-#if (defined(CONFIG_SOC_STM32WB06XX) || defined(CONFIG_SOC_STM32WB06XX)) && defined(CONFIG_PM)
-#error "PM is not supported yet for WB06/WB07"
-#endif /* (CONFIG_SOC_STM32WB06XX || CONFIG_SOC_STM32WB06XX) && CONFIG_PM */
-
 /* This value is only valid for the LSE with a frequency of 32768 Hz.
  * The implementation for the LSI will be done in the future.
  */
@@ -45,6 +41,7 @@ static const uint32_t calibration_data_freq1 = 0x0028F5C2;
 uint32_t blue_unit_conversion(uint32_t time, uint32_t period_freq, uint32_t thr);
 
 static uint64_t announced_cycles;
+static uint32_t last_cpu_wakeup_time;
 
 static void radio_timer_error_isr(void *args)
 {
@@ -64,15 +61,24 @@ static void radio_timer_error_isr(void *args)
 
 static void radio_timer_cpu_wkup_isr(void *args)
 {
-	int32_t dticks;
+	uint32_t dticks;
 	uint64_t diff_cycles;
 
 	ARG_UNUSED(args);
 
-	HAL_RADIO_TIMER_TimeoutCallback();
+	last_cpu_wakeup_time = LL_RADIO_TIMER_GetAbsoluteTime(WAKEUP);
+
+	/* Clear the interrupt */
+	LL_RADIO_TIMER_ClearFlag_CPUWakeup(WAKEUP);
+
+	/* Read back the register to ensure that the previous
+	 * write operation is completed.
+	 */
+	LL_RADIO_TIMER_IsActiveFlag_CPUWakeup(WAKEUP);
+
 	if (IS_ENABLED(CONFIG_TICKLESS_KERNEL)) {
 		diff_cycles = HAL_RADIO_TIMER_GetCurrentSysTime() - announced_cycles;
-		dticks = (int32_t)k_cyc_to_ticks_near64(diff_cycles);
+		dticks = k_cyc_to_ticks_near64(diff_cycles);
 		announced_cycles += k_ticks_to_cyc_near32(dticks);
 		sys_clock_announce(dticks);
 	} else {
@@ -85,20 +91,27 @@ static void radio_timer_txrx_wkup_isr(void *args)
 {
 	ARG_UNUSED(args);
 
-	HAL_RADIO_TIMER_WakeUpCallback();
+	/* The callback body will be properly implemented in the future
+	 * while providing PM support for WB06/WB07.
+	 */
+
+	/* Clear the interrupt */
+	LL_RADIO_TIMER_ClearFlag_BLEWakeup(WAKEUP);
+
+	/* Read back the register to ensure that the previous
+	 * write operation is completed.
+	 */
+	LL_RADIO_TIMER_IsActiveFlag_BLEWakeup(WAKEUP);
 }
 #endif /* CONFIG_SOC_STM32WB06XX || CONFIG_SOC_STM32WB07XX */
 
-void sys_clock_set_timeout(int32_t ticks, bool idle)
+void sys_clock_set_timeout(uint32_t ticks, bool idle)
 {
 	ARG_UNUSED(idle);
 
-	if (ticks == K_TICKS_FOREVER) {
-		return;
-	}
-
 	if (IS_ENABLED(CONFIG_TICKLESS_KERNEL)) {
 		uint32_t current_time, delay;
+		uint32_t key;
 
 		ticks = MAX(1, ticks);
 		delay = blue_unit_conversion(k_ticks_to_cyc_near32(ticks), calibration_data_freq1,
@@ -108,9 +121,20 @@ void sys_clock_set_timeout(int32_t ticks, bool idle)
 		} else {
 			delay = MAX(MIN_ALLOWED_DELAY, delay);
 		}
-		current_time = LL_RADIO_TIMER_GetAbsoluteTime(WAKEUP);
+		key = irq_lock();
+
+		/* Due to a hardware limitation, the radio timer wake-up time
+		 * must not be updated until at least 16 Machine Time Units
+		 * have elapsed since the interrupt was triggered; otherwise,
+		 * the next wake-up will only occur after the timer wraps around.
+		 */
+		do {
+			current_time = LL_RADIO_TIMER_GetAbsoluteTime(WAKEUP);
+		} while ((current_time - last_cpu_wakeup_time) < 16U);
+
 		LL_RADIO_TIMER_SetCPUWakeupTime(WAKEUP, current_time + delay + TIMER_ROUNDING);
 		LL_RADIO_TIMER_EnableCPUWakeupTimer(WAKEUP);
+		irq_unlock(key);
 	}
 }
 

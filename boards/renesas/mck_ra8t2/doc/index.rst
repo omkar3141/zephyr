@@ -74,6 +74,34 @@ Supported Features
 
    For using SDHC module on MCK-RA8T2, Connect microSD Card to microSD Socket (CN17)
 
+
+Dual Core Operation
+*******************
+
+The MCK-RA8T2 supports dual core operation with both the Cortex-M85 (CPU0) and Cortex-M33 (CPU1) cores.
+By default, the CM85 core is the boot core and is responsible for initializing the system and
+starting the CM33 core.
+
+Memory Usage
+============
+
+By default, MRAM (Flash) and SRAM are split evenly between the two cores.
+Users can manually change the address and size for MRAM (Flash) and SRAM as follows node:
+
+   - CPU0: &code_mram_cm85, &sram0
+   - CPU1: &code_mram_cm33, &sram1
+
+.. note::
+
+   - MRAM usable range: 0x0200_0000 ... 0x0210_0000 (1 MB)
+   - SRAM usable range: 0x2200_0000 ... 0x221A_0000 (1664 KB)
+
+Dual Core Flashing
+==================
+
+When flashing or debugging dual-core samples, ensure that CONFIG_SOC_RA_ENABLE_START_SECOND_CORE is selected
+for the CM85 image. The CM85 core is responsible for starting the CM33 core in soc_late_init_hook.
+
 Programming and Debugging
 *************************
 
@@ -88,7 +116,7 @@ Here is an example for the :zephyr:code-sample:`hello_world` application on CM85
 
 .. zephyr-app-commands::
    :zephyr-app: samples/hello_world
-   :board: mck_ra8t2/r7ka8t2lfecac/cm85
+   :board: mck_ra8t2/r7ka8t2lflcac/cm85
    :goals: flash
 
 Open a serial terminal, reset the board (push the reset switch S1), and you should
@@ -97,7 +125,17 @@ see the following message in the terminal:
 .. code-block:: console
 
    ***** Booting Zephyr OS v4.2.0-xxx-xxxxxxxxxxxxx *****
-   Hello World! mck_ra8t2/r7ka8t2lfecac/cm85
+   Hello World! mck_ra8t2/r7ka8t2lflcac/cm85
+
+For the CM33 core, you can use the ``--sysbuild`` flow to build a minimal first-core launcher image that
+starts the CM33 core.
+
+.. zephyr-app-commands::
+   :tool: west
+   :zephyr-app: samples/hello_world
+   :board: mck_ra8t2/r7ka8t2lflcac/cm33
+   :goals: build flash
+   :west-args: --sysbuild
 
 Flashing
 ========
@@ -128,7 +166,7 @@ To build the sample application using sysbuild use the command:
 .. zephyr-app-commands::
    :tool: west
    :zephyr-app: samples/hello_world
-   :board: mck_ra8t2/r7ka8t2lfecac/cm85
+   :board: mck_ra8t2/r7ka8t2lflcac/cm85
    :goals: build flash
    :west-args: --sysbuild
    :gen-args: -DSB_CONFIG_BOOTLOADER_MCUBOOT=y
@@ -188,7 +226,7 @@ You should see the following message in the terminal:
    I: Image version: v0.0.0
    I: Jumping to the first image slot
    *** Booting Zephyr OS build v4.2.0-6156-ged85ac9ffda9 ***
-   Hello World! mck_ra8t2/r7ka8t2lfecac/cm85
+   Hello World! mck_ra8t2/r7ka8t2lflcac/cm85
 
 References
 **********

@@ -7,6 +7,20 @@
 #ifndef ZEPHYR_DRIVERS_I2S_I2S_STM32_H_
 #define ZEPHYR_DRIVERS_I2S_I2S_STM32_H_
 
+#ifdef CONFIG_STM32_HAL2
+#define STM32_I2S_DATA_FORMAT_16_BIT  LL_I2S_DATA_FORMAT_16_BIT
+#define STM32_I2S_DATA_FORMAT_24_BIT  LL_I2S_DATA_FORMAT_24_BIT
+#define STM32_I2S_DATA_FORMAT_32_BIT  LL_I2S_DATA_FORMAT_32_BIT
+#define STM32_I2S_CLOCK_POLARITY_HIGH LL_I2S_CLOCK_POLARITY_HIGH
+#define STM32_I2S_CLOCK_POLARITY_LOW  LL_I2S_CLOCK_POLARITY_LOW
+#else /* CONFIG_STM32_HAL2 */
+#define STM32_I2S_DATA_FORMAT_16_BIT  LL_I2S_DATAFORMAT_16B
+#define STM32_I2S_DATA_FORMAT_24_BIT  LL_I2S_DATAFORMAT_24B
+#define STM32_I2S_DATA_FORMAT_32_BIT  LL_I2S_DATAFORMAT_32B
+#define STM32_I2S_CLOCK_POLARITY_HIGH LL_I2S_POLARITY_HIGH
+#define STM32_I2S_CLOCK_POLARITY_LOW  LL_I2S_POLARITY_LOW
+#endif /* CONFIG_STM32_HAL2 */
+
 struct queue_item {
 	void *mem_block;
 	size_t size;
@@ -51,14 +65,13 @@ struct i2s_stm32_data {
 };
 
 /* checks that DMA Tx packet is fully transmitted over the I2S */
-static inline uint32_t ll_func_i2s_dma_busy(SPI_TypeDef *i2s)
+static inline uint32_t ll_i2s_dma_busy(SPI_TypeDef *i2s)
 {
 #if DT_HAS_COMPAT_STATUS_OKAY(st_stm32h7_i2s)
 	return LL_SPI_IsActiveFlag_TXC(i2s) == 0;
 #else
 	/* the I2S Tx empty and busy flags are needed */
-	return (LL_SPI_IsActiveFlag_TXE(i2s) &&
-		!LL_SPI_IsActiveFlag_BSY(i2s));
+	return (!LL_SPI_IsActiveFlag_TXE(i2s) || LL_SPI_IsActiveFlag_BSY(i2s));
 #endif
 }
 

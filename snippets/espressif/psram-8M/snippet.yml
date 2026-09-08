@@ -2,7 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-name: psram-8M
+name: espressif-psram-8M
+description: Selects the 8MB SPI PSRAM variant of the ESP32 chips.
 append:
   EXTRA_CONF_FILE: esp_psram.conf
   EXTRA_DTC_OVERLAY_FILE: soc/esp_psram_8M.overlay

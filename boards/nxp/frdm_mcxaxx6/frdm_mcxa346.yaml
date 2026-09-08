@@ -5,7 +5,7 @@
 #
 
 identifier: frdm_mcxa346
-name: NXP FRDM MCXA346
+name: NXP FRDM-MCXA346
 type: mcu
 arch: arm
 ram: 240
@@ -23,5 +23,12 @@ supported:
   - watchdog
   - counter
   - dma
+  - dac
   - opamp
+  - can
+  - arduino_gpio
+  - edac
+  - pwm
+  - rtc
+  - crc
 vendor: nxp

@@ -1,12 +1,25 @@
 /*
- * Copyright (c) 2025 Infineon Technologies AG,
- * or an affiliate of Infineon Technologies AG.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Infineon Technologies AG,
+ * SPDX-FileCopyrightText: or an affiliate of Infineon Technologies AG. All rights reserved.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #ifndef INFINEON_KCONFIG_H__
 #define INFINEON_KCONFIG_H__
+
+/*
+ * Mappings from general Zephyr Kconfig options to ModusToolbox PDL options
+ */
+
+/*
+ * Map CONFIG_ASSERT to PDL Assert Level or ASSERT disable
+ */
+#ifdef CONFIG_ASSERT
+#define CY_ASSERT_LEVEL CY_ASSERT_CLASS_3
+#else
+#define CY_NO_ASSERT
+#endif
 
 /*
  * These are mappings of Kconfig options enabling Infineon SOCs and particular
@@ -22,8 +35,16 @@
 #if defined(CONFIG_CPU_CORTEX_M33)
 
 #if defined(CONFIG_TRUSTED_EXECUTION_SECURE)
+#ifndef COMPONENT_SECURE_DEVICE
 #define COMPONENT_SECURE_DEVICE
+#endif /* COMPONENT_SECURE_DEVICE */
 #endif /* CONFIG_TRUSTED_EXECUTION_SECURE* */
+
+#if defined(CONFIG_TRUSTED_EXECUTION_NONSECURE)
+#ifndef COMPONENT_NON_SECURE_DEVICE
+#define COMPONENT_NON_SECURE_DEVICE
+#endif /* COMPONENT_NON_SECURE_DEVICE */
+#endif /* CONFIG_TRUSTED_EXECUTION_NONSECURE* */
 
 #ifndef COMPONENT_CM33
 #define COMPONENT_CM33
@@ -374,5 +395,18 @@
 #endif
 
 #endif /* CONFIG_SOC_SERIES_PSOC4100TP */
+
+#if defined(CONFIG_SOC_SERIES_PSOC4100SMAX)
+
+#if defined(CONFIG_SOC_CY8C4149AZI_S598)
+#ifndef CY8C4149AZI_S598
+#define CY8C4149AZI_S598
+#endif
+#ifndef CY8C4149AZI_S598_
+#define CY8C4149AZI_S598_
+#endif
+#endif
+
+#endif /* CONFIG_SOC_SERIES_PSOC4100SMAX */
 
 #endif /* INFINEON_KCONFIG_H__ */

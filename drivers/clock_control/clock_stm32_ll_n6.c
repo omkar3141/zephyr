@@ -6,6 +6,7 @@
 
 
 #include <soc.h>
+#include <stm32_bitops.h>
 #include <stm32_ll_bus.h>
 #include <stm32_ll_pwr.h>
 #include <stm32_ll_rcc.h>
@@ -18,29 +19,14 @@
 #include <stm32_backup_domain.h>
 
 /* Macros to fill up prescaler values */
-#define z_ic_src_pll(v) LL_RCC_ICCLKSOURCE_PLL ## v
-#define ic_src_pll(v) z_ic_src_pll(v)
-
-#define z_hsi_divider(v) LL_RCC_HSI_DIV_ ## v
-#define hsi_divider(v) z_hsi_divider(v)
-
-#define z_ahb_prescaler(v) LL_RCC_AHB_DIV_ ## v
-#define ahb_prescaler(v) z_ahb_prescaler(v)
-
-#define z_apb1_prescaler(v) LL_RCC_APB1_DIV_ ## v
-#define apb1_prescaler(v) z_apb1_prescaler(v)
-
-#define z_apb2_prescaler(v) LL_RCC_APB2_DIV_ ## v
-#define apb2_prescaler(v) z_apb2_prescaler(v)
-
-#define z_apb4_prescaler(v) LL_RCC_APB4_DIV_ ## v
-#define apb4_prescaler(v) z_apb4_prescaler(v)
-
-#define z_apb5_prescaler(v) LL_RCC_APB5_DIV_ ## v
-#define apb5_prescaler(v) z_apb5_prescaler(v)
-
-#define z_timg_prescaler(v) LL_RCC_TIM_PRESCALER_ ## v
-#define timg_prescaler(v) z_timg_prescaler(v)
+#define ic_src_pll(v) CONCAT(LL_RCC_ICCLKSOURCE_PLL, v)
+#define hsi_divider(v) CONCAT(LL_RCC_HSI_DIV_, v)
+#define ahb_prescaler(v) CONCAT(LL_RCC_AHB_DIV_, v)
+#define apb1_prescaler(v) CONCAT(LL_RCC_APB1_DIV_, v)
+#define apb2_prescaler(v) CONCAT(LL_RCC_APB2_DIV_, v)
+#define apb4_prescaler(v) CONCAT(LL_RCC_APB4_DIV_, v)
+#define apb5_prescaler(v) CONCAT(LL_RCC_APB5_DIV_, v)
+#define timg_prescaler(v) CONCAT(LL_RCC_TIM_PRESCALER_, v)
 
 #define PLL1_ID		1
 #define PLL2_ID		2
@@ -51,6 +37,19 @@
 static uint32_t get_bus_clock(uint32_t clock, uint32_t prescaler)
 {
 	return clock / prescaler;
+}
+
+__unused
+static uint32_t get_msi_frequency(void)
+{
+#if defined(STM32_MSI_ENABLED)
+	if (LL_RCC_MSI_GetFrequency() == LL_RCC_MSI_FREQ_16MHZ) {
+		return MHZ(16);
+	} else {
+		return MHZ(4);
+	}
+#endif
+	return 0;
 }
 
 __unused
@@ -157,7 +156,7 @@ static uint32_t get_sysclk_frequency(void)
 
 
 /** @brief Verifies clock is part of active clock configuration */
-static int enabled_clock(uint32_t src_clk)
+int enabled_clock(uint32_t src_clk)
 {
 	if ((src_clk == STM32_SRC_SYSCLK) ||
 	    (src_clk == STM32_SRC_HCLK1) ||
@@ -175,6 +174,7 @@ static int enabled_clock(uint32_t src_clk)
 	    ((src_clk == STM32_SRC_HSE) && IS_ENABLED(STM32_HSE_ENABLED)) ||
 	    ((src_clk == STM32_SRC_HSI) && IS_ENABLED(STM32_HSI_ENABLED)) ||
 	    ((src_clk == STM32_SRC_HSI_DIV) && IS_ENABLED(STM32_HSI_ENABLED)) ||
+	    ((src_clk == STM32_SRC_MSI) && IS_ENABLED(STM32_MSI_ENABLED)) ||
 	    ((src_clk == STM32_SRC_PLL1) && IS_ENABLED(STM32_PLL1_ENABLED)) ||
 	    ((src_clk == STM32_SRC_PLL2) && IS_ENABLED(STM32_PLL2_ENABLED)) ||
 	    ((src_clk == STM32_SRC_PLL3) && IS_ENABLED(STM32_PLL3_ENABLED)) ||
@@ -255,6 +255,9 @@ static int stm32_clock_control_configure(const struct device *dev,
 					 void *data)
 {
 	struct stm32_pclken *pclken = (struct stm32_pclken *)(sub_system);
+	uint32_t enr = pclken->enr;
+	uint32_t reg = STM32_DT_CLKSEL_REG_GET(enr);
+	uint32_t shift = STM32_DT_CLKSEL_SHIFT_GET(enr);
 	int err;
 
 	ARG_UNUSED(dev);
@@ -271,12 +274,9 @@ static int stm32_clock_control_configure(const struct device *dev,
 		return 0;
 	}
 
-	sys_clear_bits(DT_REG_ADDR(DT_NODELABEL(rcc)) + STM32_DT_CLKSEL_REG_GET(pclken->enr),
-		       STM32_DT_CLKSEL_MASK_GET(pclken->enr) <<
-			STM32_DT_CLKSEL_SHIFT_GET(pclken->enr));
-	sys_set_bits(DT_REG_ADDR(DT_NODELABEL(rcc)) + STM32_DT_CLKSEL_REG_GET(pclken->enr),
-		     STM32_DT_CLKSEL_VAL_GET(pclken->enr) <<
-			STM32_DT_CLKSEL_SHIFT_GET(pclken->enr));
+	stm32_reg_modify_bits((uint32_t *)(DT_REG_ADDR(DT_NODELABEL(rcc)) + reg),
+			      STM32_DT_CLKSEL_MASK_GET(enr) << shift,
+			      STM32_DT_CLKSEL_VAL_GET(enr) << shift);
 
 	return 0;
 }
@@ -336,6 +336,11 @@ static int stm32_clock_control_get_subsys_rate(const struct device *dev,
 		*rate = STM32_LSI_FREQ;
 		break;
 #endif /* STM32_LSI_ENABLED */
+#if defined(STM32_MSI_ENABLED)
+	case STM32_SRC_MSI:
+		*rate = get_msi_frequency();
+		break;
+#endif
 #if defined(STM32_HSE_ENABLED)
 	case STM32_SRC_HSE:
 		*rate = STM32_HSE_FREQ;
@@ -765,7 +770,7 @@ static int set_up_plls(void)
 #if defined(STM32_PLL3_ENABLED)
 	LL_RCC_PLL3_Disable();
 
-	/* Configure PLL source : Can be HSE, HSI, MSIS */
+	/* Configure PLL source : Can be HSE, HSI, MSI */
 	if (IS_ENABLED(STM32_PLL3_SRC_HSE)) {
 		/* Main PLL configuration and activation */
 		LL_RCC_PLL3_SetSource(LL_RCC_PLLSOURCE_HSE);
@@ -812,7 +817,7 @@ static int set_up_plls(void)
 #if defined(STM32_PLL4_ENABLED)
 	LL_RCC_PLL4_Disable();
 
-	/* Configure PLL source : Can be HSE, HSI, MSIS */
+	/* Configure PLL source : Can be HSE, HSI, MSI */
 	if (IS_ENABLED(STM32_PLL4_SRC_HSE)) {
 		/* Main PLL configuration and activation */
 		LL_RCC_PLL4_SetSource(LL_RCC_PLLSOURCE_HSE);
@@ -920,6 +925,25 @@ static void set_up_fixed_clock_sources(void)
 		while (LL_RCC_LSI_IsReady() != 1) {
 		}
 	}
+
+#if defined(STM32_MSI_ENABLED)
+	/* Set up MSI clock */
+	if (IS_ENABLED(STM32_MSI_ENABLED)) {
+		/* Set frequency of MSI */
+		if (STM32_MSI_RANGE == 1) {
+			LL_RCC_MSI_SetFrequency(LL_RCC_MSI_FREQ_16MHZ);
+		} else {
+			LL_RCC_MSI_SetFrequency(LL_RCC_MSI_FREQ_4MHZ);
+		}
+
+		/* enable MSI */
+		LL_RCC_MSI_Enable();
+
+		while (LL_RCC_MSI_IsReady() != 1) {
+			/* Wait for MSI ready */
+		}
+	}
+#endif
 }
 
 int stm32_clock_control_init(const struct device *dev)
@@ -940,10 +964,11 @@ int stm32_clock_control_init(const struct device *dev)
 	/* Set up PLLs */
 	r = set_up_plls();
 	if (r < 0) {
+		__ASSERT(0, "PLL setup failed");
 		return r;
 	}
 
-	/* Preset the prescalers prior to chosing SYSCLK */
+	/* Preset the prescalers prior to choosing SYSCLK */
 	/* Prevents APB clock to go over limits */
 	/* Set buses (AHB, APB1, APB2, APB4 & APB5) prescalers */
 	LL_RCC_SetAHBPrescaler(ahb_prescaler(STM32_AHB_PRESCALER));
@@ -983,6 +1008,11 @@ int stm32_clock_control_init(const struct device *dev)
 		LL_RCC_SetSysClkSource(LL_RCC_SYS_CLKSOURCE_IC2_IC6_IC11);
 		while (LL_RCC_GetSysClkSource() !=
 					LL_RCC_SYS_CLKSOURCE_STATUS_IC2_IC6_IC11) {
+		}
+	} else if (IS_ENABLED(STM32_SYSCLK_SRC_MSI)) {
+		/* Set sysclk source to MSI */
+		LL_RCC_SetSysClkSource(LL_RCC_SYS_CLKSOURCE_MSI);
+		while (LL_RCC_GetSysClkSource() != LL_RCC_SYS_CLKSOURCE_STATUS_MSI) {
 		}
 	} else {
 		return -ENOTSUP;

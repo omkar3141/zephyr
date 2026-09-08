@@ -200,8 +200,10 @@ zephyr_udc0: &usbotg_fs {
 	 * Note: because the PLLI2S is dependent on the main PLL, the latter
 	 *       should not be changed without checking impact on PLLI2S
 	 */
+	div-m = <8>;
 	mul-n = <271>;
 	div-r = <2>;
+	clocks = <&clk_hse>;
 	status = "okay";
 };
 
@@ -218,6 +220,8 @@ zephyr_udc0: &usbotg_fs {
 	clock-frequency = <I2C_BITRATE_FAST>;
 	pinctrl-0 = <&i2c1_scl_pb6 &i2c1_sda_pb9>;
 	pinctrl-names = "default";
+	scl-gpios = <&gpiob 6 GPIO_ACTIVE_HIGH>;
+	sda-gpios = <&gpiob 9 GPIO_ACTIVE_HIGH>;
 	status = "okay";
 
 	audio_codec: cs43l22@4a {

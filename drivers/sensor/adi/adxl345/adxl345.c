@@ -114,7 +114,7 @@ int adxl345_reg_write_mask(const struct device *dev,
 	}
 
 	tmp &= ~mask;
-	tmp |= data;
+	tmp |= (data & mask);
 
 	return adxl345_reg_write_byte(dev, reg_addr, tmp);
 }
@@ -370,6 +370,9 @@ int adxl345_read_sample(const struct device *dev,
 
 	sample->selected_range = data->selected_range;
 	sample->is_full_res = data->is_full_res;
+#ifdef CONFIG_ADXL345_STREAM
+	sample->is_fifo = 0;
+#endif /* CONFIG_ADXL345_STREAM */
 
 	return 0;
 }
@@ -460,41 +463,6 @@ static DEVICE_API(sensor, adxl345_api_funcs) = {
 #endif
 };
 
-#ifdef CONFIG_ADXL345_TRIGGER
-/**
- * Configure the INT1 and INT2 interrupt pins.
- * @param dev - The device structure.
- * @param int1 -  INT1 interrupt pins.
- * @return 0 in case of success, negative error code otherwise.
- */
-static int adxl345_interrupt_config(const struct device *dev,
-				    uint8_t int1)
-{
-	int ret;
-	const struct adxl345_dev_config *cfg = dev->config;
-
-	ret = adxl345_reg_write_byte(dev, ADXL345_INT_MAP, cfg->route_to_int2 ? int1 : ~int1);
-	if (ret) {
-		return ret;
-	}
-
-	ret = adxl345_reg_write_byte(dev, ADXL345_INT_ENABLE, int1);
-	if (ret) {
-		return ret;
-	}
-
-	uint8_t samples;
-
-	ret = adxl345_reg_read_byte(dev, ADXL345_INT_MAP, &samples);
-	ret = adxl345_reg_read_byte(dev, ADXL345_INT_ENABLE, &samples);
-#ifdef CONFIG_ADXL345_TRIGGER
-	gpio_pin_interrupt_configure_dt(&cfg->interrupt,
-					      GPIO_INT_EDGE_TO_ACTIVE);
-#endif
-	return 0;
-}
-#endif
-
 static int adxl345_init(const struct device *dev)
 {
 	int rc;
@@ -503,7 +471,7 @@ static int adxl345_init(const struct device *dev)
 	uint8_t dev_id, full_res;
 
 	if (!adxl345_bus_is_ready(dev)) {
-		LOG_ERR("bus not ready");
+		LOG_ERR_DEVICE_NOT_READY(dev);
 		return -ENODEV;
 	}
 
@@ -561,14 +529,8 @@ static int adxl345_init(const struct device *dev)
 	if (rc) {
 		return rc;
 	}
-	rc = adxl345_interrupt_config(dev, ADXL345_INT_MAP_WATERMARK_MSK);
-	if (rc) {
-		return rc;
-	}
-	rc = adxl345_interrupt_config(dev, ADXL345_INT_MAP_ACT_MSK);
-	if (rc) {
-		return rc;
-	}
+
+	data->odr = cfg->odr;
 #endif
 
 	rc = adxl345_reg_read_byte(dev, ADXL345_DATA_FORMAT_REG, &full_res);
@@ -695,12 +657,6 @@ static int adxl345_pm_action(const struct device *dev,
 		     DT_INST_NODE_HAS_PROP(inst, fifo_watermark),				   \
 		     "Streaming requires fifo-watermark property. Please set it in the"		   \
 		     "device-tree node properties");						   \
-	BUILD_ASSERT(COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, fifo_watermark),			   \
-				 ((DT_INST_PROP(inst, fifo_watermark) > 0) &&			   \
-				  (DT_INST_PROP(inst, fifo_watermark) < 32)),			   \
-				 (true)),							   \
-		     "fifo-watermark must be between 1 and 32. Please set it in "		   \
-		     "the device-tree node properties");					   \
 												   \
 	IF_ENABLED(CONFIG_ADXL345_STREAM, (ADXL345_RTIO_DEFINE(inst)));				   \
 	static struct adxl345_dev_data adxl345_data_##inst = {					   \

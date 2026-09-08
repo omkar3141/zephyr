@@ -22,6 +22,7 @@ struct counter_rpi_pico_pit_channel_data {
 	uint16_t top_value;
 	struct rpi_pico_pit_callback callback_struct;
 	uint32_t frequency;
+	bool running;
 };
 
 struct counter_rpi_pico_pit_channel_config {
@@ -34,8 +35,10 @@ struct counter_rpi_pico_pit_channel_config {
 static int counter_rpi_pico_pit_channel_start(const struct device *dev)
 {
 	const struct counter_rpi_pico_pit_channel_config *config = dev->config;
+	struct counter_rpi_pico_pit_channel_data *data = dev->data;
 
 	pwm_set_enabled(config->slice, true);
+	data->running = true;
 
 	return 0;
 }
@@ -43,8 +46,10 @@ static int counter_rpi_pico_pit_channel_start(const struct device *dev)
 static int counter_rpi_pico_pit_channel_stop(const struct device *dev)
 {
 	const struct counter_rpi_pico_pit_channel_config *config = dev->config;
+	struct counter_rpi_pico_pit_channel_data *data = dev->data;
 
 	pwm_set_enabled(config->slice, false);
+	data->running = false;
 
 	return 0;
 }
@@ -81,15 +86,14 @@ static int counter_rpi_pico_pit_channel_set_top_value(const struct device *dev,
 		counter_value = pwm_get_counter(config->slice);
 
 		if (counter_value >= cfg->ticks) {
-			pwm_set_enabled(config->slice, true);
+			pwm_set_enabled(config->slice, data->running);
 			return -ETIME;
 		}
 	}
 	pwm_set_chan_level(config->slice, 1, 0);
 	pwm_set_chan_level(config->slice, 0, 0);
 
-	data->config_pwm = pwm_get_default_config();
-	pwm_config_set_wrap(&data->config_pwm, cfg->ticks);
+	pwm_set_wrap(config->slice, cfg->ticks);
 	data->top_value = cfg->ticks;
 	data->callback_struct.callback = cfg->callback;
 	data->callback_struct.top_user_data = cfg->user_data;
@@ -99,11 +103,13 @@ static int counter_rpi_pico_pit_channel_set_top_value(const struct device *dev,
 	counter_rpi_pico_pit_manage_callback(config->controller, &data->callback_struct,
 					     callback_set);
 
-	pwm_init(config->slice, &data->config_pwm, true);
-	if (cfg->flags & COUNTER_TOP_CFG_DONT_RESET) {
+	if (!(cfg->flags & COUNTER_TOP_CFG_DONT_RESET)) {
+		pwm_set_counter(config->slice, 0);
+	} else {
 		pwm_set_counter(config->slice, counter_value);
 	}
-	pwm_set_clkdiv_int_frac(config->slice, 0, 0);
+
+	pwm_set_enabled(config->slice, data->running);
 
 	return 0;
 }
@@ -138,8 +144,6 @@ static int counter_rpi_pico_pit_channel_init(const struct device *dev)
 	pwm_set_chan_level(config->slice, 1, 0);
 	pwm_set_chan_level(config->slice, 0, 0);
 	pwm_set_wrap(config->slice, UINT16_MAX);
-
-	pwm_set_enabled(config->slice, true);
 
 	return 0;
 }

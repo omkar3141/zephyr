@@ -7,7 +7,9 @@
 #ifndef ZEPHYR_INCLUDE_DT_BINDINGS_CLOCK_STM32MP2_CLOCK_H_
 #define ZEPHYR_INCLUDE_DT_BINDINGS_CLOCK_STM32MP2_CLOCK_H_
 
-#include "stm32_common_clocks.h"
+#include <zephyr/dt-bindings/clock/stm32_common_clocks.h>
+
+/** @cond INTERNAL_HIDDEN */
 
 /* Undefine the common clocks macro */
 #undef STM32_CLOCK
@@ -69,9 +71,15 @@
 #define STM32_CLOCK_PERIPH_I2C7		0x7BC
 #define STM32_CLOCK_PERIPH_I2C8		0x7C0
 
+/* FDCAN Peripheral */
+#define STM32_CLOCK_PERIPH_FDCAN	0x7E0
+
 /* Watchdog Peripheral */
 #define STM32_CLOCK_PERIPH_IWDG4	0x894
 #define STM32_CLOCK_PERIPH_WWDG1	0x89C
+
+/* CRC peripheral */
+#define STM32_CLOCK_PERIPH_CRC		0x8B4
 
 /* I3C Peripheral */
 #define STM32_CLOCK_PERIPH_I3C1		0x8C8
@@ -81,5 +89,7 @@
 
 #define STM32_CLOCK_PERIPH_MIN	STM32_CLOCK_PERIPH_GPIOA
 #define STM32_CLOCK_PERIPH_MAX	STM32_CLOCK_PERIPH_I3C4
+
+/** @endcond */
 
 #endif /* ZEPHYR_INCLUDE_DT_BINDINGS_CLOCK_STM32MP2_CLOCK_H_ */

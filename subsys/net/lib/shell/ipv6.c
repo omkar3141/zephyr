@@ -79,7 +79,7 @@ static void ipv6_pe_filter_cb(struct net_in6_addr *prefix, bool is_denylist,
 #endif /* CONFIG_NET_IPV6_PE */
 
 #if defined(CONFIG_NET_IPV6)
-static void address_lifetime_cb(struct net_if *iface, void *user_data)
+static void address_info_cb(struct net_if *iface, void *user_data)
 {
 	struct net_shell_user_data *data = user_data;
 	const struct shell *sh = data->sh;
@@ -97,6 +97,7 @@ static void address_lifetime_cb(struct net_if *iface, void *user_data)
 		return;
 	}
 
+	PR("Unicast:\n\n");
 	PR("Type      \tState    \tLifetime (sec)\tRef\tAddress\n");
 
 	ARRAY_FOR_EACH(ipv6->unicast, i) {
@@ -132,13 +133,28 @@ static void address_lifetime_cb(struct net_if *iface, void *user_data)
 	snprintk(remaining_str, sizeof(remaining_str) - 1, "infinite");
 #endif /* CONFIG_NET_NATIVE_IPV6 */
 
-		PR("%s  \t%s\t%14s\t%ld\t%s/%d%s\n",
+		PR("%-8s  \t%s\t%14s\t%ld\t%s/%d%s\n",
 		   addrtype2str(ipv6->unicast[i].addr_type),
 		   addrstate2str(ipv6->unicast[i].addr_state),
 		   remaining_str, atomic_get(&ipv6->unicast[i].atomic_ref),
 		   net_sprint_ipv6_addr(&ipv6->unicast[i].address.in6_addr),
 		   prefix_len,
 		   ipv6->unicast[i].is_temporary ? " (temporary)" : "");
+	}
+
+	PR("\nMulticast:\n\n");
+	PR("Joined\tRef\tAddress\n");
+
+	ARRAY_FOR_EACH(ipv6->mcast, i) {
+		if (!ipv6->mcast[i].is_used ||
+		    ipv6->mcast[i].address.family != NET_AF_INET6) {
+			continue;
+		}
+
+		PR("%s\t%ld\t%s\n",
+		   ipv6->mcast[i].is_joined ? "yes" : "no",
+		   atomic_get(&ipv6->mcast[i].atomic_ref),
+		   net_sprint_ipv6_addr(&ipv6->mcast[i].address.in6_addr));
 	}
 }
 #endif /* CONFIG_NET_IPV6 */
@@ -201,6 +217,33 @@ static int cmd_net_ipv6(const struct shell *sh, size_t argc, char *argv[])
 	PR("Path MTU Discovery (PMTU)                 : %s\n",
 	   IS_ENABLED(CONFIG_NET_IPV6_PMTU) ? "enabled" : "disabled");
 
+	PR("IPv6 forwarding                           : %s\n",
+	   IS_ENABLED(CONFIG_NET_IPV6_FORWARDING) ? "enabled" : "disabled");
+	PR("IPv6 routing                              : %s\n",
+	   IS_ENABLED(CONFIG_NET_IPV6_ROUTE) ? "enabled" : "disabled");
+	PR("Transmit IPv6 RA messages                 : %s\n",
+	   IS_ENABLED(CONFIG_NET_IPV6_ND_RA_TX) ? "enabled" : "disabled");
+#if defined(CONFIG_NET_IPV6_ND_RA_TX)
+	PR("IPv6 RA transmit interval                 : %d sec\n",
+	   CONFIG_NET_IPV6_ND_RA_TX_INTERVAL);
+	PR("IPv6 RA router lifetime                   : %d sec\n",
+	   CONFIG_NET_IPV6_ND_RA_TX_ROUTER_LIFETIME);
+#endif
+	PR("DHCPv6 client                             : %s\n",
+	   IS_ENABLED(CONFIG_NET_DHCPV6) ? "enabled" : "disabled");
+	PR("DHCPv6 requesting router (downstream RA)  : %s\n",
+	   (IS_ENABLED(CONFIG_NET_DHCPV6) && IS_ENABLED(CONFIG_NET_IPV6_ND_RA_TX)) ?
+	   "enabled" : "disabled");
+#if defined(CONFIG_NET_DHCPV6_MAX_DOWNSTREAM)
+	PR("DHCPv6 max downstream links               : %d\n",
+	   CONFIG_NET_DHCPV6_MAX_DOWNSTREAM);
+#endif
+	PR("DHCPv6 server                             : %s\n",
+	   IS_ENABLED(CONFIG_NET_DHCPV6_SERVER) ? "enabled" : "disabled");
+#if defined(CONFIG_NET_DHCPV6_SERVER)
+	PR("DHCPv6 server max leases                  : %d\n",
+	   CONFIG_NET_DHCPV6_SERVER_MAX_LEASES);
+#endif
 #endif /* CONFIG_NET_NATIVE_IPV6 */
 
 #if defined(CONFIG_NET_IPV6)
@@ -221,7 +264,7 @@ static int cmd_net_ipv6(const struct shell *sh, size_t argc, char *argv[])
 	user_data.user_data = NULL;
 
 	/* Print information about address lifetime */
-	net_if_foreach(address_lifetime_cb, &user_data);
+	net_if_foreach(address_info_cb, &user_data);
 #endif /* CONFIG_NET_IPV6 */
 
 	return 0;
@@ -449,19 +492,20 @@ static int cmd_net_ip6_pe(const struct shell *sh, size_t argc, char *argv[])
 
 SHELL_STATIC_SUBCMD_SET_CREATE(net_cmd_ip6,
 	SHELL_CMD(add, NULL,
-		  "'net ipv6 add <index> <address>' adds the address to the interface.",
+		  SHELL_HELP("Adds the address to the interface",
+			     "<index> <address>"),
 		  cmd_net_ip6_add),
 	SHELL_CMD(del, NULL,
-		  "'net ipv6 del <index> <address>' deletes the address from the interface.",
+		  SHELL_HELP("Deletes the address from the interface",
+			     "<index> <address>"),
 		  cmd_net_ip6_del),
 	SHELL_CMD(pe, NULL,
-		  "net ipv6 pe add [allow|deny] <IPv6 prefix>\n"
-		  "Add IPv6 address to filter list. The allow/deny "
-		  "parameter tells if this is allow listed (accepted) or "
-		  "deny listed (declined) prefix. Default is to allow list "
-		  "the prefix.\n"
-		  "ipv6 pe del <IPv6 prefix>\n"
-		  "Delete IPv6 address from filter list.",
+		  SHELL_HELP("Add/delete IPv6 address to/from filter list",
+			     "add [allow|deny] <IPv6 prefix>\n"
+			     "pe del <IPv6 prefix>\n"
+			     "The allow/deny parameter tells if this is "
+			     "allow listed (accepted) or deny listed (declined) prefix.\n"
+			     "Default is to allow list the prefix"),
 		  cmd_net_ip6_pe),
 	SHELL_SUBCMD_SET_END
 );

@@ -30,13 +30,50 @@
 #include <stm32_ll_dma.h>
 #include "mspi_stm32.h"
 
-#define DT_OSPI_IO_PORT_PROP_OR(prop, default_value, index)                             \
-	COND_CODE_1(DT_INST_NODE_HAS_PROP(index, prop),				\
-		    (_CONCAT(HAL_OSPIM_, DT_INST_STRING_TOKEN(index, prop))),	\
+/*
+ * Map a DT_INST ordinal to the hardware OCTOSPI instance number (1, 2, ...).
+ *
+ * COND_CODE_1(DT_NODE_EXISTS(...)) is evaluated entirely by the preprocessor
+ * and emits the ternary arm only when the node label exists in the current DTS.
+ * This avoids expanding DT_NODELABEL(octospiN) on chips that have fewer
+ * instances, making the macro portable across all STM32 OCTOSPI variants.
+ *
+ * The result is a stacked ternary whose trailing 0 (unknown node) is caught at
+ * compile time by BUILD_ASSERT in MSPI_STM32_INIT.
+ */
+#define OSPI_INST_NUM(index)                                                           \
+	(IF_ENABLED(DT_NODE_EXISTS(DT_NODELABEL(octospi1)),                            \
+		(DT_SAME_NODE(DT_DRV_INST(index), DT_NODELABEL(octospi1)) ? 1 :))      \
+	IF_ENABLED(DT_NODE_EXISTS(DT_NODELABEL(octospi2)),                             \
+		(DT_SAME_NODE(DT_DRV_INST(index), DT_NODELABEL(octospi2)) ? 2 :))      \
+	0)
+
+/*
+ * OSPIM-specific macros: HAL_OSPIM_IOPORT_* constants are only defined by the
+ * STM32 HAL when the OCTOSPI I/O Manager peripheral is present.  Guard them so
+ * the driver compiles cleanly on chips without OCTOSPIM (e.g. STM32L4/L5).
+ */
+#if defined(OCTOSPIM)
+#define DT_OSPI_IO_PORT_PROP_OR(prop, default_value, index)                          \
+	COND_CODE_1(DT_INST_NODE_HAS_PROP(index, prop),                              \
+		    (_CONCAT(HAL_OSPIM_, DT_INST_STRING_TOKEN(index, prop))),         \
 		    (default_value))
 
-#define DT_OSPI_PROP_OR(prop, default_value, index)                                     \
-	DT_INST_PROP_OR(index, prop, default_value)
+#define OSPI_INST_IO_LOW_PORT(index)                              \
+	((OSPI_INST_NUM(index) == 1) ? HAL_OSPIM_IOPORT_1_LOW :  \
+	 (OSPI_INST_NUM(index) == 2) ? HAL_OSPIM_IOPORT_2_LOW :  \
+	 HAL_OSPIM_IOPORT_1_LOW)
+
+#define OSPI_INST_IO_HIGH_PORT(index)                              \
+	((OSPI_INST_NUM(index) == 1) ? HAL_OSPIM_IOPORT_1_HIGH :  \
+	 (OSPI_INST_NUM(index) == 2) ? HAL_OSPIM_IOPORT_2_HIGH :  \
+	 HAL_OSPIM_IOPORT_1_HIGH)
+#else
+/* No OCTOSPIM: io port fields are unused; provide neutral zero values. */
+#define DT_OSPI_IO_PORT_PROP_OR(prop, default_value, index) 0
+#define OSPI_INST_IO_LOW_PORT(index)  0
+#define OSPI_INST_IO_HIGH_PORT(index) 0
+#endif /* OCTOSPIM */
 
 LOG_MODULE_REGISTER(ospi_stm32, CONFIG_MSPI_LOG_LEVEL);
 
@@ -92,22 +129,23 @@ static OSPI_RegularCmdTypeDef mspi_stm32_ospi_prepare_cmd(uint8_t cfg_mode, uint
 	OSPI_RegularCmdTypeDef cmd_tmp = {0};
 
 	cmd_tmp.OperationType = HAL_OSPI_OPTYPE_COMMON_CFG;
-	cmd_tmp.InstructionSize = (cfg_mode == MSPI_IO_MODE_OCTAL) ? HAL_OSPI_INSTRUCTION_16_BITS
-								   : HAL_OSPI_INSTRUCTION_8_BITS;
+	cmd_tmp.InstructionSize =
+		((cfg_mode == MSPI_IO_MODE_OCTAL) && (cfg_rate != MSPI_DATA_RATE_S_D_D))
+			? HAL_OSPI_INSTRUCTION_16_BITS
+			: HAL_OSPI_INSTRUCTION_8_BITS;
 	cmd_tmp.InstructionDtrMode = (cfg_rate == MSPI_DATA_RATE_DUAL)
 					     ? HAL_OSPI_INSTRUCTION_DTR_ENABLE
 					     : HAL_OSPI_INSTRUCTION_DTR_DISABLE;
+
 	cmd_tmp.AlternateBytesMode = HAL_OSPI_ALTERNATE_BYTES_NONE;
-	cmd_tmp.AddressDtrMode = (cfg_rate == MSPI_DATA_RATE_DUAL) ? HAL_OSPI_ADDRESS_DTR_ENABLE
-								   : HAL_OSPI_ADDRESS_DTR_DISABLE;
-	cmd_tmp.DataDtrMode = (cfg_rate == MSPI_DATA_RATE_DUAL) ? HAL_OSPI_DATA_DTR_ENABLE
-								: HAL_OSPI_DATA_DTR_DISABLE;
+	cmd_tmp.AddressDtrMode = (cfg_rate == MSPI_DATA_RATE_SINGLE) ? HAL_OSPI_ADDRESS_DTR_DISABLE
+								     : HAL_OSPI_ADDRESS_DTR_ENABLE;
+	cmd_tmp.DataDtrMode = (cfg_rate == MSPI_DATA_RATE_SINGLE) ? HAL_OSPI_DATA_DTR_DISABLE
+								  : HAL_OSPI_DATA_DTR_ENABLE;
 	/* AddressWidth must be set to 32bits for init and mem config phase */
 	cmd_tmp.AddressSize = HAL_OSPI_ADDRESS_32_BITS;
-	cmd_tmp.DataDtrMode = (cfg_rate == MSPI_DATA_RATE_DUAL) ? HAL_OSPI_DATA_DTR_ENABLE
-								: HAL_OSPI_DATA_DTR_DISABLE;
 	cmd_tmp.DQSMode =
-		(cfg_rate == MSPI_DATA_RATE_DUAL) ? HAL_OSPI_DQS_ENABLE : HAL_OSPI_DQS_DISABLE;
+		(cfg_rate == MSPI_DATA_RATE_SINGLE) ? HAL_OSPI_DQS_DISABLE : HAL_OSPI_DQS_ENABLE;
 	cmd_tmp.SIOOMode = HAL_OSPI_SIOO_INST_EVERY_CMD;
 
 	switch (cfg_mode) {
@@ -121,9 +159,29 @@ static OSPI_RegularCmdTypeDef mspi_stm32_ospi_prepare_cmd(uint8_t cfg_mode, uint
 		cmd_tmp.AddressMode = HAL_OSPI_ADDRESS_4_LINES;
 		cmd_tmp.DataMode = HAL_OSPI_DATA_4_LINES;
 		break;
+	case MSPI_IO_MODE_QUAD_1_4_4:
+		cmd_tmp.InstructionMode = HAL_OSPI_INSTRUCTION_1_LINE;
+		cmd_tmp.AddressMode = HAL_OSPI_ADDRESS_4_LINES;
+		cmd_tmp.DataMode = HAL_OSPI_DATA_4_LINES;
+		break;
+	case MSPI_IO_MODE_QUAD_1_1_4:
+		cmd_tmp.InstructionMode = HAL_OSPI_INSTRUCTION_1_LINE;
+		cmd_tmp.AddressMode = HAL_OSPI_ADDRESS_1_LINE;
+		cmd_tmp.DataMode = HAL_OSPI_DATA_4_LINES;
+		break;
 	case MSPI_IO_MODE_DUAL:
 		cmd_tmp.InstructionMode = HAL_OSPI_INSTRUCTION_2_LINES;
 		cmd_tmp.AddressMode = HAL_OSPI_ADDRESS_2_LINES;
+		cmd_tmp.DataMode = HAL_OSPI_DATA_2_LINES;
+		break;
+	case MSPI_IO_MODE_DUAL_1_2_2:
+		cmd_tmp.InstructionMode = HAL_OSPI_INSTRUCTION_1_LINE;
+		cmd_tmp.AddressMode = HAL_OSPI_ADDRESS_2_LINES;
+		cmd_tmp.DataMode = HAL_OSPI_DATA_2_LINES;
+		break;
+	case MSPI_IO_MODE_DUAL_1_1_2:
+		cmd_tmp.InstructionMode = HAL_OSPI_INSTRUCTION_1_LINE;
+		cmd_tmp.AddressMode = HAL_OSPI_ADDRESS_1_LINE;
 		cmd_tmp.DataMode = HAL_OSPI_DATA_2_LINES;
 		break;
 	default:
@@ -155,13 +213,12 @@ static int mspi_stm32_ospi_memmap_off(const struct device *controller)
 	return 0;
 }
 
-/* Set the device in MemMapped mode */
 static int mspi_stm32_ospi_memmap_on(const struct device *controller)
 {
 	struct mspi_stm32_data *dev_data = controller->data;
 	OSPI_RegularCmdTypeDef s_command =
 		mspi_stm32_ospi_prepare_cmd(dev_data->dev_cfg.io_mode, dev_data->dev_cfg.data_rate);
-	OSPI_MemoryMappedTypeDef s_MemMappedCfg;
+	OSPI_MemoryMappedTypeDef s_MemMappedCfg = {0};
 	HAL_StatusTypeDef hal_ret;
 
 	if (mspi_stm32_ospi_is_memorymap(controller)) {
@@ -178,52 +235,12 @@ static int mspi_stm32_ospi_memmap_on(const struct device *controller)
 
 	/* Initialize the read command */
 	s_command.OperationType = HAL_OSPI_OPTYPE_READ_CFG;
-	s_command.InstructionMode = (dev_data->dev_cfg.data_rate == MSPI_DATA_RATE_SINGLE)
-					    ? ((dev_data->dev_cfg.io_mode == MSPI_IO_MODE_SINGLE)
-						       ? HAL_OSPI_INSTRUCTION_1_LINE
-						       : HAL_OSPI_INSTRUCTION_8_LINES)
-					    : HAL_OSPI_INSTRUCTION_8_LINES;
-	s_command.InstructionDtrMode = (dev_data->dev_cfg.data_rate == MSPI_DATA_RATE_SINGLE)
-					       ? HAL_OSPI_INSTRUCTION_DTR_DISABLE
-					       : HAL_OSPI_INSTRUCTION_DTR_ENABLE;
-	s_command.InstructionSize = (dev_data->dev_cfg.data_rate == MSPI_DATA_RATE_SINGLE)
-					     ? ((dev_data->dev_cfg.io_mode == MSPI_IO_MODE_SINGLE)
-							   ? HAL_OSPI_INSTRUCTION_8_BITS
-							   : HAL_OSPI_INSTRUCTION_16_BITS)
-						: HAL_OSPI_INSTRUCTION_16_BITS;
-	s_command.Instruction = (dev_data->dev_cfg.data_rate == MSPI_DATA_RATE_SINGLE)
-					? ((dev_data->dev_cfg.io_mode == MSPI_IO_MODE_SINGLE)
-						   ? ((mspi_stm32_ospi_hal_address_size(
-								   dev_data->dev_cfg.addr_length) ==
-							   HAL_OSPI_ADDRESS_24_BITS)
-								  ? MSPI_NOR_CMD_READ_FAST
-								  : MSPI_NOR_CMD_READ_FAST_4B)
-						   : dev_data->dev_cfg.read_cmd)
-					: MSPI_NOR_OCMD_DTR_RD;
-	s_command.AddressMode = (dev_data->dev_cfg.data_rate == MSPI_DATA_RATE_SINGLE)
-					? ((dev_data->dev_cfg.io_mode == MSPI_IO_MODE_SINGLE)
-						   ? HAL_OSPI_ADDRESS_1_LINE
-						   : HAL_OSPI_ADDRESS_8_LINES)
-					: HAL_OSPI_ADDRESS_8_LINES;
-	s_command.AddressDtrMode = (dev_data->dev_cfg.data_rate == MSPI_DATA_RATE_SINGLE)
-					   ? HAL_OSPI_ADDRESS_DTR_DISABLE
-					   : HAL_OSPI_ADDRESS_DTR_ENABLE;
+	s_command.Instruction = dev_data->dev_cfg.read_cmd;
 	s_command.AddressSize =
 		(dev_data->dev_cfg.data_rate == MSPI_DATA_RATE_SINGLE)
 			? mspi_stm32_ospi_hal_address_size(dev_data->dev_cfg.addr_length)
 			: HAL_OSPI_ADDRESS_32_BITS;
-	s_command.DataMode = (dev_data->dev_cfg.data_rate == MSPI_DATA_RATE_SINGLE)
-					 ? ((dev_data->dev_cfg.io_mode == MSPI_IO_MODE_SINGLE)
-						? HAL_OSPI_DATA_1_LINE
-						: HAL_OSPI_DATA_8_LINES)
-					 : HAL_OSPI_DATA_8_LINES;
-	s_command.DataDtrMode = (dev_data->dev_cfg.data_rate == MSPI_DATA_RATE_SINGLE)
-					? HAL_OSPI_DATA_DTR_DISABLE
-					: HAL_OSPI_DATA_DTR_ENABLE;
-	s_command.DummyCycles = dev_data->ctx.xfer.rx_dummy;
-	s_command.DQSMode = (dev_data->dev_cfg.data_rate == MSPI_DATA_RATE_SINGLE)
-					? HAL_OSPI_DQS_DISABLE
-					: HAL_OSPI_DQS_ENABLE;
+	s_command.DummyCycles = dev_data->dev_cfg.rx_dummy;
 
 	if (HAL_OSPI_Command(&dev_data->hmspi.ospi, &s_command, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) !=
 	    HAL_OK) {
@@ -233,18 +250,16 @@ static int mspi_stm32_ospi_memmap_on(const struct device *controller)
 
 	/* Initialize the program command */
 	s_command.OperationType = HAL_OSPI_OPTYPE_WRITE_CFG;
-	if (dev_data->dev_cfg.data_rate == MSPI_DATA_RATE_SINGLE) {
-		s_command.Instruction = (dev_data->dev_cfg.io_mode == MSPI_IO_MODE_SINGLE)
-						? ((mspi_stm32_ospi_hal_address_size(
-								dev_data->ctx.xfer.addr_length) ==
-							HAL_OSPI_ADDRESS_24_BITS)
-							   ? MSPI_NOR_CMD_PP
-							   : MSPI_NOR_CMD_PP_4B)
-						: MSPI_NOR_OCMD_PAGE_PRG;
-	} else {
-		s_command.Instruction = MSPI_NOR_OCMD_PAGE_PRG;
-	}
-	s_command.DQSMode = HAL_OSPI_DQS_DISABLE;
+	s_command.Instruction = dev_data->dev_cfg.write_cmd;
+	s_command.DummyCycles = dev_data->dev_cfg.tx_dummy;
+#if defined(CONFIG_SOC_SERIES_STM32U5X)
+	/* STM32U5 errata 2.6.1: DQSE must be set in WCCR for memory-mapped writes
+	 * even when the memory has no physical DQS pin, otherwise every write
+	 * in memory-mapped mode returns an AHB error response (Bus Fault).
+	 */
+	s_command.DQSMode = HAL_OSPI_DQS_ENABLE;
+#endif
+
 	hal_ret =
 		HAL_OSPI_Command(&dev_data->hmspi.ospi, &s_command, HAL_OSPI_TIMEOUT_DEFAULT_VALUE);
 	if (hal_ret != HAL_OK) {
@@ -252,8 +267,26 @@ static int mspi_stm32_ospi_memmap_on(const struct device *controller)
 		return -EIO;
 	}
 
-	/* Enable the memory-mapping */
+	/* Enable the memory-mapping.
+	 * The inactivity timeout is only needed when the OCTOSPI I/O Manager
+	 * is in multiplexed mode (OCTOSPI1/OCTOSPI2 share pins) — only then a
+	 * peripheral must release nCS so the other one can drive the bus.
+	 * MUXEN is set by HAL_OSPIM_Config() based on the DTS port mapping, so
+	 * reading it here gives the actual hardware state and avoids a separate
+	 * DT property that could drift out of sync.
+	 */
+#if defined(OCTOSPIM) && defined(OCTOSPIM_CR_MUXEN_Msk)
+	if ((OCTOSPIM->CR & OCTOSPIM_CR_MUXEN_Msk) != 0U) {
+		LOG_DBG("Detected OSPI muxed mode, set timeout.");
+		s_MemMappedCfg.TimeOutActivation = HAL_OSPI_TIMEOUT_COUNTER_ENABLE;
+		s_MemMappedCfg.TimeOutPeriod = 0x34;
+	} else {
+		s_MemMappedCfg.TimeOutActivation = HAL_OSPI_TIMEOUT_COUNTER_DISABLE;
+	}
+#else
 	s_MemMappedCfg.TimeOutActivation = HAL_OSPI_TIMEOUT_COUNTER_DISABLE;
+#endif
+
 	hal_ret = HAL_OSPI_MemoryMapped(&dev_data->hmspi.ospi, &s_MemMappedCfg);
 	if (hal_ret != HAL_OK) {
 		LOG_ERR("Failed to enable memory mapped");
@@ -299,7 +332,7 @@ static int mspi_stm32_ospi_abort_memmap(const struct device *dev)
 	struct mspi_stm32_data *dev_data = dev->data;
 	int ret = 0;
 
-	if (dev_data->xip_cfg.enable && mspi_stm32_ospi_is_memorymap(dev)) {
+	if (dev_data->memmap_cfg.enable && mspi_stm32_ospi_is_memorymap(dev)) {
 		ret = mspi_stm32_ospi_memmap_off(dev);
 		if (ret != 0) {
 			LOG_ERR("%s: Failed to abort memory-mapped", dev->name);
@@ -319,7 +352,7 @@ static int mspi_stm32_ospi_access(const struct device *dev, const struct mspi_xf
 	HAL_StatusTypeDef hal_ret;
 	int ret;
 
-	if (dev_data->xip_cfg.enable && packet->dir == MSPI_RX) {
+	if (dev_data->memmap_cfg.enable && packet->dir == MSPI_RX) {
 		return mspi_stm32_ospi_memmap_read(dev, packet);
 	}
 
@@ -348,7 +381,8 @@ static int mspi_stm32_ospi_access(const struct device *dev, const struct mspi_xf
 		cmd.DataMode = HAL_OSPI_DATA_NONE;
 	}
 
-	if ((cmd.Instruction == MSPI_NOR_CMD_WREN) || (cmd.Instruction == MSPI_NOR_OCMD_WREN)) {
+	if (dev_data->ctx.xfer.addr_length == 0) {
+		/* Commands without an address phase, e.g. RDID or WREN */
 		cmd.AddressMode = HAL_OSPI_ADDRESS_NONE;
 	}
 
@@ -548,308 +582,6 @@ pm_put:
 	return ret;
 }
 
-/*
- * This function Polls the WIP(Write In Progress) bit to become to 0
- * in cfg_mode SPI/OPI MSPI_IO_MODE_SINGLE or MSPI_IO_MODE_OCTAL
- * and cfg_rate transfer STR/DTR MSPI_DATA_RATE_SINGLE or MSPI_DATA_RATE_DUAL
- */
-static int mspi_stm32_ospi_mem_ready(const struct device *dev, uint8_t cfg_mode, uint8_t cfg_rate)
-{
-	struct mspi_stm32_data *dev_data = dev->data;
-	int ret = 0;
-
-	ret = mspi_stm32_ospi_abort_memmap(dev);
-	if (ret != 0) {
-		return ret;
-	}
-
-	OSPI_RegularCmdTypeDef s_command = mspi_stm32_ospi_prepare_cmd(cfg_mode, cfg_rate);
-
-	/* Configure automatic polling mode command to wait for memory ready */
-	if (cfg_mode == MSPI_IO_MODE_OCTAL) {
-		s_command.Instruction = MSPI_NOR_OCMD_RDSR;
-		s_command.DummyCycles = (cfg_rate == MSPI_DATA_RATE_DUAL)
-						? MSPI_NOR_DUMMY_REG_OCTAL_DTR
-						: MSPI_NOR_DUMMY_REG_OCTAL;
-	} else {
-		s_command.Instruction = MSPI_NOR_CMD_RDSR;
-		/* force 1-line InstructionMode for any non-OSPI transfer */
-		s_command.InstructionMode = HAL_OSPI_INSTRUCTION_1_LINE;
-		s_command.AddressMode = HAL_OSPI_ADDRESS_NONE;
-		/* force 1-line DataMode for any non-OSPI transfer */
-		s_command.DataMode = HAL_OSPI_DATA_1_LINE;
-		s_command.DummyCycles = 0;
-	}
-	s_command.NbData = ((cfg_rate == MSPI_DATA_RATE_DUAL) ? 2U : 1U);
-	s_command.Address = 0U;
-
-	if (HAL_OSPI_Command(&dev_data->hmspi.ospi, &s_command, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) !=
-	    HAL_OK) {
-		LOG_ERR("MSPI AutoPoll command failed");
-		return -EIO;
-	}
-	/* Set the match to 0x00 to check if the WIP bit is Reset */
-	LOG_DBG("MSPI read status reg MemRdy");
-	return mspi_stm32_ospi_wait_auto_polling(dev, MSPI_NOR_MEM_RDY_MATCH, MSPI_NOR_MEM_RDY_MASK,
-						 HAL_OSPI_TIMEOUT_DEFAULT_VALUE);
-}
-
-/* Enables writing to the memory sending a Write Enable and wait it is effective */
-static int mspi_stm32_ospi_write_enable(const struct device *dev, uint8_t cfg_mode,
-					uint8_t cfg_rate)
-{
-	struct mspi_stm32_data *dev_data = dev->data;
-	int ret = 0;
-
-	ret = mspi_stm32_ospi_abort_memmap(dev);
-	if (ret != 0) {
-		return ret;
-	}
-
-	OSPI_RegularCmdTypeDef s_command = mspi_stm32_ospi_prepare_cmd(cfg_mode, cfg_rate);
-
-	/* Initialize the write enable command */
-	if (cfg_mode == MSPI_IO_MODE_OCTAL) {
-		s_command.Instruction = MSPI_NOR_OCMD_WREN;
-	} else {
-		s_command.Instruction = MSPI_NOR_CMD_WREN;
-		/* force 1-line InstructionMode for any non-OSPI transfer */
-		s_command.InstructionMode = HAL_OSPI_INSTRUCTION_1_LINE;
-	}
-	s_command.AddressMode = HAL_OSPI_ADDRESS_NONE;
-	s_command.DataMode = HAL_OSPI_DATA_NONE;
-	s_command.DummyCycles = 0U;
-
-	if (HAL_OSPI_Command(&dev_data->hmspi.ospi, &s_command, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) !=
-	    HAL_OK) {
-		LOG_ERR("MSPI flash write enable cmd failed");
-		return -EIO;
-	}
-	LOG_DBG("MSPI write enable");
-
-	/* New command to Configure automatic polling mode to wait for write enabling */
-	if (cfg_mode == MSPI_IO_MODE_OCTAL) {
-		s_command.Instruction = MSPI_NOR_OCMD_RDSR;
-		s_command.AddressMode = HAL_OSPI_ADDRESS_8_LINES;
-		s_command.DataMode = HAL_OSPI_DATA_8_LINES;
-		s_command.DummyCycles = (cfg_rate == MSPI_DATA_RATE_DUAL)
-						? MSPI_NOR_DUMMY_REG_OCTAL_DTR
-						: MSPI_NOR_DUMMY_REG_OCTAL;
-	} else {
-		s_command.Instruction = MSPI_NOR_CMD_RDSR;
-		/* force 1-line DataMode for any non-OSPI transfer */
-		s_command.InstructionMode = HAL_OSPI_INSTRUCTION_1_LINE;
-		s_command.AddressMode = HAL_OSPI_ADDRESS_1_LINE;
-		s_command.DataMode = HAL_OSPI_DATA_1_LINE;
-		s_command.DummyCycles = 0;
-
-		/* DummyCycles remains 0 */
-	}
-	s_command.NbData = (cfg_rate == MSPI_DATA_RATE_DUAL) ? 2U : 1U;
-	s_command.Address = 0U;
-
-	if (HAL_OSPI_Command(&dev_data->hmspi.ospi, &s_command, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) !=
-	    HAL_OK) {
-		LOG_ERR("MSPI config auto polling cmd failed");
-		return -EIO;
-	}
-	LOG_DBG("MSPI read status reg");
-
-	return mspi_stm32_ospi_wait_auto_polling(dev, MSPI_NOR_WREN_MATCH, MSPI_NOR_WREN_MASK,
-						 HAL_OSPI_TIMEOUT_DEFAULT_VALUE);
-}
-
-/* Write Flash configuration register 2 with new dummy cycles */
-static int mspi_stm32_opsi_write_cfg2reg_dummy(const struct device *dev, uint8_t cfg_mode,
-					       uint8_t cfg_rate)
-{
-
-	int ret = 0;
-	struct mspi_stm32_data *dev_data = dev->data;
-
-	ret = mspi_stm32_ospi_abort_memmap(dev);
-	if (ret != 0) {
-		return ret;
-	}
-
-	uint8_t transmit_data = MSPI_NOR_CR2_DUMMY_CYCLES_66MHZ;
-	OSPI_RegularCmdTypeDef s_command = mspi_stm32_ospi_prepare_cmd(cfg_mode, cfg_rate);
-
-	/* Initialize the writing of configuration register 2 */
-	s_command.Instruction = (cfg_mode == MSPI_IO_MODE_SINGLE) ? MSPI_NOR_CMD_WR_CFGREG2
-								  : MSPI_NOR_OCMD_WR_CFGREG2;
-	s_command.Address = MSPI_NOR_REG2_ADDR3;
-	s_command.DummyCycles = 0U;
-
-	if (cfg_mode == MSPI_IO_MODE_SINGLE) {
-		s_command.NbData = 1U;
-	} else if (cfg_rate == MSPI_DATA_RATE_DUAL) {
-		s_command.NbData = 2U;
-	} else {
-		s_command.NbData = 1U;
-	}
-
-	if (HAL_OSPI_Command(&dev_data->hmspi.ospi, &s_command, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) !=
-	    HAL_OK) {
-		LOG_ERR("MSPI transmit cmd");
-		return -EIO;
-	}
-
-	if (HAL_OSPI_Transmit(&dev_data->hmspi.ospi, &transmit_data,
-			      HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK) {
-		LOG_ERR("MSPI transmit ");
-		return -EIO;
-	}
-
-	return ret;
-}
-
-/* Write Flash configuration register 2 with new single or octal SPI protocol */
-static int mspi_stm32_ospi_write_cfg2reg_io(const struct device *dev, uint8_t cfg_mode,
-					    uint8_t cfg_rate, uint8_t op_enable)
-{
-	int ret = 0;
-	struct mspi_stm32_data *dev_data = dev->data;
-
-	ret = mspi_stm32_ospi_abort_memmap(dev);
-	if (ret != 0) {
-		return ret;
-	}
-
-	OSPI_RegularCmdTypeDef s_command = mspi_stm32_ospi_prepare_cmd(cfg_mode, cfg_rate);
-
-	/* Initialize the writing of configuration register 2 */
-	s_command.Instruction = (cfg_mode == MSPI_IO_MODE_SINGLE) ? MSPI_NOR_CMD_WR_CFGREG2
-								  : MSPI_NOR_OCMD_WR_CFGREG2;
-	s_command.Address = MSPI_NOR_REG2_ADDR1;
-	s_command.DummyCycles = 0U;
-
-	if (cfg_mode == MSPI_IO_MODE_SINGLE) {
-		s_command.NbData = 1U;
-	} else if (cfg_rate == MSPI_DATA_RATE_DUAL) {
-		s_command.NbData = 2U;
-	} else {
-		s_command.NbData = 1U;
-	}
-
-	if (HAL_OSPI_Command(&dev_data->hmspi.ospi, &s_command, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) !=
-	    HAL_OK) {
-		LOG_ERR("Write Flash configuration reg2 failed");
-		return -EIO;
-	}
-
-	if (HAL_OSPI_Transmit(&dev_data->hmspi.ospi, &op_enable, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) !=
-	    HAL_OK) {
-		LOG_ERR("Write Flash configuration reg2 failed");
-		return -EIO;
-	}
-
-	return 0;
-}
-
-/* Read Flash configuration register 2 with new single or octal SPI protocol */
-static int mspi_stm32_ospi_read_cfg2reg(const struct device *dev, uint8_t cfg_mode,
-					uint8_t cfg_rate, uint8_t *value)
-{
-	int ret = 0;
-	struct mspi_stm32_data *dev_data = dev->data;
-
-	ret = mspi_stm32_ospi_abort_memmap(dev);
-	if (ret != 0) {
-		return ret;
-	}
-
-	OSPI_RegularCmdTypeDef s_command = mspi_stm32_ospi_prepare_cmd(cfg_mode, cfg_rate);
-
-	/* Initialize the writing of configuration register 2 */
-	s_command.Instruction = (cfg_mode == MSPI_IO_MODE_SINGLE) ? MSPI_NOR_CMD_RD_CFGREG2
-								  : MSPI_NOR_OCMD_RD_CFGREG2;
-	s_command.Address = MSPI_NOR_REG2_ADDR1;
-
-	if (cfg_mode == MSPI_IO_MODE_SINGLE) {
-		s_command.DummyCycles = 0U;
-	} else if (cfg_rate == MSPI_DATA_RATE_DUAL) {
-		s_command.DummyCycles = MSPI_NOR_DUMMY_REG_OCTAL_DTR;
-	} else {
-		s_command.DummyCycles = MSPI_NOR_DUMMY_REG_OCTAL;
-	}
-	s_command.NbData = (cfg_rate == MSPI_DATA_RATE_DUAL) ? 2U : 1U;
-
-	if (HAL_OSPI_Command(&dev_data->hmspi.ospi, &s_command, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) !=
-	    HAL_OK) {
-		LOG_ERR("Write Flash configuration reg2 failed");
-		return -EIO;
-	}
-
-	if (HAL_OSPI_Receive(&dev_data->hmspi.ospi, value, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) !=
-	    HAL_OK) {
-		LOG_ERR("Write Flash configuration reg2 failed");
-		return -EIO;
-	}
-
-	return 0;
-}
-
-static int mspi_stm32_ospi_config_mem(const struct device *dev, uint8_t cfg_mode, uint8_t cfg_rate)
-{
-	struct mspi_stm32_data *dev_data = dev->data;
-	uint8_t reg[2];
-
-	if ((cfg_mode == MSPI_IO_MODE_SINGLE) && (cfg_rate == MSPI_DATA_RATE_SINGLE)) {
-		return 0;
-	}
-
-	if (mspi_stm32_opsi_write_cfg2reg_dummy(dev, MSPI_IO_MODE_SINGLE, MSPI_DATA_RATE_SINGLE) !=
-	    0) {
-		LOG_ERR("OSPI write CFGR2 failed");
-		return -EIO;
-	}
-	if (mspi_stm32_ospi_mem_ready(dev, MSPI_IO_MODE_SINGLE, MSPI_DATA_RATE_SINGLE) != 0) {
-		LOG_ERR("OSPI autopolling failed");
-		return -EIO;
-	}
-	if (mspi_stm32_ospi_write_enable(dev, MSPI_IO_MODE_SINGLE, MSPI_DATA_RATE_SINGLE) != 0) {
-		LOG_ERR("OSPI write Enable 2 failed");
-		return -EIO;
-	}
-
-	uint8_t mode_enable = ((cfg_rate == MSPI_DATA_RATE_DUAL) ? MSPI_NOR_CR2_DTR_OPI_EN
-								 : MSPI_NOR_CR2_STR_OPI_EN);
-
-	if (mspi_stm32_ospi_write_cfg2reg_io(dev, MSPI_IO_MODE_SINGLE, MSPI_DATA_RATE_SINGLE,
-					     mode_enable) != 0) {
-		LOG_ERR("OSPI write CFGR2 failed");
-		return -EIO;
-	}
-
-	/* Wait that the configuration is effective and check that memory is ready */
-	k_busy_wait(MSPI_STM32_WRITE_REG_MAX_TIME * USEC_PER_MSEC);
-
-	/* Reconfigure the memory type of the peripheral */
-	dev_data->hmspi.ospi.Init.MemoryType = HAL_OSPI_MEMTYPE_MACRONIX;
-	dev_data->hmspi.ospi.Init.DelayHoldQuarterCycle = HAL_OSPI_DHQC_ENABLE;
-
-	if (HAL_OSPI_Init(&dev_data->hmspi.ospi) != HAL_OK) {
-		LOG_ERR("OSPI mem type MACRONIX failed");
-		return -EIO;
-	}
-
-	if (mspi_stm32_ospi_mem_ready(dev, MSPI_IO_MODE_OCTAL, cfg_rate) != 0) {
-		/* Check Flash busy ? */
-		LOG_ERR("OSPI flash busy failed");
-		return -EIO;
-	}
-	if (mspi_stm32_ospi_read_cfg2reg(dev, MSPI_IO_MODE_OCTAL, cfg_rate, reg) != 0) {
-		LOG_ERR("MSPI flash config read failed");
-		return -EIO;
-	}
-
-	LOG_INF("OSPI flash config is OCTO / %s",
-		(cfg_rate == MSPI_DATA_RATE_SINGLE) ? "STR" : "DTR");
-
-	return 0;
-}
-
 static void mspi_stm32_ospi_isr(const struct device *dev)
 {
 	struct mspi_stm32_data *dev_data = dev->data;
@@ -934,7 +666,7 @@ static int mspi_stm32_ospi_dev_cfg_save(const struct device *controller,
 	}
 
 	if ((param_mask & MSPI_DEVICE_CONFIG_FREQUENCY) != 0) {
-		if (dev_cfg->freq > MSPI_MAX_FREQ) {
+		if (dev_cfg->freq > cfg->mspicfg.max_freq) {
 			LOG_ERR("%u, freq is too large.", __LINE__);
 			return -ENOTSUP;
 		}
@@ -995,44 +727,6 @@ static int mspi_stm32_ospi_dev_cfg_save(const struct device *controller,
 }
 
 /**
- * Verify if the device with dev_id is on this MSPI bus.
- *
- * @param controller Pointer to the device structure for the driver instance.
- * @param dev_id Pointer to the device ID structure from a device.
- * @return 0 The device is on this MSPI bus.
- * @return -ENODEV The device is not on this MSPI bus.
- */
-static int mspi_stm32_ospi_verify_device(const struct device *controller,
-						const struct mspi_dev_id *dev_id)
-{
-	const struct mspi_stm32_conf *cfg = controller->config;
-	int device_index = cfg->mspicfg.num_periph;
-
-	if (cfg->mspicfg.num_ce_gpios != 0) {
-		for (int i = 0; i < cfg->mspicfg.num_periph; i++) {
-			if (dev_id->ce.port == cfg->mspicfg.ce_group[i].port &&
-			    dev_id->ce.pin == cfg->mspicfg.ce_group[i].pin &&
-			    dev_id->ce.dt_flags == cfg->mspicfg.ce_group[i].dt_flags) {
-				device_index = i;
-				break;
-			}
-		}
-
-		if (device_index >= cfg->mspicfg.num_periph || device_index != dev_id->dev_idx) {
-			LOG_ERR("%u, invalid device ID.", __LINE__);
-			return -ENODEV;
-		}
-	} else {
-		if (dev_id->dev_idx >= cfg->mspicfg.num_periph) {
-			LOG_ERR("%u, invalid device ID.", __LINE__);
-			return -ENODEV;
-		}
-	}
-
-	return 0;
-}
-
-/**
  * API implementation of mspi_dev_config : controller device specific configuration
  *
  * @param controller Pointer to the device structure for the driver instance.
@@ -1055,6 +749,10 @@ static int mspi_stm32_ospi_dev_config(const struct device *controller,
 	bool locked = false;
 
 	if (data->dev_id != dev_id) {
+		/* The controller lock is taken here and kept for the whole
+		 * session, until the device releases it through
+		 * mspi_get_channel_status().
+		 */
 		if (k_mutex_lock(&data->lock, K_MSEC(CONFIG_MSPI_COMPLETION_TIMEOUT_TOLERANCE))) {
 			LOG_ERR("MSPI config failed to access controller.");
 			return -EBUSY;
@@ -1068,44 +766,29 @@ static int mspi_stm32_ospi_dev_config(const struct device *controller,
 		goto e_return;
 	}
 
-	if (param_mask == MSPI_DEVICE_CONFIG_NONE && !cfg->mspicfg.sw_multi_periph) {
-		/* Nothing to do but saving the device ID */
-		data->dev_id = dev_id;
-		goto e_return;
-	}
-
-	(void)pm_device_runtime_get(controller);
-	/* Prevent the clocks to be stopped during the request */
-	pm_policy_state_lock_get(PM_STATE_SUSPEND_TO_IDLE, PM_ALL_SUBSTATES);
-
-	/* Proceed step by step in configuration */
-	if (param_mask & (MSPI_DEVICE_CONFIG_IO_MODE | MSPI_DEVICE_CONFIG_DATA_RATE)) {
-		/* Going to set the OSPI mode and transfer rate */
-		ret = mspi_stm32_ospi_config_mem(controller, dev_cfg->io_mode, dev_cfg->data_rate);
-		if (ret != 0) {
-			goto e_pm_put;
-		}
-		LOG_DBG("MSPI confg'd in %d / %d", dev_cfg->io_mode, dev_cfg->data_rate);
-	}
-
 	/*
 	 * The SFDP is able to change the addr_length 4bytes or 3bytes
 	 * this is reflected by the serial_cfg
 	 */
 	data->dev_id = dev_id;
+
+	if (param_mask == MSPI_DEVICE_CONFIG_NONE && !cfg->mspicfg.sw_multi_periph) {
+		return 0;
+	}
+
 	/* Go on with other parameters if supported */
 	if (mspi_stm32_ospi_dev_cfg_save(controller, param_mask, dev_cfg) != 0) {
 		LOG_ERR("failed to set device config");
 		ret = -EIO;
+		goto e_return;
 	}
 
-e_pm_put:
-	pm_policy_state_lock_put(PM_STATE_SUSPEND_TO_IDLE, PM_ALL_SUBSTATES);
-	(void)pm_device_runtime_put(controller);
+	return 0;
 
 e_return:
 
 	if (locked) {
+		data->dev_id = NULL;
 		k_mutex_unlock(&data->lock);
 	}
 
@@ -1113,18 +796,18 @@ e_return:
 }
 
 /**
- * API implementation of mspi_xip_config : XIP configuration
+ * API implementation of mspi_memmap_config : XIP configuration
  *
  * @param controller Pointer to the device structure for the driver instance.
  * @param dev_id Pointer to the device ID structure from a device.
- * @param xip_cfg The controller XIP configuration for MSPI.
+ * @param memmap_cfg The controller XIP configuration for MSPI.
  *
  * @retval 0 if successful.
  * @retval -ESTALE device ID don't match, need to call mspi_dev_config first.
  */
-static int mspi_stm32_ospi_xip_config(const struct device *controller,
-				      const struct mspi_dev_id *dev_id,
-				      const struct mspi_xip_cfg *xip_cfg)
+static int mspi_stm32_ospi_memmap_config(const struct device *controller,
+					 const struct mspi_dev_id *dev_id,
+					 const struct mspi_memmap_cfg *memmap_cfg)
 {
 	struct mspi_stm32_data *dev_data = controller->data;
 	int ret = 0;
@@ -1138,7 +821,7 @@ static int mspi_stm32_ospi_xip_config(const struct device *controller,
 	/* Prevent the clocks to be stopped during the request */
 	pm_policy_state_lock_get(PM_STATE_SUSPEND_TO_IDLE, PM_ALL_SUBSTATES);
 
-	if (!xip_cfg->enable) {
+	if (!memmap_cfg->enable) {
 		/* This is for aborting */
 		ret = mspi_stm32_ospi_memmap_off(controller);
 	} else {
@@ -1146,8 +829,8 @@ static int mspi_stm32_ospi_xip_config(const struct device *controller,
 	}
 
 	if (ret == 0) {
-		dev_data->xip_cfg = *xip_cfg;
-		LOG_INF("XIP configured %d", xip_cfg->enable);
+		dev_data->memmap_cfg = *memmap_cfg;
+		LOG_INF("XIP configured %d", memmap_cfg->enable);
 	}
 
 	pm_policy_state_lock_put(PM_STATE_SUSPEND_TO_IDLE, PM_ALL_SUBSTATES);
@@ -1168,18 +851,21 @@ static int mspi_stm32_ospi_xip_config(const struct device *controller,
 static int mspi_stm32_ospi_get_channel_status(const struct device *controller, uint8_t ch)
 {
 	struct mspi_stm32_data *dev_data = controller->data;
-	int ret = 0;
 
 	ARG_UNUSED(ch);
 
 	if (mspi_stm32_ospi_is_inp(controller) ||
 	    __HAL_OSPI_GET_FLAG(&dev_data->hmspi.ospi, HAL_OSPI_FLAG_BUSY) == SET) {
-		ret = -EBUSY;
+		return -EBUSY;
 	}
 
+	/* The controller is idle: end the session started by
+	 * mspi_dev_config() and release the controller lock.
+	 */
 	dev_data->dev_id = NULL;
+	k_mutex_unlock(&dev_data->lock);
 
-	return ret;
+	return 0;
 }
 
 static int mspi_stm32_ospi_pio_transceive(const struct device *controller,
@@ -1323,6 +1009,8 @@ static int mspi_stm32_ospi_dma_setup(const struct mspi_stm32_conf *dev_cfg,
 	struct dma_config dma_cfg = dev_data->dma.cfg;
 	DMA_HandleTypeDef *hdma = &dev_data->hdma;
 
+	dev_data->dma.reg = (DMA_TypeDef *)dev_data->dma.phys_addr;
+
 	if (!device_is_ready(dev_data->dma.dev)) {
 		LOG_ERR("%s device not ready", dev_data->dma.dev->name);
 		return -ENODEV;
@@ -1393,7 +1081,7 @@ static __maybe_unused void mspi_stm32_ospi_dma_callback(const struct device *dev
 }
 #endif /* CONFIG_MSPI_DMA && !HAL_MDMA_MODULE_ENABLED */
 
-static int mspi_stm32_ospi_conf_validate(const struct mspi_cfg *config)
+static int mspi_stm32_ospi_conf_validate(const struct mspi_cfg *config, uint32_t max_frequency)
 {
 	/* Only Controller mode is supported */
 	if (config->op_mode != MSPI_OP_MODE_CONTROLLER) {
@@ -1402,7 +1090,7 @@ static int mspi_stm32_ospi_conf_validate(const struct mspi_cfg *config)
 	}
 
 	/* Check the max possible freq. */
-	if (config->max_freq > MSPI_STM32_MAX_FREQ) {
+	if (config->max_freq > max_frequency) {
 		LOG_ERR("Max_freq %d too large.", config->max_freq);
 		return -ENOTSUP;
 	}
@@ -1424,11 +1112,6 @@ static int mspi_stm32_ospi_activate(const struct device *dev)
 {
 	int ret;
 	const struct mspi_stm32_conf *config = (const struct mspi_stm32_conf *)dev->config;
-
-	if (!device_is_ready(DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE))) {
-		LOG_ERR("clock control device not ready");
-		return -ENODEV;
-	}
 
 	ret = pinctrl_apply_state(config->pcfg, PINCTRL_STATE_DEFAULT);
 	if (ret < 0) {
@@ -1521,11 +1204,12 @@ static int mspi_stm32_ospi_config(const struct mspi_dt_spec *spec)
 	struct mspi_stm32_data *dev_data = spec->bus->data;
 	int ret = 0;
 
-	ret = mspi_stm32_ospi_conf_validate(config);
+	ret = mspi_stm32_ospi_conf_validate(config, dev_cfg->mspicfg.max_freq);
 	if (ret != 0) {
 		return ret;
 	}
 
+	dev_data->hmspi.ospi.Instance = dev_cfg->base;
 	(void)pm_device_runtime_get(spec->bus);
 	/* Prevent the clocks to be stopped during the request */
 	pm_policy_state_lock_get(PM_STATE_SUSPEND_TO_IDLE, PM_ALL_SUBSTATES);
@@ -1552,6 +1236,7 @@ static int mspi_stm32_ospi_config(const struct mspi_dt_spec *spec)
 	if (ret != 0) {
 		goto end;
 	}
+
 	/** The stm32 hal_mspi driver does not reduce DEVSIZE before writing the DCR1
 	 * dev_data->hmspi.ospi.Init.MemorySize = find_lsb_set(dev_cfg->reg_size) - 2;
 	 * dev_data->hmspi.ospi.Init.MemorySize is mandatory now (BUSY = 0) for HAL_XSPI Init
@@ -1560,19 +1245,16 @@ static int mspi_stm32_ospi_config(const struct mspi_dt_spec *spec)
 #if defined(XSPI_DCR2_WRAPSIZE)
 	dev_data->hmspi.ospi.Init.WrapSize = HAL_XSPI_WRAP_NOT_SUPPORTED;
 #endif /* XSPI_DCR2_WRAPSIZE */
-	/* STR mode else Macronix for DTR mode */
-	if (dev_data->dev_cfg.data_rate == MSPI_DATA_RATE_DUAL) {
-		dev_data->hmspi.ospi.Init.MemoryType = HAL_OSPI_MEMTYPE_MACRONIX;
-		dev_data->hmspi.ospi.Init.DelayHoldQuarterCycle = HAL_OSPI_DHQC_ENABLE;
-	} else {
-		dev_data->hmspi.ospi.Init.MemoryType = HAL_OSPI_MEMTYPE_MICRON;
-		dev_data->hmspi.ospi.Init.DelayHoldQuarterCycle = HAL_OSPI_DHQC_DISABLE;
-	}
 #if MSPI_STM32_DLYB_BYPASSED
 	dev_data->hmspi.ospi.Init.DelayBlockBypass = HAL_OSPI_DELAY_BLOCK_BYPASSED;
 #else
 	dev_data->hmspi.ospi.Init.DelayBlockBypass = HAL_OSPI_DELAY_BLOCK_USED;
 #endif /* MSPI_STM32_DLYB_BYPASSED */
+
+	/* Enable DHQC for high frequencies >= 100MHZ */
+	if (dev_cfg->mspicfg.max_freq > 100000000U) {
+		dev_data->hmspi.ospi.Init.DelayHoldQuarterCycle = HAL_OSPI_DHQC_ENABLE;
+	}
 
 	if (HAL_OSPI_Init(&dev_data->hmspi.ospi) != HAL_OK) {
 		LOG_ERR("MSPI Init failed");
@@ -1585,23 +1267,14 @@ static int mspi_stm32_ospi_config(const struct mspi_dt_spec *spec)
 	/* OCTOSPI I/O manager init Function */
 	OSPIM_CfgTypeDef ospi_mgr_cfg = {0};
 
-	if (dev_data->hmspi.ospi.Instance == OCTOSPI1) {
-		ospi_mgr_cfg.ClkPort = DT_OSPI_PROP_OR(clk_port, 1, dev_data->dev_id);
-		ospi_mgr_cfg.DQSPort = DT_OSPI_PROP_OR(dqs_port, 1, dev_data->dev_id);
-		ospi_mgr_cfg.NCSPort = DT_OSPI_PROP_OR(ncs_port, 1, dev_data->dev_id);
-		ospi_mgr_cfg.IOLowPort = DT_OSPI_IO_PORT_PROP_OR(
-			io_low_port, HAL_OSPIM_IOPORT_1_LOW, dev_data->dev_id);
-		ospi_mgr_cfg.IOHighPort = DT_OSPI_IO_PORT_PROP_OR(
-			io_high_port, HAL_OSPIM_IOPORT_1_HIGH, dev_data->dev_id);
-	} else if (dev_data->hmspi.ospi.Instance == OCTOSPI2) {
-		ospi_mgr_cfg.ClkPort = DT_OSPI_PROP_OR(clk_port, 2, dev_data->dev_id);
-		ospi_mgr_cfg.DQSPort = DT_OSPI_PROP_OR(dqs_port, 2, dev_data->dev_id);
-		ospi_mgr_cfg.NCSPort = DT_OSPI_PROP_OR(ncs_port, 2, dev_data->dev_id);
-		ospi_mgr_cfg.IOLowPort = DT_OSPI_IO_PORT_PROP_OR(
-			io_low_port, HAL_OSPIM_IOPORT_2_LOW, dev_data->dev_id);
-		ospi_mgr_cfg.IOHighPort = DT_OSPI_IO_PORT_PROP_OR(
-			io_high_port, HAL_OSPIM_IOPORT_2_HIGH, dev_data->dev_id);
-	} else {
+	ospi_mgr_cfg.ClkPort    = dev_cfg->ospim_clk_port;
+	ospi_mgr_cfg.DQSPort    = dev_cfg->ospim_dqs_port;
+	ospi_mgr_cfg.NCSPort    = dev_cfg->ospim_ncs_port;
+	ospi_mgr_cfg.IOLowPort  = dev_cfg->ospim_io_low_port;
+	ospi_mgr_cfg.IOHighPort = dev_cfg->ospim_io_high_port;
+
+	if (dev_data->hmspi.ospi.Instance != OCTOSPI1 &&
+		dev_data->hmspi.ospi.Instance != OCTOSPI2) {
 		LOG_ERR("Unknown OSPI Instance");
 		ret = -EINVAL;
 		goto end;
@@ -1619,8 +1292,8 @@ static int mspi_stm32_ospi_config(const struct mspi_dt_spec *spec)
 	/* OCTOSPI2 delay block init Function */
 	HAL_OSPI_DLYB_CfgTypeDef ospi_delay_block_cfg = {0};
 
-	ospi_delay_block_cfg.Units = 56;
-	ospi_delay_block_cfg.PhaseSel = 2;
+	(void)HAL_OSPI_DLYB_GetClockPeriod(&dev_data->hmspi.ospi, &ospi_delay_block_cfg);
+	ospi_delay_block_cfg.PhaseSel /= 4;
 	if (HAL_OSPI_DLYB_SetConfig(&dev_data->hmspi.ospi, &ospi_delay_block_cfg) != HAL_OK) {
 		LOG_ERR("OSPI DelayBlock failed");
 		ret = -EIO;
@@ -1640,6 +1313,8 @@ static int mspi_stm32_ospi_config(const struct mspi_dt_spec *spec)
 	}
 
 	if (config->re_init) {
+		/* Force-release a session that may still hold the lock */
+		dev_data->dev_id = NULL;
 		k_mutex_unlock(&dev_data->lock);
 	}
 end:
@@ -1669,12 +1344,34 @@ static int mspi_stm32_ospi_init(const struct device *controller)
 	return mspi_stm32_ospi_config(&spec);
 }
 
+#if defined(CONFIG_MSPI_TIMING)
+static int mspi_stm32_ospi_timing_config(const struct device *dev,
+					 const struct mspi_dev_id *dev_id,
+					 const uint32_t param_mask, void *cfg)
+{
+	struct mspi_stm32_data *dev_data = dev->data;
+	struct mspi_stm32_timing_cfg *config = cfg;
+
+	if (config->turnaround_cycles != 0) {
+		/* Required for PSRAM where tx_dummy = total latency (WLC),
+		 * while STM32 XSPI expects dummy cycles excluding turnaround.
+		 */
+		dev_data->dev_cfg.tx_dummy = dev_data->dev_cfg.tx_dummy - config->turnaround_cycles;
+	}
+
+	return 0;
+}
+#endif /* defined(CONFIG_MSPI_TIMING) */
+
 static DEVICE_API(mspi, mspi_stm32_driver_api) = {
 	.config = mspi_stm32_ospi_config,
 	.dev_config = mspi_stm32_ospi_dev_config,
-	.xip_config = mspi_stm32_ospi_xip_config,
+	.memmap_config = mspi_stm32_ospi_memmap_config,
 	.get_channel_status = mspi_stm32_ospi_get_channel_status,
 	.transceive = mspi_stm32_ospi_transceive,
+	#if defined(CONFIG_MSPI_TIMING)
+		.timing_config = mspi_stm32_ospi_timing_config,
+	#endif
 };
 
 #ifdef CONFIG_PM_DEVICE
@@ -1738,7 +1435,7 @@ static int mspi_stm32_ospi_pm_action(const struct device *dev, enum pm_device_ac
 #define OSPI_DMA_CHANNEL_INIT(node, dir)                                                           \
 	.dev = DEVICE_DT_GET(DT_DMAS_CTLR(node)),                                                  \
 	.channel = DT_DMAS_CELL_BY_NAME(node, dir, channel),                                       \
-	.reg = (DMA_TypeDef *)DT_REG_ADDR(DT_PHANDLE_BY_NAME(node, dmas, dir)),                    \
+	.phys_addr = DT_REG_ADDR(DT_DMAS_CTLR(node)),                                              \
 	.cfg = {                                                                                   \
 		.dma_slot = DT_DMAS_CELL_BY_NAME(node, dir, slot),                                 \
 		.source_data_size =                                                                \
@@ -1764,7 +1461,7 @@ static int mspi_stm32_ospi_pm_action(const struct device *dev, enum pm_device_ac
 		.channel_num = 0,                                                                  \
 		.op_mode = DT_INST_ENUM_IDX_OR(index, op_mode, MSPI_OP_MODE_CONTROLLER),           \
 		.duplex = DT_INST_ENUM_IDX_OR(index, duplex, MSPI_HALF_DUPLEX),                    \
-		.max_freq = DT_INST_PROP_OR(index, mspi_max_frequency, MSPI_STM32_MAX_FREQ),       \
+		.max_freq = DT_INST_PROP(index, clock_frequency),                                  \
 		.dqs_support = DT_INST_PROP(index, dqs_support),                                   \
 		.num_periph = DT_INST_CHILD_NUM(index),                                            \
 		.sw_multi_periph = DT_INST_PROP(index, software_multiperipheral),                  \
@@ -1779,6 +1476,14 @@ static int mspi_stm32_ospi_pm_action(const struct device *dev, enum pm_device_ac
 	}
 
 #define MSPI_STM32_INIT(index)                                                                     \
+	BUILD_ASSERT(OSPI_INST_NUM(index) != 0,                                                    \
+		     "Unsupported OSPI instance: DTS node must be octospi1 or octospi2");          \
+                                                                                                   \
+	BUILD_ASSERT(MSPI_STM32_HAS_SUPPORTED_CHILD(index),                                        \
+		     "MSPI controller must have a child with compatible st,nor/st,psram-device");  \
+                                                                                                   \
+	MSPI_STM32_VALIDATE_MEMTYPE(MSPI_STM32_MEMTYPE_TOKEN(index));                              \
+                                                                                                   \
 	static const struct stm32_pclken pclken_##index[] = STM32_DT_INST_CLOCKS(index);           \
                                                                                                    \
 	PINCTRL_DT_INST_DEFINE(index);                                                             \
@@ -1788,6 +1493,7 @@ static int mspi_stm32_ospi_pm_action(const struct device *dev, enum pm_device_ac
 	STM32_SMPI_IRQ_HANDLER(index)                                                              \
                                                                                                    \
 	static const struct mspi_stm32_conf mspi_stm32_dev_conf_##index = {                        \
+		.base = (void *)DT_INST_REG_ADDR(index),					   \
 		.pclken = pclken_##index,                                                          \
 		.pclk_len = DT_INST_NUM_CLOCKS(index),                                             \
 		.irq_config = mspi_stm32_irq_config_func_##index,                                  \
@@ -1795,10 +1501,18 @@ static int mspi_stm32_ospi_pm_action(const struct device *dev, enum pm_device_ac
 		.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(index),                                     \
 		.mspicfg.num_ce_gpios = ARRAY_SIZE(ce_gpios##index),                               \
 		.dma_specified = DT_INST_NODE_HAS_PROP(index, dmas),                               \
+		.ospim_clk_port = DT_INST_PROP_OR(index, st_clk_port,                              \
+						   OSPI_INST_NUM(index)),                          \
+		.ospim_dqs_port = DT_INST_PROP_OR(index, st_dqs_port, 0),                         \
+		.ospim_ncs_port = DT_INST_PROP_OR(index, st_ncs_port,                              \
+						   OSPI_INST_NUM(index)),                          \
+		.ospim_io_low_port = DT_OSPI_IO_PORT_PROP_OR(st_io_low_port,                      \
+						      OSPI_INST_IO_LOW_PORT(index), index),        \
+		.ospim_io_high_port = DT_OSPI_IO_PORT_PROP_OR(st_io_high_port,                    \
+						       OSPI_INST_IO_HIGH_PORT(index), index),      \
 	};                                                                                         \
 	static struct mspi_stm32_data mspi_stm32_dev_data_##index = {                              \
 		.hmspi.ospi = {                                                                    \
-			.Instance = (OCTOSPI_TypeDef *)DT_INST_REG_ADDR(index),                    \
 			.Init = {                                                                  \
 				.FifoThreshold = MSPI_STM32_FIFO_THRESHOLD,                        \
 				.SampleShifting = (DT_INST_PROP(index, st_ssht_enable) ?           \
@@ -1806,16 +1520,17 @@ static int mspi_stm32_ospi_pm_action(const struct device *dev, enum pm_device_ac
 						  HAL_OSPI_SAMPLE_SHIFTING_NONE),                  \
 				.ChipSelectHighTime = 1,                                           \
 				.ClockMode = HAL_OSPI_CLOCK_MODE_0,                                \
-				.ChipSelectBoundary = 0,                                           \
+				.ChipSelectBoundary = DT_INST_PROP(index, st_csbound),             \
+				.DeviceSize = MSPI_STM32_INST_MEM_ADDR_BITS(index, 26),            \
+				.MemoryType = MSPI_STM32_HAL_MEMTYPE(index),                       \
 				.FreeRunningClock = HAL_OSPI_FREERUNCLK_DISABLE,                   \
 			},                                                                         \
 		},                                                                                 \
 		.memmap_base_addr = DT_INST_REG_ADDR_BY_IDX(index, 1),                             \
-		.dev_id = index,                                                                   \
 		.lock = Z_MUTEX_INITIALIZER(mspi_stm32_dev_data_##index.lock),                     \
 		.sync = Z_SEM_INITIALIZER(mspi_stm32_dev_data_##index.sync, 0, 1),                 \
 		.dev_cfg = {0},                                                                    \
-		.xip_cfg = {0},                                                                    \
+		.memmap_cfg = {0},                                                                 \
 		.ctx.lock = Z_SEM_INITIALIZER(mspi_stm32_dev_data_##index.ctx.lock, 0, 1),         \
 		OSPI_DMA_CHANNEL(DT_DRV_INST(index), tx_rx)                                        \
 	};                                                                                         \

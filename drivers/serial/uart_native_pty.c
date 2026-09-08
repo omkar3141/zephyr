@@ -34,10 +34,14 @@
  * if set so from command line.
  */
 
+struct native_pty_config {
+	bool on_stdinout; /* Requested on stdin/out from DT */
+};
+
 struct native_pty_status {
 	int out_fd;       /* File descriptor used for output */
 	int in_fd;        /* File descriptor used for input */
-	bool on_stdinout; /* This UART is connected to a PTY and not STDIN/OUT */
+	bool on_stdinout; /* This UART is connected to STDIN/OUT and not a PTY */
 	bool stdin_disconnected;
 
 	bool auto_attach;      /* For PTY, attach a terminal emulator automatically */
@@ -104,14 +108,20 @@ static void np_uart_irq_rx_enable(const struct device *dev);
 static void np_uart_irq_rx_disable(const struct device *dev);
 static int np_uart_irq_rx_ready(const struct device *dev);
 static int np_uart_irq_is_pending(const struct device *dev);
-static int np_uart_irq_update(const struct device *dev);
 static void np_uart_irq_callback_set(const struct device *dev, uart_irq_callback_user_data_t cb,
 				     void *cb_data);
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 
+#ifdef CONFIG_UART_USE_RUNTIME_CONFIGURE
+static int np_uart_configure(const struct device *dev, const struct uart_config *cfg);
+#endif /* CONFIG_UART_USE_RUNTIME_CONFIGURE */
+
 static DEVICE_API(uart, np_uart_driver_api) = {
 	.poll_out = np_uart_poll_out,
 	.poll_in = np_uart_poll_in,
+#ifdef CONFIG_UART_USE_RUNTIME_CONFIGURE
+	.configure = np_uart_configure,
+#endif /* CONFIG_UART_USE_RUNTIME_CONFIGURE */
 #ifdef CONFIG_UART_ASYNC_API
 	.callback_set = np_uart_callback_set,
 	.tx = np_uart_tx,
@@ -131,16 +141,19 @@ static DEVICE_API(uart, np_uart_driver_api) = {
 	.irq_rx_disable   = np_uart_irq_rx_disable,
 	.irq_rx_ready     = np_uart_irq_rx_ready,
 	.irq_is_pending   = np_uart_irq_is_pending,
-	.irq_update       = np_uart_irq_update,
 	.irq_callback_set = np_uart_irq_callback_set,
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 };
 
 #define NATIVE_PTY_INSTANCE(inst)                                        \
+	static struct native_pty_config native_pty_##inst##_cfg = {      \
+		.on_stdinout = DT_INST_PROP(inst, on_stdinout),          \
+	};                                                               \
 	static struct native_pty_status native_pty_status_##inst;        \
 								         \
 	DEVICE_DT_INST_DEFINE(inst, np_uart_init, NULL,                  \
-			      (void *)&native_pty_status_##inst, NULL,   \
+			      (void *)&native_pty_status_##inst,         \
+			      &native_pty_##inst##_cfg,                  \
 			      PRE_KERNEL_1, CONFIG_SERIAL_INIT_PRIORITY, \
 			      &np_uart_driver_api);
 
@@ -158,6 +171,7 @@ static int np_uart_init(const struct device *dev)
 
 	static bool stdinout_used;
 	struct native_pty_status *d;
+	const struct native_pty_config *dt_config = (const struct native_pty_config *)dev->config;
 
 	d = (struct native_pty_status *)dev->data;
 
@@ -170,7 +184,7 @@ static int np_uart_init(const struct device *dev)
 		first_node = false;
 	}
 
-	if (d->cmd_request_stdinout) {
+	if (d->cmd_request_stdinout || dt_config->on_stdinout) {
 		if (stdinout_used) {
 			nsi_print_warning("%s requested to connect to STDIN/OUT, but another UART"
 					  " is already connected to it => ignoring request.\n",
@@ -401,6 +415,11 @@ static void native_pty_uart_async_poll_function(void *arg1, void *arg2, void *ar
 			/* Sleep if RX not disabled and last read didn't result in any data */
 			k_sleep(K_MSEC(10));
 		}
+	}
+
+	if (data->async.user_callback) {
+		evt.type = UART_RX_DISABLED;
+		data->async.user_callback(data->async.dev, &evt, data->async.user_data);
 	}
 }
 
@@ -648,13 +667,6 @@ static int np_uart_irq_is_pending(const struct device *dev)
 		np_uart_irq_tx_ready(dev);
 }
 
-static int np_uart_irq_update(const struct device *dev)
-{
-	ARG_UNUSED(dev);
-
-	return 1;
-}
-
 static void np_uart_irq_callback_set(const struct device *dev, uart_irq_callback_user_data_t cb,
 				     void *cb_data)
 {
@@ -665,6 +677,19 @@ static void np_uart_irq_callback_set(const struct device *dev, uart_irq_callback
 }
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 
+#ifdef CONFIG_UART_USE_RUNTIME_CONFIGURE
+static int np_uart_configure(const struct device *dev,
+			     const struct uart_config *cfg)
+{
+	ARG_UNUSED(dev);
+
+	if (cfg == NULL) {
+		return -EINVAL;
+	}
+
+	return 0;
+}
+#endif /* CONFIG_UART_USE_RUNTIME_CONFIGURE */
 
 #define NATIVE_PTY_SET_AUTO_ATTACH_CMD(inst, cmd)      \
 	native_pty_status_##inst.auto_attach_cmd = cmd;

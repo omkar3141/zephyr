@@ -2,6 +2,8 @@
 find_program(CMAKE_C_COMPILER ${CROSS_COMPILE}ccac PATHS ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
 find_program(CMAKE_CXX_COMPILER ${CROSS_COMPILE}ccac PATHS ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
 find_program(CMAKE_ASM_COMPILER ${CROSS_COMPILE}ccac PATHS ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
+find_program(CMAKE_LLVM_COV ${CROSS_COMPILE}llvm-cov PATHS ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
+set(CMAKE_GCOV "${CMAKE_LLVM_COV} gcov" CACHE FILEPATH "Path to a program.")
 
 # The CMAKE_REQUIRED_FLAGS variable is used by check_c_compiler_flag()
 # (and other commands which end up calling check_c_source_compiles())
@@ -33,6 +35,11 @@ set(LLEXT_REMOVE_FLAGS
   -ffunction-sections
   -fdata-sections
 )
+
+# llext.rodata.noreloc will be incorrectly marked writable if -Hccm is not removed
+if(DEFINED CONFIG_LLEXT_RODATA_NO_RELOC)
+  list(APPEND LLEXT_REMOVE_FLAGS -Hccm)
+endif()
 
 # For CMake to be able to test if a compiler flag is supported by the toolchain
 # (check_c_compiler_flag function which we wrap with target_cc_option in extensions.cmake)

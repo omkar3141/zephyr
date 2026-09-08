@@ -17,6 +17,7 @@ LOG_MODULE_REGISTER(net_wifi_utils, CONFIG_NET_L2_WIFI_MGMT_LOG_LEVEL);
 
 #include <zephyr/kernel.h>
 #include <zephyr/net/net_core.h>
+#include <zephyr/net/net_log.h>
 #include <zephyr/net/wifi.h>
 #include <zephyr/net/wifi_mgmt.h>
 #include <zephyr/net/wifi_utils.h>
@@ -100,6 +101,29 @@ bool wifi_utils_validate_chan(uint8_t band,
 	}
 
 	return result;
+}
+
+
+enum wifi_frequency_bands wifi_utils_chan_to_band(uint16_t chan)
+{
+	/* The 2.4 GHz (1-14) and 6 GHz (1, 2, 5, 9, ...) channel numbers overlap, as
+	 * do the 5 GHz and 6 GHz ones above 14. A channel number on its own cannot
+	 * resolve that, so return the lowest band it is valid in. Every open coded
+	 * conversion this replaces made the same assumption.
+	 */
+	if (wifi_utils_validate_chan_2g(chan)) {
+		return WIFI_FREQ_BAND_2_4_GHZ;
+	}
+
+	if (wifi_utils_validate_chan_5g(chan)) {
+		return WIFI_FREQ_BAND_5_GHZ;
+	}
+
+	if (wifi_utils_validate_chan_6g(chan)) {
+		return WIFI_FREQ_BAND_6_GHZ;
+	}
+
+	return WIFI_FREQ_BAND_UNKNOWN;
 }
 
 /**

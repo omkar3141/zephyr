@@ -17,6 +17,10 @@ that can be included during a twister run. This allows testing code
 maintained in modules in addition to what is available in the main Zephyr tree.
 '''
 
+# Warning: avoid adding third party dependencies other than those provided by west
+# to this file. The west 'packages' extension imports this module to install Python
+# dependencies for Zephyr and Zephyr modules
+
 import argparse
 import hashlib
 import os
@@ -24,170 +28,15 @@ import re
 import subprocess
 import sys
 import yaml
-import pykwalify.core
-from pathlib import Path, PurePath, PurePosixPath
 from collections import namedtuple
+from pathlib import Path, PurePath, PurePosixPath
 
 try:
     from yaml import CSafeLoader as SafeLoader
 except ImportError:
     from yaml import SafeLoader
 
-METADATA_SCHEMA = '''
-## A pykwalify schema for basic validation of the structure of a
-## metadata YAML file.
-##
-# The zephyr/module.yml file is a simple list of key value pairs to be used by
-# the build system.
-type: map
-mapping:
-  name:
-    required: false
-    type: str
-  build:
-    required: false
-    type: map
-    mapping:
-      cmake:
-        required: false
-        type: str
-      kconfig:
-        required: false
-        type: str
-      cmake-ext:
-        required: false
-        type: bool
-        default: false
-      kconfig-ext:
-        required: false
-        type: bool
-        default: false
-      sysbuild-cmake:
-        required: false
-        type: str
-      sysbuild-kconfig:
-        required: false
-        type: str
-      sysbuild-cmake-ext:
-        required: false
-        type: bool
-        default: false
-      sysbuild-kconfig-ext:
-        required: false
-        type: bool
-        default: false
-      depends:
-        required: false
-        type: seq
-        sequence:
-          - type: str
-      settings:
-        required: false
-        type: map
-        mapping:
-          board_root:
-            required: false
-            type: str
-          dts_root:
-            required: false
-            type: str
-          snippet_root:
-            required: false
-            type: str
-          soc_root:
-            required: false
-            type: str
-          arch_root:
-            required: false
-            type: str
-          module_ext_root:
-            required: false
-            type: str
-          sca_root:
-            required: false
-            type: str
-  tests:
-    required: false
-    type: seq
-    sequence:
-      - type: str
-  samples:
-    required: false
-    type: seq
-    sequence:
-      - type: str
-  boards:
-    required: false
-    type: seq
-    sequence:
-      - type: str
-  blobs:
-    required: false
-    type: seq
-    sequence:
-      - type: map
-        mapping:
-          path:
-            required: true
-            type: str
-          sha256:
-            required: true
-            type: str
-          type:
-            required: true
-            type: str
-            enum: ['img', 'lib']
-          version:
-            required: true
-            type: str
-          license-path:
-            required: true
-            type: str
-          click-through:
-            required: false
-            type: bool
-            default: false
-          url:
-            required: true
-            type: str
-          description:
-            required: true
-            type: str
-          doc-url:
-            required: false
-            type: str
-  security:
-     required: false
-     type: map
-     mapping:
-       external-references:
-         required: false
-         type: seq
-         sequence:
-            - type: str
-  package-managers:
-    required: false
-    type: map
-    mapping:
-      pip:
-        required: false
-        type: map
-        mapping:
-          requirement-files:
-            required: false
-            type: seq
-            sequence:
-              - type: str
-  runners:
-    required: false
-    type: seq
-    sequence:
-      - type: map
-        mapping:
-          file:
-            required: true
-            type: str
-'''
+METADATA_SCHEMA_PATH = Path(__file__).parent / 'schemas' / 'module-schema.yaml'
 
 MODULE_YML_PATH = PurePath('zephyr/module.yml')
 # Path to the blobs folder
@@ -196,7 +45,18 @@ BLOB_PRESENT = 'A'
 BLOB_NOT_PRESENT = 'D'
 BLOB_OUTDATED = 'M'
 
-schema = yaml.load(METADATA_SCHEMA, Loader=SafeLoader)
+
+try:
+    import jsonschema
+    from jsonschema.exceptions import best_match
+
+    with METADATA_SCHEMA_PATH.open() as f:
+        SCHEMA = yaml.load(f.read(), Loader=SafeLoader)
+    VALIDATOR_CLASS = jsonschema.validators.validator_for(SCHEMA)
+    VALIDATOR_CLASS.check_schema(SCHEMA)
+    VALIDATOR = VALIDATOR_CLASS(SCHEMA)
+except ImportError:
+    jsonschema = None
 
 
 def validate_setting(setting, module_path, filename=None):
@@ -210,7 +70,7 @@ def validate_setting(setting, module_path, filename=None):
     return True
 
 
-def process_module(module):
+def process_module(module, require_yaml_validation=True):
     module_path = PurePath(module)
 
     # The input is a module if zephyr/module.{yml,yaml} is a valid yaml file
@@ -219,15 +79,20 @@ def process_module(module):
     for module_yml in [module_path / MODULE_YML_PATH,
                        module_path / MODULE_YML_PATH.with_suffix('.yaml')]:
         if Path(module_yml).is_file():
-            with Path(module_yml).open('r', encoding='utf-8') as f:
+            with Path(module_yml).open('rb') as f:
                 meta = yaml.load(f.read(), Loader=SafeLoader)
 
-            try:
-                pykwalify.core.Core(source_data=meta, schema_data=schema)\
-                    .validate()
-            except pykwalify.errors.SchemaError as e:
-                sys.exit('ERROR: Malformed "build" section in file: {}\n{}'
-                        .format(module_yml.as_posix(), e))
+            if jsonschema is not None:
+                errors = list(VALIDATOR.iter_errors(meta))
+
+                if errors:
+                    sys.exit(
+                        'ERROR: Malformed module YAML file: '
+                        f'{module_yml.as_posix()}\n'
+                        f'{best_match(errors).message} in {best_match(errors).json_path}'
+                    )
+            elif require_yaml_validation:
+                sys.exit('Missing jsonschema dependency')
 
             meta['name'] = meta.get('name', module_path.name)
             meta['name-sanitized'] = re.sub('[^a-zA-Z0-9]', '_', meta['name'])
@@ -347,6 +212,7 @@ def process_blobs(module, meta):
         blob['abspath'] = blobs_path / Path(blob['path'])
         blob['license-abspath'] = Path(module) / Path(blob['license-path'])
         blob['status'] = get_blob_status(blob['abspath'], blob['sha256'])
+        blob['click-through'] = blob.get('click-through', False)
         blobs.append(blob)
 
     return blobs
@@ -745,7 +611,7 @@ def west_projects(manifest=None):
                         if manifest.is_active(p)]
         else:
             projects = manifest.get_projects([])
-        manifest_path = manifest.path
+        manifest_path = manifest.abspath
         return {'manifest_path': manifest_path, 'projects': projects}
     except (ManifestImportFailed, MalformedManifest,
             ManifestVersionError, MalformedConfig) as e:
@@ -759,7 +625,7 @@ def west_projects(manifest=None):
 
 
 def parse_modules(zephyr_base, manifest=None, west_projs=None, modules=None,
-                  extra_modules=None):
+                  extra_modules=None, require_yaml_validation=True):
 
     if modules is None:
         west_projs = west_projs or west_projects(manifest)
@@ -789,7 +655,7 @@ def parse_modules(zephyr_base, manifest=None, west_projs=None, modules=None,
         if project == zephyr_base:
             continue
 
-        meta = process_module(project)
+        meta = process_module(project, require_yaml_validation)
         if meta:
             depends = meta.get('build', {}).get('depends', [])
             all_modules_by_name[meta['name']] = Module(project, meta, depends)

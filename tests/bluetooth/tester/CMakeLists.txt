@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-cmake_minimum_required(VERSION 3.20.0)
+cmake_minimum_required(VERSION 3.28.0)
 
 LIST(APPEND QEMU_EXTRA_FLAGS -serial unix:/tmp/bt-stack-tester)
 
@@ -31,6 +31,10 @@ endif()
 
 if(CONFIG_BT_OTS)
     target_sources(app PRIVATE src/btp_ots.c)
+endif()
+
+if(CONFIG_BT_RFCOMM)
+    target_sources(app PRIVATE src/btp_rfcomm.c)
 endif()
 
 zephyr_library_include_directories(src src/btp src/audio/btp)

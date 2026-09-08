@@ -20,14 +20,22 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <zephyr/net/conn_mgr_connectivity.h>
 #include "modules.h"
 #include "lwm2m_resource_ids.h"
+/* NTN (Non-Terrestrial Network) has high latency (~10-15 sec RTT)
+ * Increase DTLS handshake timeouts accordingly
+ */
+#if defined(CONFIG_NET_SAMPLE_LWM2M_NTN_MODE)
+#include <zephyr/net/socket.h>
 
-#define APP_BANNER "Run LWM2M client"
+#define NTN_DTLS_HANDSHAKE_TIMEOUT_MIN  CONFIG_NET_SAMPLE_LWM2M_NTN_DTLS_HANDSHAKE_TIMEOUT_MIN_MS
+#define NTN_DTLS_HANDSHAKE_TIMEOUT_MAX  CONFIG_NET_SAMPLE_LWM2M_NTN_DTLS_HANDSHAKE_TIMEOUT_MAX_MS
+#endif
+#define APP_BANNER "Run LwM2M client"
 
 #define WAIT_TIME	K_SECONDS(10)
 #define CONNECT_TIME	K_SECONDS(10)
 
 #define CLIENT_MANUFACTURER	"Zephyr"
-#define CLIENT_MODEL_NUMBER	"OMA-LWM2M Sample Client"
+#define CLIENT_MODEL_NUMBER	"OMA-LwM2M Sample Client"
 #define CLIENT_SERIAL_NUMBER	"345000123"
 #define CLIENT_FIRMWARE_VER	"1.0"
 #define CLIENT_HW_VER		"1.0.1"
@@ -327,6 +335,77 @@ static void socket_state(int fd, enum lwm2m_socket_states state)
 	}
 }
 
+#if defined(CONFIG_NET_SAMPLE_LWM2M_NTN_MODE)
+/**
+ * @brief Set custom socket options for NTN (Non-Terrestrial Network) mode
+ *
+ * NTN connections have very high latency (10-15+ seconds RTT).
+ * This callback increases DTLS handshake timeouts to accommodate satellite latency.
+ */
+static int set_socketoptions_for_ntn(struct lwm2m_ctx *ctx)
+{
+	int ret;
+	uint32_t timeout_min = NTN_DTLS_HANDSHAKE_TIMEOUT_MIN;
+	uint32_t timeout_max = NTN_DTLS_HANDSHAKE_TIMEOUT_MAX;
+	uint32_t applied_min = 0U;
+	uint32_t applied_max = 0U;
+	net_socklen_t optlen = sizeof(uint32_t);
+
+	if (timeout_min > timeout_max) {
+		LOG_WRN("NTN DTLS timeout min (%u) > max (%u), swapping", timeout_min, timeout_max);
+		uint32_t tmp = timeout_min;
+
+		timeout_min = timeout_max;
+		timeout_max = tmp;
+	}
+
+	LOG_INF("Setting NTN DTLS handshake timeouts: min=%u ms, max=%u ms", timeout_min,
+		timeout_max);
+
+	/* Apply regular LwM2M defaults first. */
+	ret = lwm2m_set_default_sockopt(ctx);
+	if (ret < 0) {
+		return ret;
+	}
+
+	/* Set minimum DTLS handshake retransmission timeout */
+	ret = zsock_setsockopt(ctx->sock_fd, ZSOCK_SOL_TLS, ZSOCK_TLS_DTLS_HANDSHAKE_TIMEOUT_MIN,
+			       &timeout_min, sizeof(timeout_min));
+	if (ret < 0) {
+		LOG_WRN("Failed to set DTLS handshake min timeout (errno=%d)", errno);
+		/* Continue anyway, not fatal */
+	}
+
+	/* Set maximum DTLS handshake retransmission timeout */
+	ret = zsock_setsockopt(ctx->sock_fd, ZSOCK_SOL_TLS, ZSOCK_TLS_DTLS_HANDSHAKE_TIMEOUT_MAX,
+			       &timeout_max, sizeof(timeout_max));
+	if (ret < 0) {
+		LOG_WRN("Failed to set DTLS handshake max timeout (errno=%d)", errno);
+		/* Continue anyway, not fatal */
+	}
+
+	ret = zsock_getsockopt(ctx->sock_fd, ZSOCK_SOL_TLS, ZSOCK_TLS_DTLS_HANDSHAKE_TIMEOUT_MIN,
+			       &applied_min, &optlen);
+	if (ret < 0) {
+		LOG_WRN("Failed to read DTLS handshake min timeout (errno=%d)", errno);
+	}
+
+	optlen = sizeof(uint32_t);
+	ret = zsock_getsockopt(ctx->sock_fd, ZSOCK_SOL_TLS, ZSOCK_TLS_DTLS_HANDSHAKE_TIMEOUT_MAX,
+			       &applied_max, &optlen);
+	if (ret < 0) {
+		LOG_WRN("Failed to read DTLS handshake max timeout (errno=%d)", errno);
+	}
+
+	if (applied_min > 0U || applied_max > 0U) {
+		LOG_INF("Effective NTN DTLS handshake timeouts: min=%u ms, max=%u ms", applied_min,
+			applied_max);
+	}
+
+	return 0;
+}
+#endif /* CONFIG_NET_SAMPLE_LWM2M_NTN_MODE */
+
 static void observe_cb(enum lwm2m_observe_event event,
 		       struct lwm2m_obj_path *path, void *user_data)
 {
@@ -442,7 +521,7 @@ int main(void)
 
 	ret = lwm2m_setup();
 	if (ret < 0) {
-		LOG_ERR("Cannot setup LWM2M fields (%d)", ret);
+		LOG_ERR("Cannot setup LwM2M fields (%d)", ret);
 		return 0;
 	}
 
@@ -452,6 +531,11 @@ int main(void)
 #endif
 	client_ctx.set_socket_state = socket_state;
 
+#if defined(CONFIG_NET_SAMPLE_LWM2M_NTN_MODE)
+	/* Use custom socket options for NTN high-latency connections */
+	client_ctx.set_socketoptions = set_socketoptions_for_ntn;
+	LOG_INF("NTN mode enabled - using extended timeouts");
+#endif
 	/* client_ctx.sec_obj_inst is 0 as a starting point */
 	lwm2m_rd_client_start(&client_ctx, endpoint, flags, rd_client_event, observe_cb);
 

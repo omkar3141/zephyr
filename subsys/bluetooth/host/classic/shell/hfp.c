@@ -23,15 +23,11 @@
 
 #include <zephyr/shell/shell.h>
 
-#include "host/shell/bt.h"
-#include "common/bt_shell_private.h"
+#include <host/shell/bt.h>
+#include <common/bt_shell_private.h>
 
 #define HELP_NONE "[none]"
-#ifdef CONFIG_ZTEST
-#define STATIC
-#else
-#define STATIC static
-#endif
+
 extern struct bt_conn *default_conn;
 
 #if defined(CONFIG_BT_HFP_HF)
@@ -121,8 +117,7 @@ static void hf_sco_disconnected(struct bt_conn *sco_conn, uint8_t reason)
 	bt_shell_print("HF SCO disconnected %p (reason %u)", sco_conn, reason);
 
 	if (hf_sco_conn == sco_conn) {
-		bt_conn_unref(hf_sco_conn);
-		hf_sco_conn = NULL;
+		bt_conn_drop(&hf_sco_conn);
 	} else {
 		bt_shell_warn("Unknown SCO disconnected (%p != %p)", hf_sco_conn, sco_conn);
 	}
@@ -316,7 +311,7 @@ void hf_query_call(struct bt_hfp_hf *hf, struct bt_hfp_hf_current_call *call)
 }
 #endif /* CONFIG_BT_HFP_HF_ECS */
 
-STATIC struct bt_hfp_hf_cb hf_cb = {
+ZTESTABLE_STATIC struct bt_hfp_hf_cb hf_cb = {
 	.connected = hf_connected,
 	.disconnected = hf_disconnected,
 	.sco_connected = hf_sco_connected,
@@ -1156,8 +1151,7 @@ static void ag_sco_disconnected(struct bt_conn *sco_conn, uint8_t reason)
 	bt_shell_print("AG SCO disconnected %p (reason %u)", sco_conn, reason);
 
 	if (hfp_ag_sco_conn == sco_conn) {
-		bt_conn_unref(hfp_ag_sco_conn);
-		hfp_ag_sco_conn = NULL;
+		bt_conn_drop(&hfp_ag_sco_conn);
 	} else {
 		bt_shell_warn("Unknown SCO disconnected (%p != %p)", hfp_ag_sco_conn, sco_conn);
 	}
@@ -1403,7 +1397,7 @@ void ag_hf_indicator_value(struct bt_hfp_ag *ag, enum hfp_ag_hf_indicators indic
 	bt_shell_print("indicator %d value %d", indicator, value);
 }
 
-STATIC struct bt_hfp_ag_cb ag_cb = {
+ZTESTABLE_STATIC struct bt_hfp_ag_cb ag_cb = {
 	.connected = ag_connected,
 	.disconnected = ag_disconnected,
 	.sco_connected = ag_sco_connected,

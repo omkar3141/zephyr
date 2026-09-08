@@ -6,11 +6,12 @@
 
 /dts-v1/;
 
-#include <nxp/nxp_mcxn23x.dtsi>
+#include <nxp/mcx/mcxn/nxp_mcxn23x.dtsi>
 #include "frdm_mcxn236-pinctrl.dtsi"
 #include <zephyr/dt-bindings/i2c/i2c.h>
 #include <zephyr/dt-bindings/gpio/arduino-header-r3.h>
 #include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/wuc/wuc_nxp_wuu.h>
 #include <zephyr/dt-bindings/gpio/dvp-20pin-connector.h>
 
 / {
@@ -27,7 +28,8 @@
 		zephyr,shell-uart = &flexcomm4_lpuart4;
 		zephyr,canbus = &flexcan1;
 		zephyr,edac = &erm0;
-		zephyr,cortex-m-idle-timer = &lptmr0;
+		zephyr,system-timer-companion = &lptmr0;
+		zephyr,crc = &crc;
 	};
 
 	aliases {
@@ -40,6 +42,7 @@
 		led2 = &blue_led;
 		sw0 = &user_button_2;
 		sw1 = &user_button_3;
+		wakeup-button = &user_button_2;
 		mcuboot-button0 = &user_button_2;
 	};
 
@@ -69,6 +72,8 @@
 			label = "User SW2";
 			gpios = <&gpio0 20 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
 			zephyr,code = <INPUT_KEY_WAKEUP>;
+			/* SW2 wakes via WUU external pin 4. */
+			wakeup-ctrls = <&wuu NXP_WUU_PIN_4_FALLING_INT>;
 		};
 
 		user_button_3: button_1 {
@@ -136,6 +141,14 @@
 };
 
 &gpio4 {
+	status = "okay";
+};
+
+&gpio3 {
+	status = "okay";
+};
+
+&gpio2 {
 	status = "okay";
 };
 
@@ -323,7 +336,7 @@ nxp_8080_touch_panel_i2c: &flexcomm2_lpi2c2 {
 	clock-frequency = <I2C_BITRATE_STANDARD>;
 };
 
-&flexcomm3_lpspi3 {
+arduino_spi: &flexcomm3_lpspi3 {
 	pinctrl-0 = <&pinmux_flexcomm3_lpspi>;
 	pinctrl-names = "default";
 };
@@ -340,13 +353,13 @@ nxp_8080_touch_panel_i2c: &flexcomm2_lpi2c2 {
 	clock-frequency = <I2C_BITRATE_STANDARD>;
 };
 
-/*
- * MCXN236 board uses OS timer as the kernel timer
- * In case we need to switch to SYSTICK timer, then
- * replace &os_timer with &systick
+/* The MCXN236 can use ostimer as the kernel timer.
+ * We enable it in the dts, and which specific timer
+ * to use as the system timer can be controlled through
+ * Kconfig option based on application requirements.
  */
 &os_timer {
-	status = "disabled";
+	status = "okay";
 };
 
 &systick {
@@ -381,9 +394,9 @@ nxp_8080_touch_panel_i2c: &flexcomm2_lpi2c2 {
 			reg = <0x0084000 DT_SIZE_K(440)>;
 		};
 
-		storage_partition: partition@F0000 {
+		storage_partition: partition@f0000 {
 			label = "storage";
-			reg = <0x000F0000 DT_SIZE_K(64)>;
+			reg = <0x000f0000 DT_SIZE_K(64)>;
 		};
 	};
 };
@@ -465,4 +478,24 @@ dvp_20pin_interface: &video_sdma {};
 	status = "okay";
 	pinctrl-0 = <&pinmux_micfil>;
 	pinctrl-names = "default";
+};
+
+&crc {
+	status = "okay";
+};
+
+&trng {
+	status = "okay";
+};
+
+&otpc {
+	status = "okay";
+};
+
+&inputmux0 {
+	status = "okay";
+};
+
+&freqme0 {
+	status = "okay";
 };

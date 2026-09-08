@@ -6,7 +6,7 @@
 
 #include <espressif/esp32s3/esp32s3_wroom_n16r8.dtsi>
 #include <espressif/partitions_0x0_amp.dtsi>
-#include <zephyr/dt-bindings/display/ili9xxx.h>
+#include <zephyr/dt-bindings/display/panel.h>
 #include "m5stack_cores3-pinctrl.dtsi"
 #include "m5stack_mbus_connectors.dtsi"
 #include "grove_connectors.dtsi"
@@ -51,7 +51,7 @@
 			mipi-max-frequency = <30000000>;
 			reg = <0>;
 			vin-supply = <&vcc_bl>;
-			pixel-format = <ILI9XXX_PIXEL_FORMAT_RGB565>;
+			pixel-format = <PANEL_PIXEL_FORMAT_RGB_565>;
 			display-inversion;
 			width = <320>;
 			height = <240>;
@@ -210,6 +210,14 @@
 		};
 	};
 
+	aw88298: aw88298@36 {
+		compatible = "awinic,aw88298";
+		reg = <0x36>;
+		reset-gpios = <&aw9523b_gpio 2 GPIO_ACTIVE_LOW>;
+		int-gpios = <&aw9523b_gpio 11 GPIO_ACTIVE_LOW>;
+		status = "disabled";
+	};
+
 	bm8563_rtc: bm8563@51 {
 		compatible = "nxp,pcf8563";
 		reg = <0x51>;
@@ -240,6 +248,11 @@
 	};
 };
 
+&i2s1 {
+	pinctrl-0 = <&i2s1_default>;
+	pinctrl-names = "default";
+};
+
 &i2c1 {
 	status = "okay";
 	clock-frequency = <I2C_BITRATE_STANDARD>;
@@ -248,7 +261,6 @@
 };
 
 &spi2 {
-	status = "okay";
 	#address-cells = <1>;
 	#size-cells = <0>;
 	status = "okay";

@@ -11,12 +11,15 @@
 
 #include "did_internal.h"
 
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(bt_did);
+
 #define DID_VER_1_3 (0x0103u)
 
 #define BLUETOOTH_DEVICE_IDENTIFY_SPEC_VERSION 0x0103
 #define BLUETOOTH_DEVICE_IDENTIFY_ATTR_VERSION 0x0100
 
-#define BLUETOOTH_DEVICE_VEDNOR_ID_SOURCE_BTSIG 0x0001 /* Bluetooth SIG assigned */
+#define BLUETOOTH_DEVICE_VENDOR_ID_SOURCE_BTSIG 0x0001 /* Bluetooth SIG assigned */
 #define BLUETOOTH_DEVICE_VENDOR_ID_SOURCE_USBIF 0x0002 /* USB Implementer's Forum */
 
 static struct bt_sdp_attribute did_attrs[] = {
@@ -39,7 +42,7 @@ static struct bt_sdp_attribute did_attrs[] = {
 	BT_SDP_LIST(
 		BT_SDP_ATTR_VENDOR_ID,
 		BT_SDP_TYPE_SIZE(BT_SDP_UINT16),
-		BT_SDP_ARRAY_16(CONFIG_BT_DEVICE_VEDNOR_ID)
+		BT_SDP_ARRAY_16(CONFIG_BT_DEVICE_VENDOR_ID)
 	),
 	BT_SDP_LIST(
 		BT_SDP_ATTR_PRODUCT_ID,
@@ -59,13 +62,27 @@ static struct bt_sdp_attribute did_attrs[] = {
 	BT_SDP_LIST(
 		BT_SDP_ATTR_VENDOR_ID_SOURCE,
 		BT_SDP_TYPE_SIZE(BT_SDP_UINT16),
-		BT_SDP_ARRAY_16(BLUETOOTH_DEVICE_VEDNOR_ID_SOURCE_BTSIG)
+		BT_SDP_ARRAY_16(BLUETOOTH_DEVICE_VENDOR_ID_SOURCE_BTSIG)
 	),
 };
 
 static struct bt_sdp_record did_rec = BT_SDP_RECORD(did_attrs);
 
-int bt_did_init(void)
+void bt_did_init(void)
 {
-	return bt_sdp_register_service(&did_rec);
+	__maybe_unused int err;
+
+	static bool initialized;
+
+	if (initialized) {
+		return;
+	}
+
+	err = bt_sdp_register_service(&did_rec);
+	if (err != 0) {
+		LOG_ERR("Failed to register DID SDP record (err %d)", err);
+		return;
+	}
+
+	initialized = true;
 }

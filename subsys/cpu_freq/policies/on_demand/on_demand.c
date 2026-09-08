@@ -40,7 +40,7 @@ static unsigned int num_unprocessed_cpus;
  * P-state where the cpu_load is greater than or equal to the trigger threshold of the
  * P-state. If no P-state matches (i.e., the load is below all thresholds), the policy
  * will select the last P-state in the array (the lowest performance state). This is
- * intrinsic behavior: P-states must be defined in increasing threshold order.
+ * intrinsic behavior: P-states must be defined in decreasing threshold order.
  */
 int cpu_freq_policy_select_pstate(const struct pstate **pstate_out)
 {
@@ -57,11 +57,14 @@ int cpu_freq_policy_select_pstate(const struct pstate **pstate_out)
 	cpu_id = arch_curr_cpu()->id;
 #endif
 
-	cpu_load = cpu_load_metric_get(cpu_id);
+	cpu_load = cpu_load_get_cpu((unsigned int)cpu_id, true);
 	if (cpu_load < 0) {
 		LOG_ERR("Unable to retrieve CPU load");
 		return cpu_load;
 	}
+
+	/* cpu_load_get_cpu() returns per mille; policy thresholds are in percent. */
+	cpu_load = CPU_LOAD_PERMILLE_TO_PERCENT(cpu_load);
 
 	LOG_DBG("CPU%d Load: %d%%", cpu_id, cpu_load);
 

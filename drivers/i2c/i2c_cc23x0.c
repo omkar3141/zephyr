@@ -179,10 +179,6 @@ static int i2c_cc23x0_transfer(const struct device *dev, struct i2c_msg *msgs, u
 	const struct i2c_cc23x0_config *config = dev->config;
 	int ret = 0;
 
-	if (num_msgs == 0) {
-		return 0;
-	}
-
 	k_sem_take(&data->lock, K_FOREVER);
 
 	i2c_cc23x0_pm_policy_state_lock_get();
@@ -300,8 +296,8 @@ static void i2c_cc23x0_isr(const struct device *dev)
 	}
 }
 
-static const struct i2c_driver_api i2c_cc23x0_driver_api = {.configure = i2c_cc23x0_configure,
-							    .transfer = i2c_cc23x0_transfer};
+static DEVICE_API(i2c, i2c_cc23x0_driver_api) = {.configure = i2c_cc23x0_configure,
+						 .transfer = i2c_cc23x0_transfer};
 
 #define I2C_CC23X0_INIT_FUNC(id)                                                                   \
 	static int i2c_cc23x0_init##id(const struct device *dev)                                   \

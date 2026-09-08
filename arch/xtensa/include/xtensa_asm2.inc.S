@@ -173,7 +173,8 @@
 	s32i \SCRATCH_REG, \BSA_PTR, ___xtensa_irq_bsa_t_lbeg_OFFSET
 	rsr.lend \SCRATCH_REG
 	s32i \SCRATCH_REG, \BSA_PTR, ___xtensa_irq_bsa_t_lend_OFFSET
-	rsr.lcount \SCRATCH_REG
+	movi \SCRATCH_REG, 0
+	xsr.lcount \SCRATCH_REG
 	s32i \SCRATCH_REG, \BSA_PTR, ___xtensa_irq_bsa_t_lcount_OFFSET
 #endif
 	rsr.exccause \SCRATCH_REG
@@ -334,7 +335,7 @@ _swap_page_table_\@:
 	/* Since accessing A4-A11 may trigger window overflows so
 	 * we need to setup A0 and A1 correctly before putting
 	 * the function arguments for the next two callx4 into
-	 * A6, A10 and A11. So stach the "context handle" into
+	 * A6, A10 and A11. So stash the "context handle" into
 	 * ZSR_EPC, which is usable for now similar to ZSR_EPS.
 	 */
 	wsr.ZSR_EPC a1
@@ -402,7 +403,7 @@ _xstack_call0_\@:
 #endif
 #endif
 #ifdef CONFIG_XTENSA_MPU
-	call4 xtensa_mpu_map_write
+	call4 xtensa_mpu_thread_map_write
 #endif
 
 _xstack_skip_table_swap_\@:
@@ -471,9 +472,9 @@ _excint_skip_ps_save_to_thread:
 
 #if XCHAL_HAVE_THREADPTR && defined(CONFIG_USERSPACE)
 	/* Clear up the threadptr because it is used
-	 * to check if a thread is runnig on user mode. Since
+	 * to check if a thread is running on user mode. Since
 	 * we are in a interruption we don't want the system
-	 * thinking it is possbly running in user mode.
+	 * thinking it is possibly running in user mode.
 	 */
 	movi.n a0, 0
 	wur.THREADPTR a0
@@ -586,8 +587,7 @@ _do_call_\@:
 	 */
 	beq a6, a1, _restore_\@
 
-#if !defined(CONFIG_KERNEL_COHERENCE) || \
-    (defined(CONFIG_KERNEL_COHERENCE) && defined(CONFIG_SCHED_CPU_MASK_PIN_ONLY))
+#if !defined(CONFIG_KERNEL_COHERENCE)
 	l32i a1, a1, 0
 	l32i a0, a1, ___xtensa_irq_bsa_t_a0_OFFSET
 	addi a1, a1, ___xtensa_irq_bsa_t_SIZEOF
@@ -598,9 +598,7 @@ _do_call_\@:
 	SPILL_ALL_WINDOWS
 #endif
 
-#if defined(CONFIG_KERNEL_COHERENCE) && \
-	defined(CONFIG_USERSPACE) && \
-	!defined(CONFIG_SCHED_CPU_MASK_PIN_ONLY)
+#if defined(CONFIG_KERNEL_COHERENCE) && defined(CONFIG_USERSPACE)
 
 	/* With userspace enabled, we need to swap page table via function calls
 	 * above after returning from syscall handler above in CROSS_STACK_CALL.
@@ -677,16 +675,19 @@ _Level\LVL\()Vector:
 .if \LVL == 1
 	/* If there are any TLB misses during interrupt handling,
 	 * the user/kernel/double exception vector will be triggered
-	 * to handle these misses. This results in DEPC and EXCCAUSE
-	 * being overwritten, and then execution returned back to
-	 * this site of TLB misses. When it gets to the C handler,
-	 * it will not see the original cause. So stash
-	 * the EXCCAUSE here so C handler can see the original cause.
+	 * to handle these misses. This results in DEPC, EXCCAUSE
+	 * and EXCVADDR being overwritten, and then execution returned
+	 * back to this site of TLB misses. When it gets to the C handler,
+	 * it will not see the original cause. So stash the EXCCAUSE
+	 * and EXCVADDR here so C handler can see the original cause.
 	 *
 	 * For double exception, DEPC in saved in earlier vector
 	 * code.
 	 */
 	wsr a0, ZSR_A0SAVE
+
+	rsr.exccause a0
+	wsr a0, ZSR_EXCCAUSE_SAVE
 
 	esync
 
@@ -717,24 +718,44 @@ _Level\LVL\()Vector:
 	j _TripleFault
 
 _not_triple_fault:
-	rsr a0, ZSR_A0SAVE
 .endif
 #endif
 
 	addi a1, a1, -___xtensa_irq_bsa_t_SIZEOF
+
+#ifdef CONFIG_XTENSA_MMU
+.if \LVL == 1
+	/* Save EXCVADDR register needed for handling the exception
+	 * as this register can be overwritten during nested
+	 * exceptions.  It has to be saved first, because
+	 * executing the store instruction may trigger a
+	 * TLB miss, which will modify its value.
+	 */
+	rsr.excvaddr a0
+	s32i a0, a1, ___xtensa_irq_bsa_t_excvaddr_OFFSET
+	rsr a0, ZSR_A0SAVE
+.endif
+#endif
+
 	s32i a0, a1, ___xtensa_irq_bsa_t_a0_OFFSET
 	s32i a2, a1, ___xtensa_irq_bsa_t_a2_OFFSET
 	s32i a3, a1, ___xtensa_irq_bsa_t_a3_OFFSET
 
-	/* Save registers needed for handling the exception as
-	 * these registers can be overwritten during nested
-	 * exceptions.
+#ifndef CONFIG_XTENSA_MMU
+.if \LVL == 1
+	/* Save register needed for handling the exception as
+	 * this register can be overwritten during nested
+	 * exceptions.  EXCVADDR describes exceptions, not
+	 * interrupts, so only the level 1 vector (which serves
+	 * both) needs it: nothing consumes it from the frames of
+	 * interrupt-only levels and nothing restores it on exit.
+	 * (With the MMU enabled, level 1 saved it on vector entry
+	 * already.)
 	 */
-	rsr.exccause a0
-	s32i a0, a1, ___xtensa_irq_bsa_t_exccause_OFFSET
-
 	rsr.excvaddr a0
 	s32i a0, a1, ___xtensa_irq_bsa_t_excvaddr_OFFSET
+.endif
+#endif
 
 	/* Level "1" is the exception handler, which uses a different
 	 * calling convention.  No special register holds the

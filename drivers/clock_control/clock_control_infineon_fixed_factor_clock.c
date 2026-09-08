@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2025 Infineon Technologies AG,
- * or an affiliate of Infineon Technologies AG.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Infineon Technologies AG,
+ * SPDX-FileCopyrightText: or an affiliate of Infineon Technologies AG. All rights reserved.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -89,9 +89,7 @@ static int fixed_factor_clk_init(const struct device *dev)
 		 */
 		Cy_SysClk_ClkHfSetDivider(IFX_PSOC4_HFCLK_DIV(config->divider));
 #else
-		uint32_t source_instance = 0;
-
-		err = Cy_SysClk_ClkHfSetSource(config->instance, source_instance);
+		err = Cy_SysClk_ClkHfSetSource(config->instance, config->source_path);
 		if (err != CY_SYSCLK_SUCCESS) {
 			return -EIO;
 		}

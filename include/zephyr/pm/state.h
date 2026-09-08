@@ -4,6 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/**
+ * @file
+ * @brief Header file for System Power Management state definitions.
+ * @ingroup subsys_pm_states
+ */
+
 #ifndef ZEPHYR_INCLUDE_PM_STATE_H_
 #define ZEPHYR_INCLUDE_PM_STATE_H_
 
@@ -113,6 +119,7 @@ enum pm_state {
  * Information about a power management state
  */
 struct pm_state_info {
+	/** Power management state */
 	enum pm_state state;
 
 	/**
@@ -385,7 +392,7 @@ struct pm_state_constraints {
 	PM_STATE_CONSTRAINT_INIT(DT_PHANDLE_BY_IDX(node_id, phandle, idx))
 
 #define Z_PM_STATE_CONSTRAINTS_LIST_NAME(node_id, phandles)                   \
-	_CONCAT_4(node_id, _, phandles, _constraints)
+	CONCAT(node_id, _, phandles, _constraints)
 
 /**
  * @brief Define a list of power state constraints from devicetree.
@@ -499,8 +506,8 @@ static inline const struct pm_state_info *pm_state_get(uint8_t cpu,
 	return NULL;
 }
 
-static inline bool pm_state_in_constraints(struct pm_state_constraints *constraints,
-					   struct pm_state_constraint match)
+static inline bool pm_state_in_constraints(const struct pm_state_constraints *constraints,
+					   const struct pm_state_constraint match)
 {
 	ARG_UNUSED(constraints);
 	ARG_UNUSED(match);

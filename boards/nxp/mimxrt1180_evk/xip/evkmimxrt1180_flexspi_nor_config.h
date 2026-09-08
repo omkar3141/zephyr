@@ -8,7 +8,7 @@
 #ifndef EVKMIMXRT1180_FLEXSPI_NOR_CONFIG_
 #define EVKMIMXRT1180_FLEXSPI_NOR_CONFIG_
 
-#include "fsl_common.h"
+#include <fsl_common.h>
 
 #define FLEXSPI_CFG_BLK_TAG     (0x42464346UL) /* ascii "FCFB" Big Endian */
 #define FLEXSPI_CFG_BLK_VERSION (0x56010400UL) /* V1.4.0 */
@@ -190,7 +190,7 @@ typedef struct flexspi_config {
 	 * 8 - Octal
 	 */
 	uint8_t sflash_pad_type;
-	/* [0x046-0x046] Serial Flash Frequencey, device specific
+	/* [0x046-0x046] Serial Flash Frequency, device specific
 	 * definitions, See System Boot Chapter for more details
 	 */
 	uint8_t serial_clk_freq;

@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 NXP
+ * Copyright 2025-2026 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -18,6 +18,7 @@
 		zephyr,shell-uart = &flexcomm0;
 		zephyr,uart-pipe = &flexcomm0;
 		zephyr,flash-controller = &iap;
+		zephyr,crc = &crc;
 	};
 
 	aliases {
@@ -121,6 +122,9 @@
 	#size-cells = <0>;
 	pinctrl-0 = <&pinmux_flexcomm1_i2c>;
 	pinctrl-names = "default";
+	scl-gpios = <&gpio0 14 GPIO_ACTIVE_HIGH>;
+	sda-gpios = <&gpio0 13 GPIO_ACTIVE_HIGH>;
+	recover-bus-on-init;
 
 	fxls8974: fxls8974@18 {
 		compatible = "nxp,fxls8974";
@@ -172,6 +176,10 @@
 	status = "okay";
 };
 
+&crc {
+	status = "okay";
+};
+
 &mrt0_channel0 {
 	status = "okay";
 };
@@ -181,6 +189,10 @@
 };
 
 &dma1 {
+	status = "okay";
+};
+
+&gint0 {
 	status = "okay";
 };
 

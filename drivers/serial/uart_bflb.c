@@ -74,7 +74,8 @@ static uint32_t uart_bflb_get_clock(void)
 	uint32_t uclk;
 	const struct device *clock_ctrl =  DEVICE_DT_GET_ANY(bflb_clock_controller);
 
-#if defined(CONFIG_SOC_SERIES_BL60X) || defined(CONFIG_SOC_SERIES_BL70X)
+#if defined(CONFIG_SOC_SERIES_BL60X) || defined(CONFIG_SOC_SERIES_BL70X) \
+	|| defined(CONFIG_SOC_SERIES_BL70XL)
 	uart_divider = sys_read32(GLB_BASE + GLB_CLK_CFG2_OFFSET);
 	uart_divider = (uart_divider & GLB_UART_CLK_DIV_MSK) >> GLB_UART_CLK_DIV_POS;
 	clock_control_get_rate(clock_ctrl, (void *)BFLB_CLKID_CLK_ROOT, &uclk);
@@ -253,13 +254,6 @@ int uart_bflb_irq_is_pending(const struct device *dev)
 	return (((tmp & ~maskVal) & 0xFF) != 0 ? 1 : 0);
 }
 
-int uart_bflb_irq_update(const struct device *dev)
-{
-	ARG_UNUSED(dev);
-
-	return 1;
-}
-
 void uart_bflb_irq_callback_set(const struct device *dev,
 			      uart_irq_callback_user_data_t cb,
 			      void *user_data)
@@ -274,14 +268,19 @@ static void uart_bflb_isr(const struct device *dev)
 {
 	struct bflb_data *const data = dev->data;
 	const struct bflb_config *const cfg = dev->config;
-	uint32_t tmp = 0;
+	uint32_t tmp;
+	bool clear_err = !(sys_read32(cfg->base_reg + UART_INT_MASK_OFFSET) & UART_CR_URX_PCE_MASK);
 
 	if (data->user_cb) {
 		data->user_cb(dev, data->user_data);
 	}
 	/* clear interrupts that require ack*/
 	tmp = sys_read32(cfg->base_reg + UART_INT_CLEAR_OFFSET);
-	tmp = tmp | UART_CR_URX_RTO_CLR;
+	/* Clear PCE in case callback didn't read it and the interrupt is unmasked */
+	if (clear_err) {
+		tmp |= UART_CR_URX_PCE_CLR;
+	}
+	tmp |= UART_CR_URX_RTO_CLR;
 	sys_write32(tmp, cfg->base_reg + UART_INT_CLEAR_OFFSET);
 }
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
@@ -348,8 +347,10 @@ static int uart_bflb_configure(const struct device *dev)
 		tx_cfg &= ~UART_CR_UTX_CTS_EN;
 	}
 
+#if !defined(CONFIG_SOC_SERIES_BL616CL)
 	/* disable de-glitch function */
 	rx_cfg &= ~UART_CR_URX_DEG_EN;
+#endif
 
 	/* Write config */
 	sys_write32(tx_cfg, cfg->base_reg + UART_UTX_CONFIG_OFFSET);
@@ -368,6 +369,10 @@ static int uart_bflb_configure(const struct device *dev)
 
 	/* disable inversion */
 	tmp = sys_read32(cfg->base_reg + UART_DATA_CONFIG_OFFSET);
+#if defined(CONFIG_SOC_SERIES_BL616CL)
+	/* disable de-glitch function */
+	tmp &= ~UART_CR_URX_DEG_EN;
+#endif
 	tmp &= ~UART_CR_UART_BIT_INV;
 	sys_write32(tmp, cfg->base_reg + UART_DATA_CONFIG_OFFSET);
 
@@ -443,9 +448,6 @@ static int uart_bflb_init(const struct device *dev)
 	sys_write32(0xFF, cfg->base_reg + UART_INT_CLEAR_OFFSET);
 	/* mask all IRQs */
 	sys_write32(0xFFFFFFFFU, cfg->base_reg + UART_INT_MASK_OFFSET);
-	/* unmask necessary irqs */
-	uart_bflb_irq_rx_enable(dev);
-	uart_bflb_irq_err_enable(dev);
 	/* enable all irqs */
 	sys_write32(0xFF, cfg->base_reg + UART_INT_EN_OFFSET);
 	cfg->irq_config_func(dev);
@@ -515,8 +517,14 @@ static int uart_bflb_pm_control(const struct device *dev,
 		/* Ungate clock to peripheral */
 		if (cfg->base_reg == UART0_BASE) {
 			tmp |= (1 << 16);
+#ifdef UART1_BASE
 		} else if (cfg->base_reg == UART1_BASE) {
 			tmp |= (1 << 17);
+#endif
+#ifdef UART2_BASE
+		} else if (cfg->base_reg == UART2_BASE) {
+			tmp |= (1 << 26);
+#endif
 		} else {
 			return -EINVAL;
 		}
@@ -531,8 +539,14 @@ static int uart_bflb_pm_control(const struct device *dev,
 		/* Gate clock to peripheral */
 		if (cfg->base_reg == UART0_BASE) {
 			tmp &= ~(1 << 16);
+#ifdef UART1_BASE
 		} else if (cfg->base_reg == UART1_BASE) {
 			tmp &= ~(1 << 17);
+#endif
+#ifdef UART2_BASE
+		} else if (cfg->base_reg == UART2_BASE) {
+			tmp |= (1 << 26);
+#endif
 		} else {
 			return -EINVAL;
 		}
@@ -567,7 +581,6 @@ static DEVICE_API(uart, uart_bflb_driver_api) = {
 	.irq_err_enable = uart_bflb_irq_err_enable,
 	.irq_err_disable = uart_bflb_irq_err_disable,
 	.irq_is_pending = uart_bflb_irq_is_pending,
-	.irq_update = uart_bflb_irq_update,
 	.irq_callback_set = uart_bflb_irq_callback_set,
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 };

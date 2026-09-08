@@ -26,17 +26,18 @@ LOG_MODULE_REGISTER(nsos_sockets);
 #include <zephyr/net/socket_offload.h>
 #include <zephyr/sys/fdtable.h>
 #include <zephyr/sys/dlist.h>
+#include <zephyr/spinlock.h>
 
 #include "sockets_internal.h"
 #include "nsos.h"
 #include "nsi_errno.h"
-#include "nsos_fcntl.h"
+#include "nsi_fcntl.h"
 #include "nsos_netdb.h"
 #include "nsos_socket.h"
 
 #include "nsi_host_trampolines.h"
 
-BUILD_ASSERT(CONFIG_HEAP_MEM_POOL_SIZE > 0);
+BUILD_ASSERT(K_HEAP_MEM_POOL_SIZE > 0);
 
 #define NSOS_IRQ_FLAGS		(0)
 #define NSOS_IRQ_PRIORITY	(2)
@@ -46,6 +47,7 @@ struct nsos_socket;
 struct nsos_socket_poll {
 	struct nsos_mid_pollfd mid;
 	struct k_poll_signal signal;
+	struct k_condvar *cond;
 
 	sys_dnode_t node;
 };
@@ -60,9 +62,17 @@ struct nsos_socket {
 };
 
 static sys_dlist_t nsos_polls = SYS_DLIST_STATIC_INIT(&nsos_polls);
+static struct k_spinlock nsos_polls_lock;
 
-/* Forward declaration of the interface */
-NET_IF_DECLARE(nsos_socket, 0);
+static int nsos_socket_offload_init(const struct device *arg);
+
+static struct offloaded_if_api nsos_iface_offload_api;
+
+NET_DEVICE_OFFLOAD_INIT(nsos_socket, "nsos_socket",
+			nsos_socket_offload_init,
+			NULL,
+			NULL, NULL,
+			0, &nsos_iface_offload_api, NET_ETH_MTU);
 
 static int socket_family_to_nsos_mid(int family, int *family_mid)
 {
@@ -112,6 +122,9 @@ static int socket_proto_to_nsos_mid(int proto, int *proto_mid)
 		break;
 	case NET_IPPROTO_IPV6:
 		*proto_mid = NSOS_MID_IPPROTO_IPV6;
+		break;
+	case NET_IPPROTO_ICMPV6:
+		*proto_mid = NSOS_MID_IPPROTO_ICMPV6;
 		break;
 	case NET_IPPROTO_RAW:
 		*proto_mid = NSOS_MID_IPPROTO_RAW;
@@ -199,7 +212,7 @@ static int nsos_socket_create(int family, int type, int proto)
 		return -1;
 	}
 
-	sock = k_malloc(sizeof(*sock));
+	sock = nsi_host_calloc(1, sizeof(*sock));
 	if (!sock) {
 		errno = ENOMEM;
 		goto free_fd;
@@ -220,7 +233,7 @@ static int nsos_socket_create(int family, int type, int proto)
 	return fd;
 
 free_sock:
-	k_free(sock);
+	nsi_host_free(sock);
 
 free_fd:
 	zvfs_free_fd(fd);
@@ -263,12 +276,15 @@ static int nsos_close(void *obj)
 {
 	struct nsos_socket *sock = obj;
 	struct nsos_socket_poll *poll;
+	k_spinlock_key_t key;
 	int ret;
 
 	ret = nsi_host_close(sock->poll.mid.fd);
 	if (ret < 0) {
 		errno = nsos_adapt_get_zephyr_errno();
 	}
+
+	key = k_spin_lock(&nsos_polls_lock);
 
 	SYS_DLIST_FOR_EACH_CONTAINER(&nsos_polls, poll, node) {
 		if (poll == &sock->poll) {
@@ -277,7 +293,9 @@ static int nsos_close(void *obj)
 		}
 	}
 
-	k_free(sock);
+	k_spin_unlock(&nsos_polls_lock, key);
+
+	nsi_host_free(sock);
 
 	return ret;
 }
@@ -286,7 +304,15 @@ static void pollcb(struct nsos_mid_pollfd *mid)
 {
 	struct nsos_socket_poll *poll = CONTAINER_OF(mid, struct nsos_socket_poll, mid);
 
+	if (poll->mid.cb == NULL) {
+		return;
+	}
+
 	k_poll_signal_raise(&poll->signal, poll->mid.revents);
+
+	if (poll->cond) {
+		k_condvar_signal(poll->cond);
+	}
 }
 
 static int nsos_poll_prepare(struct nsos_socket *sock, struct zsock_pollfd *pfd,
@@ -294,6 +320,7 @@ static int nsos_poll_prepare(struct nsos_socket *sock, struct zsock_pollfd *pfd,
 			     struct nsos_socket_poll *poll)
 {
 	unsigned int signaled;
+	k_spinlock_key_t key;
 	int flags;
 
 	poll->mid.events = pfd->events;
@@ -306,10 +333,13 @@ static int nsos_poll_prepare(struct nsos_socket *sock, struct zsock_pollfd *pfd,
 
 	k_poll_signal_init(&poll->signal);
 	k_poll_event_init(*pev, K_POLL_TYPE_SIGNAL, K_POLL_MODE_NOTIFY_ONLY, &poll->signal);
+	key = k_spin_lock(&nsos_polls_lock);
 
 	sys_dlist_append(&nsos_polls, &poll->node);
 
 	nsos_adapt_poll_add(&poll->mid);
+
+	k_spin_unlock(&nsos_polls_lock, key);
 
 	/* Let other sockets use another k_poll_event */
 	(*pev)++;
@@ -330,6 +360,7 @@ static int nsos_poll_update(struct nsos_socket *sock, struct zsock_pollfd *pfd,
 			    struct k_poll_event **pev, struct nsos_socket_poll *poll)
 {
 	unsigned int signaled;
+	k_spinlock_key_t key;
 	int flags;
 
 	(*pev)++;
@@ -339,14 +370,24 @@ static int nsos_poll_update(struct nsos_socket *sock, struct zsock_pollfd *pfd,
 
 	if (!sys_dnode_is_linked(&poll->node)) {
 		nsos_adapt_poll_update(&poll->mid);
+		pfd->revents = poll->mid.revents;
 		return 0;
 	}
+
+	key = k_spin_lock(&nsos_polls_lock);
+
+	poll->cond = NULL;
+	poll->mid.cb = NULL;
 
 	nsos_adapt_poll_remove(&poll->mid);
 	sys_dlist_remove(&poll->node);
 
+	k_spin_unlock(&nsos_polls_lock, key);
+
 	k_poll_signal_check(&poll->signal, &signaled, &flags);
 	if (!signaled) {
+		nsos_adapt_poll_update(&poll->mid);
+		pfd->revents = poll->mid.revents;
 		return 0;
 	}
 
@@ -390,19 +431,20 @@ static int nsos_ioctl(void *obj, unsigned int request, va_list args)
 
 		flags = nsos_adapt_fcntl_getfl(sock->poll.mid.fd);
 
-		return fl_from_nsos_mid(flags);
+		return nsi_fcntl_from_mid(flags);
 	}
 
 	case ZVFS_F_SETFL: {
 		int flags = va_arg(args, int);
+		int flags_mid;
 		int ret;
 
-		ret = fl_to_nsos_mid_strict(flags);
-		if (ret < 0) {
-			return -nsi_errno_from_mid(-ret);
+		flags_mid = nsi_fcntl_to_mid_strict(flags);
+		if (flags_mid < 0) {
+			return -nsi_errno_from_mid(-flags_mid);
 		}
 
-		ret = nsos_adapt_fcntl_setfl(sock->poll.mid.fd, flags);
+		ret = nsos_adapt_fcntl_setfl(sock->poll.mid.fd, flags_mid);
 
 		return -nsi_errno_from_mid(-ret);
 	}
@@ -497,7 +539,7 @@ static int sockaddr_to_nsos_mid(const struct net_sockaddr *addr, net_socklen_t a
 			return -NSI_ERRNO_MID_EINVAL;
 		}
 
-		addr_ll_mid->sll_family = NSOS_MID_AF_UNIX;
+		addr_ll_mid->sll_family = NSOS_MID_AF_PACKET;
 		addr_ll_mid->sll_protocol = addr_ll->sll_protocol;
 		addr_ll_mid->sll_ifindex = addr_ll->sll_ifindex;
 		addr_ll_mid->sll_hatype = addr_ll->sll_hatype;
@@ -568,12 +610,25 @@ static int nsos_wait_for_poll(struct nsos_socket *sock, int events,
 	struct k_poll_event poll_events[1];
 	struct k_poll_event *pev = poll_events;
 	struct k_poll_event *pev_end = poll_events + ARRAY_SIZE(poll_events);
-	struct nsos_socket_poll socket_poll = {};
+	struct k_mutex *lock = NULL;
+	struct k_condvar cond;
+	struct nsos_socket_poll socket_poll = {
+		.cond = &cond,
+	};
+	bool lock_acquired;
 	int ret;
+
+	lock_acquired = zvfs_get_obj_lock_and_cond(sock,
+						   &nsos_socket_fd_op_vtable.fd_vtable,
+						   &lock, NULL);
+	__ASSERT(lock_acquired, "zvfs_get_obj_lock_and_cond() failed");
+	__ASSERT_NO_MSG(lock != NULL);
+
+	k_condvar_init(&cond);
 
 	ret = nsos_adapt_dup(sock->poll.mid.fd);
 	if (ret < 0) {
-		goto return_ret;
+		return ret;
 	}
 
 	socket_poll.mid.fd = ret;
@@ -586,7 +641,7 @@ static int nsos_wait_for_poll(struct nsos_socket *sock, int events,
 		goto close_dup;
 	}
 
-	ret = k_poll(poll_events, ARRAY_SIZE(poll_events), timeout);
+	ret = k_condvar_wait(&cond, lock, timeout);
 	if (ret != 0 && ret != -EAGAIN && ret != -EINTR) {
 		goto poll_update;
 	}
@@ -600,7 +655,6 @@ poll_update:
 close_dup:
 	nsi_host_close(socket_poll.mid.fd);
 
-return_ret:
 	if (ret < 0) {
 		return -nsi_errno_to_mid(-ret);
 	}
@@ -618,7 +672,7 @@ static int nsos_poll_if_blocking(struct nsos_socket *sock, int events,
 		non_blocking = true;
 	} else {
 		sock_flags = nsos_adapt_fcntl_getfl(sock->poll.mid.fd);
-		non_blocking = sock_flags & NSOS_MID_O_NONBLOCK;
+		non_blocking = sock_flags & NSI_FCNTL_MID_O_NONBLOCK;
 	}
 
 	if (!non_blocking) {
@@ -658,9 +712,9 @@ static int nsos_connect_blocking(struct nsos_socket *sock,
 				 int fcntl_flags)
 {
 	int clear_nonblock_ret;
-	int ret;
+	int ret; /* As a mid errno */
 
-	ret = nsos_adapt_fcntl_setfl(sock->poll.mid.fd, fcntl_flags | NSOS_MID_O_NONBLOCK);
+	ret = nsos_adapt_fcntl_setfl(sock->poll.mid.fd, fcntl_flags | NSI_FCNTL_MID_O_NONBLOCK);
 	if (ret < 0) {
 		return ret;
 	}
@@ -681,7 +735,7 @@ static int nsos_connect_blocking(struct nsos_socket *sock,
 			goto clear_nonblock;
 		}
 
-		ret = -nsi_errno_to_mid(so_err);
+		ret = -so_err;
 	}
 
 clear_nonblock:
@@ -710,7 +764,7 @@ static int nsos_connect(void *obj, const struct net_sockaddr *addr, net_socklen_
 
 	flags = nsos_adapt_fcntl_getfl(sock->poll.mid.fd);
 
-	if (flags & NSOS_MID_O_NONBLOCK) {
+	if (flags & NSI_FCNTL_MID_O_NONBLOCK) {
 		ret = nsos_adapt_connect(sock->poll.mid.fd, addr_mid, addrlen_mid);
 	} else {
 		ret = nsos_connect_blocking(sock, addr_mid, addrlen_mid, flags);
@@ -776,7 +830,7 @@ static int nsos_accept(void *obj, struct net_sockaddr *addr, net_socklen_t *addr
 		goto close_adapt_fd;
 	}
 
-	conn_sock = k_malloc(sizeof(*conn_sock));
+	conn_sock = nsi_host_calloc(1, sizeof(*conn_sock));
 	if (!conn_sock) {
 		ret = -NSI_ERRNO_MID_ENOMEM;
 		goto free_zephyr_fd;
@@ -784,6 +838,8 @@ static int nsos_accept(void *obj, struct net_sockaddr *addr, net_socklen_t *addr
 
 	conn_sock->fd = zephyr_fd;
 	conn_sock->poll.mid.fd = adapt_fd;
+	conn_sock->recv_timeout = K_FOREVER;
+	conn_sock->send_timeout = K_FOREVER;
 
 	zvfs_finalize_typed_fd(zephyr_fd, conn_sock, &nsos_socket_fd_op_vtable.fd_vtable,
 			       ZVFS_MODE_IFSOCK);
@@ -867,7 +923,7 @@ static ssize_t nsos_sendmsg(void *obj, const struct net_msghdr *msg, int flags)
 		goto return_ret;
 	}
 
-	msg_iov = k_calloc(msg->msg_iovlen, sizeof(*msg_iov));
+	msg_iov = nsi_host_calloc(msg->msg_iovlen, sizeof(*msg_iov));
 	if (!msg_iov) {
 		ret = -NSI_ERRNO_MID_ENOMEM;
 		goto return_ret;
@@ -894,7 +950,7 @@ static ssize_t nsos_sendmsg(void *obj, const struct net_msghdr *msg, int flags)
 	ret = nsos_adapt_sendmsg(sock->poll.mid.fd, &msg_mid, flags_mid);
 
 free_msg_iov:
-	k_free(msg_iov);
+	nsi_host_free(msg_iov);
 
 return_ret:
 	if (ret < 0) {
@@ -909,7 +965,6 @@ return_ret:
 static ssize_t nsos_recvfrom(void *obj, void *buf, size_t len, int flags,
 			     struct net_sockaddr *addr, net_socklen_t *addrlen)
 {
-	struct net_if *iface = NET_IF_GET(nsos_socket, 0);
 	struct nsos_socket *sock = obj;
 	struct nsos_mid_sockaddr_storage addr_storage_mid;
 	struct nsos_mid_sockaddr *addr_mid = (struct nsos_mid_sockaddr *)&addr_storage_mid;
@@ -943,7 +998,6 @@ return_ret:
 		return -1;
 	}
 
-	conn_mgr_if_used(iface);
 	return ret;
 }
 
@@ -995,6 +1049,9 @@ static int socket_proto_from_nsos_mid(int proto_mid, int *proto)
 		break;
 	case NSOS_MID_IPPROTO_IPV6:
 		*proto = NET_IPPROTO_IPV6;
+		break;
+	case NSOS_MID_IPPROTO_ICMPV6:
+		*proto = NET_IPPROTO_ICMPV6;
 		break;
 	case NSOS_MID_IPPROTO_RAW:
 		*proto = NET_IPPROTO_RAW;
@@ -1384,6 +1441,52 @@ static int nsos_setsockopt(void *obj, int level, int optname,
 	return -1;
 }
 
+static int nsos_getpeername(void *obj, struct net_sockaddr *addr, net_socklen_t *addrlen)
+{
+	struct nsos_socket *sock = obj;
+	struct nsos_mid_sockaddr_storage addr_storage_mid;
+	struct nsos_mid_sockaddr *addr_mid = (struct nsos_mid_sockaddr *)&addr_storage_mid;
+	size_t addrlen_mid = sizeof(addr_storage_mid);
+	int ret;
+
+	ret = nsos_adapt_getpeername(sock->poll.mid.fd, addr_mid, &addrlen_mid);
+	if (ret < 0) {
+		errno = nsi_errno_from_mid(-ret);
+		return -1;
+	}
+
+	ret = sockaddr_from_nsos_mid(addr, addrlen, addr_mid, addrlen_mid);
+	if (ret < 0) {
+		errno = nsi_errno_from_mid(-ret);
+		return -1;
+	}
+
+	return 0;
+}
+
+static int nsos_getsockname(void *obj, struct net_sockaddr *addr, net_socklen_t *addrlen)
+{
+	struct nsos_socket *sock = obj;
+	struct nsos_mid_sockaddr_storage addr_storage_mid;
+	struct nsos_mid_sockaddr *addr_mid = (struct nsos_mid_sockaddr *)&addr_storage_mid;
+	size_t addrlen_mid = sizeof(addr_storage_mid);
+	int ret;
+
+	ret = nsos_adapt_getsockname(sock->poll.mid.fd, addr_mid, &addrlen_mid);
+	if (ret < 0) {
+		errno = nsi_errno_from_mid(-ret);
+		return -1;
+	}
+
+	ret = sockaddr_from_nsos_mid(addr, addrlen, addr_mid, addrlen_mid);
+	if (ret < 0) {
+		errno = nsi_errno_from_mid(-ret);
+		return -1;
+	}
+
+	return 0;
+}
+
 static const struct socket_op_vtable nsos_socket_fd_op_vtable = {
 	.fd_vtable = {
 		.read = nsos_read,
@@ -1401,6 +1504,8 @@ static const struct socket_op_vtable nsos_socket_fd_op_vtable = {
 	.recvmsg = nsos_recvmsg,
 	.getsockopt = nsos_getsockopt,
 	.setsockopt = nsos_setsockopt,
+	.getpeername = nsos_getpeername,
+	.getsockname = nsos_getsockname,
 };
 
 static bool nsos_is_supported(int family, int type, int proto)
@@ -1457,6 +1562,7 @@ static int addrinfo_from_nsos_mid(struct nsos_mid_addrinfo *nsos_res,
 	struct zsock_addrinfo_wrap *res_wraps;
 	size_t idx_res = 0;
 	size_t n_res = 0;
+	int ret;
 
 	for (struct nsos_mid_addrinfo *res_p = nsos_res; res_p; res_p = res_p->ai_next) {
 		n_res++;
@@ -1466,20 +1572,44 @@ static int addrinfo_from_nsos_mid(struct nsos_mid_addrinfo *nsos_res,
 		return 0;
 	}
 
-	res_wraps = k_calloc(n_res, sizeof(*res_wraps));
+	res_wraps = nsi_host_calloc(n_res, sizeof(*res_wraps));
 	if (!res_wraps) {
 		return -ENOMEM;
 	}
 
 	for (struct nsos_mid_addrinfo *res_p = nsos_res; res_p; res_p = res_p->ai_next, idx_res++) {
 		struct zsock_addrinfo_wrap *wrap = &res_wraps[idx_res];
+		int err;
 
 		wrap->addrinfo_mid = res_p;
 
-		wrap->addrinfo.ai_flags = res_p->ai_flags;
-		wrap->addrinfo.ai_family = res_p->ai_family;
-		wrap->addrinfo.ai_socktype = res_p->ai_socktype;
-		wrap->addrinfo.ai_protocol = res_p->ai_protocol;
+		err = addrinfo_flags_from_nsos_mid(res_p->ai_flags,
+						   &wrap->addrinfo.ai_flags);
+		if (err) {
+			ret = -nsi_errno_from_mid(-err);
+			goto free_wraps;
+		}
+
+		err = socket_family_from_nsos_mid(res_p->ai_family,
+						  &wrap->addrinfo.ai_family);
+		if (err) {
+			ret = -nsi_errno_from_mid(-err);
+			goto free_wraps;
+		}
+
+		err = socket_type_from_nsos_mid(res_p->ai_socktype,
+						&wrap->addrinfo.ai_socktype);
+		if (err) {
+			ret = -nsi_errno_from_mid(-err);
+			goto free_wraps;
+		}
+
+		err = socket_proto_from_nsos_mid(res_p->ai_protocol,
+						 &wrap->addrinfo.ai_protocol);
+		if (err) {
+			ret = -nsi_errno_from_mid(-err);
+			goto free_wraps;
+		}
 
 		wrap->addrinfo.ai_addr =
 			(struct net_sockaddr *)&wrap->addr_storage;
@@ -1489,7 +1619,7 @@ static int addrinfo_from_nsos_mid(struct nsos_mid_addrinfo *nsos_res,
 				       res_p->ai_addr, res_p->ai_addrlen);
 
 		wrap->addrinfo.ai_canonname =
-			res_p->ai_canonname ? strdup(res_p->ai_canonname) : NULL;
+			res_p->ai_canonname ? nsi_host_strdup(res_p->ai_canonname) : NULL;
 		wrap->addrinfo.ai_next = &wrap[1].addrinfo;
 	}
 
@@ -1498,6 +1628,15 @@ static int addrinfo_from_nsos_mid(struct nsos_mid_addrinfo *nsos_res,
 	*res = &res_wraps->addrinfo;
 
 	return 0;
+
+free_wraps:
+	for (size_t i = 0; i < idx_res; i++) {
+		nsi_host_free(res_wraps[i].addrinfo.ai_canonname);
+	}
+
+	nsi_host_free(res_wraps);
+
+	return ret;
 }
 
 static int nsos_getaddrinfo(const char *node, const char *service,
@@ -1515,10 +1654,30 @@ static int nsos_getaddrinfo(const char *node, const char *service,
 	}
 
 	if (hints) {
-		hints_mid.ai_flags    = hints->ai_flags;
-		hints_mid.ai_family   = hints->ai_family;
-		hints_mid.ai_socktype = hints->ai_socktype;
-		hints_mid.ai_protocol = hints->ai_protocol;
+		ret = addrinfo_flags_to_nsos_mid(hints->ai_flags,
+						 &hints_mid.ai_flags);
+		if (ret < 0) {
+			return DNS_EAI_BADFLAGS;
+		}
+
+		ret = socket_family_to_nsos_mid(hints->ai_family,
+						&hints_mid.ai_family);
+		if (ret < 0) {
+			return DNS_EAI_FAMILY;
+		}
+
+		ret = socket_type_to_nsos_mid(hints->ai_socktype,
+					      &hints_mid.ai_socktype);
+		if (ret < 0) {
+			return DNS_EAI_SOCKTYPE;
+		}
+
+		ret = socket_proto_to_nsos_mid(hints->ai_protocol,
+					       &hints_mid.ai_protocol);
+		if (ret < 0) {
+			errno = nsi_errno_from_mid(-ret);
+			return DNS_EAI_SYSTEM;
+		}
 	}
 
 	ret = nsos_adapt_getaddrinfo(node, service,
@@ -1549,11 +1708,11 @@ static void nsos_freeaddrinfo(struct zsock_addrinfo *res)
 		CONTAINER_OF(res, struct zsock_addrinfo_wrap, addrinfo);
 
 	for (struct zsock_addrinfo *res_p = res; res_p; res_p = res_p->ai_next) {
-		free(res_p->ai_canonname);
+		nsi_host_free(res_p->ai_canonname);
 	}
 
 	nsos_adapt_freeaddrinfo(wrap->addrinfo_mid);
-	k_free(wrap);
+	nsi_host_free(wrap);
 }
 
 static const struct socket_dns_offload nsos_dns_ops = {
@@ -1564,12 +1723,18 @@ static const struct socket_dns_offload nsos_dns_ops = {
 static void nsos_isr(const void *obj)
 {
 	struct nsos_socket_poll *poll;
+	k_spinlock_key_t key;
+
+	ARG_UNUSED(obj);
+	key = k_spin_lock(&nsos_polls_lock);
 
 	SYS_DLIST_FOR_EACH_CONTAINER(&nsos_polls, poll, node) {
 		if (poll->mid.revents) {
 			poll->mid.cb(&poll->mid);
 		}
 	}
+
+	k_spin_unlock(&nsos_polls_lock, key);
 }
 
 static int nsos_socket_offload_init(const struct device *arg)
@@ -1585,28 +1750,14 @@ static int nsos_socket_offload_init(const struct device *arg)
 
 static void nsos_iface_api_init(struct net_if *iface)
 {
-	iface->if_dev->socket_offload = nsos_socket_create;
+	net_if_socket_offload_set(iface, nsos_socket_create);
 
 	socket_offload_dns_register(&nsos_dns_ops);
 }
 
-static int nsos_iface_enable(const struct net_if *iface, bool enabled)
-{
-	ARG_UNUSED(iface);
-	ARG_UNUSED(enabled);
-	return 0;
-}
-
 static struct offloaded_if_api nsos_iface_offload_api = {
 	.iface_api.init = nsos_iface_api_init,
-	.enable = nsos_iface_enable,
 };
-
-NET_DEVICE_OFFLOAD_INIT(nsos_socket, "nsos_socket",
-			nsos_socket_offload_init,
-			NULL,
-			NULL, NULL,
-			0, &nsos_iface_offload_api, NET_ETH_MTU);
 
 #ifdef CONFIG_NET_NATIVE_OFFLOADED_SOCKETS_CONNECTIVITY_SIM
 

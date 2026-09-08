@@ -14,6 +14,7 @@
 #include <zephyr/dt-bindings/clock/ra_clock.h>
 #include <zephyr/dt-bindings/misc/renesas/ra-elc/ra2l1-elc.h>
 #include <zephyr/dt-bindings/pwm/ra_pwm.h>
+#include <zephyr/dt-bindings/i2c/i2c.h>
 
 / {
 	cpus {
@@ -42,12 +43,6 @@
 			reg = <0x20000000 0x8000>;
 		};
 
-		system: system@4001e000 {
-			compatible = "renesas,ra-system";
-			reg = <0x4001e000 0x1000>;
-			status = "okay";
-		};
-
 		elc: elc@40041000 {
 			compatible = "renesas,ra-elc";
 			reg = <0x40041000 0x6c>;
@@ -56,11 +51,10 @@
 			status = "disabled";
 		};
 
-		flash: flash-controller@407e0000 {
-			compatible = "renesas,ra-flash-lp-controller";
+		fcb: fcb@407e0000 {
+			compatible = "renesas,ra-fcb";
 			reg = <0x407e0000 0x20000>;
-			#address-cells = <1>;
-			#size-cells = <1>;
+			ranges;
 			interrupts = <30 1>;
 			interrupt-names = "frdyi";
 		};
@@ -189,6 +183,15 @@
 				channel = <0>;
 				status = "disabled";
 			};
+
+			spi {
+				compatible = "renesas,ra-spi-sci";
+				#address-cells = <1>;
+				#size-cells = <0>;
+				channel = <0>;
+				overrun-character = <0x00>;
+				status = "disabled";
+			};
 		};
 
 		sci1: sci1@40070020 {
@@ -208,6 +211,15 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 				channel = <1>;
+				status = "disabled";
+			};
+
+			spi {
+				compatible = "renesas,ra-spi-sci";
+				#address-cells = <1>;
+				#size-cells = <0>;
+				channel = <1>;
+				overrun-character = <0x00>;
 				status = "disabled";
 			};
 		};
@@ -231,6 +243,15 @@
 				channel = <2>;
 				status = "disabled";
 			};
+
+			spi {
+				compatible = "renesas,ra-spi-sci";
+				#address-cells = <1>;
+				#size-cells = <0>;
+				channel = <2>;
+				overrun-character = <0x00>;
+				status = "disabled";
+			};
 		};
 
 		sci3: sci3@40070060 {
@@ -250,6 +271,15 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 				channel = <3>;
+				status = "disabled";
+			};
+
+			spi {
+				compatible = "renesas,ra-spi-sci";
+				#address-cells = <1>;
+				#size-cells = <0>;
+				channel = <3>;
+				overrun-character = <0x00>;
 				status = "disabled";
 			};
 		};
@@ -273,6 +303,15 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 				channel = <9>;
+				status = "disabled";
+			};
+
+			spi {
+				compatible = "renesas,ra-spi-sci";
+				#address-cells = <1>;
+				#size-cells = <0>;
+				channel = <9>;
+				overrun-character = <0x00>;
 				status = "disabled";
 			};
 		};
@@ -441,6 +480,8 @@
 			compatible = "renesas,ra-iic";
 			channel = <0>;
 			reg = <0x40053000 0x100>;
+			clocks = <&pclkb MSTPB 9>;
+			max-bitrate-supported = <I2C_BITRATE_FAST>;
 			status = "disabled";
 		};
 
@@ -448,6 +489,8 @@
 			compatible = "renesas,ra-iic";
 			channel = <1>;
 			reg = <0x40053100 0x100>;
+			clocks = <&pclkb MSTPB 8>;
+			max-bitrate-supported = <I2C_BITRATE_FAST>;
 			status = "disabled";
 		};
 

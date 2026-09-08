@@ -5,6 +5,7 @@
  */
 
 #include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/input/keymap.h>
 
 / {
 	test {
@@ -73,6 +74,11 @@
 			polling-mode;
 		};
 
+		vs1838b {
+			compatible = "vishay,vs1838b";
+			data-gpios = <&test_gpio 0 0>;
+		};
+
 		evdev {
 			compatible = "zephyr,native-linux-evdev";
 		};
@@ -88,9 +94,10 @@
 
 			keymap {
 				compatible = "input-keymap";
-				keymap = <0 1 2>;
 				row-size = <2>;
 				col-size = <2>;
+				keymap = <MATRIX_KEY(0, 0, 0) MATRIX_KEY(0, 1, 1)
+					  MATRIX_KEY(1, 0, 2)>;
 			};
 		};
 
@@ -187,6 +194,21 @@
 					zephyr,code = <INPUT_ABS_RX>;
 				};
 			};
+
+			usb_kb {
+				compatible = "wch,ch9350l";
+				status = "okay";
+			};
+
+			crsf {
+				compatible = "tbs,crsf";
+
+				right_stick_x {
+					channel = <1>;
+					type = <INPUT_EV_ABS>;
+					zephyr,code = <INPUT_ABS_RX>;
+				};
+			};
 		};
 
 		i2c@1 {
@@ -218,7 +240,7 @@
 			};
 
 			cst816s@2 {
-				compatible = "hynitron,cst816s";
+				compatible = "hynitron,cst8xx";
 				reg = <0x2>;
 				irq-gpios = <&test_gpio 0 0>;
 				rst-gpios = <&test_gpio 1 0>;
@@ -307,6 +329,27 @@
 				reg = <0xc>;
 				int-gpios = <&test_gpio 0 0>;
 				reset-gpios = <&test_gpio 1 0>;
+			};
+
+			tma525b@d {
+				compatible = "parade,tma525b";
+				reg = <0xd>;
+				int-gpios = <&test_gpio 0 0>;
+			};
+
+			seesaw@e {
+				compatible = "adafruit,seesaw-gamepad";
+				reg = <0xe>;
+			};
+
+			modulino-buttons@f {
+				compatible = "i2c-device";
+				reg = <0xf>;
+
+				modulino_buttons {
+					compatible = "arduino,modulino-buttons";
+					zephyr,codes = <0>, <1>, <2>;
+				};
 			};
 		};
 

@@ -520,7 +520,7 @@ New Boards
 
 * Aesc Silicon
 
-   * :zephyr:board:`elemrv` (``elemrv``)
+   * :zephyr:board:`elemrv_flask_n` (``elemrv``)
 
 * Ai-Thinker Co., Ltd.
 
@@ -570,7 +570,7 @@ New Boards
 * Ezurio
 
    * :zephyr:board:`bl54l15_dvk` (``bl54l15_dvk``)
-   * :zephyr:board:`bl54l15u_dvk` (``bl54l15u_dvk``)
+   * ``bl54l15u_dvk``
 
 * FANKE Technology Co., Ltd.
 
@@ -590,7 +590,7 @@ New Boards
 
 * ITE Tech. Inc.
 
-   * :zephyr:board:`it515xx_evb` (``it515xx_evb``)
+   * ``it515xx_evb``
 
 * KWS Computersysteme Gmbh
 

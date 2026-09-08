@@ -4,7 +4,7 @@
  * Provide some Bluetooth shell commands that can be useful to applications.
  */
 /*
- * Copyright 2024-2025 NXP
+ * Copyright 2024-2026 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -23,21 +23,18 @@
 
 #include <zephyr/shell/shell.h>
 
-#include "host/shell/bt.h"
-#include "common/bt_shell_private.h"
+#include <host/shell/bt.h>
+#include <common/bt_shell_private.h>
 
 #define GOEP_MOPL CONFIG_BT_GOEP_RFCOMM_MTU
-#ifdef CONFIG_ZTEST
-#define STATIC
-#else
-#define STATIC static
-#endif
+
 NET_BUF_POOL_FIXED_DEFINE(tx_pool, CONFIG_BT_MAX_CONN, BT_RFCOMM_BUF_SIZE(GOEP_MOPL),
 			  CONFIG_BT_CONN_TX_USER_DATA_SIZE, NULL);
 
 static uint8_t add_head_buffer[GOEP_MOPL];
 
 struct bt_goep_app {
+	struct bt_goep_transport goep_transport;
 	struct bt_goep goep;
 	struct bt_obex_client client;
 	struct bt_obex_server server;
@@ -45,7 +42,7 @@ struct bt_goep_app {
 	struct net_buf *tx_buf;
 };
 
-STATIC struct bt_goep_app goep_app;
+ZTESTABLE_STATIC struct bt_goep_app goep_app;
 
 static struct bt_goep_transport_rfcomm_server rfcomm_server;
 static struct bt_goep_transport_l2cap_server l2cap_server;
@@ -53,13 +50,13 @@ static struct bt_goep_transport_l2cap_server l2cap_server;
 #define TLV_COUNT       3
 #define TLV_BUFFER_SIZE 64
 
-STATIC struct bt_obex_tlv tlvs[TLV_COUNT];
-STATIC uint8_t tlv_buffers[TLV_COUNT][TLV_BUFFER_SIZE];
-STATIC uint8_t tlv_count;
+ZTESTABLE_STATIC struct bt_obex_tlv tlvs[TLV_COUNT];
+ZTESTABLE_STATIC uint8_t tlv_buffers[TLV_COUNT][TLV_BUFFER_SIZE];
+ZTESTABLE_STATIC uint8_t tlv_count;
 
 static struct bt_goep_app *goep_alloc(struct bt_conn *conn)
 {
-	if (goep_app.conn) {
+	if (goep_app.conn != NULL) {
 		return NULL;
 	}
 
@@ -109,7 +106,7 @@ static bool goep_parse_headers_cb(struct bt_obex_hdr *hdr, void *user_data)
 		int err;
 
 		err = bt_obex_tlv_parse(hdr->len, hdr->data, goep_parse_tlvs_cb, NULL);
-		if (err) {
+		if (err != 0) {
 			bt_shell_error("Fail to parse OBEX TLV triplet");
 		}
 	} break;
@@ -125,12 +122,12 @@ static int goep_parse_headers(struct net_buf *buf)
 {
 	int err;
 
-	if (!buf) {
+	if (buf == NULL) {
 		return 0;
 	}
 
 	err = bt_obex_header_parse(buf, goep_parse_headers_cb, NULL);
-	if (err) {
+	if (err != 0) {
 		bt_shell_print("Fail to parse OBEX Headers");
 	}
 
@@ -184,7 +181,7 @@ static void goep_server_action(struct bt_obex_server *server, bool final, struct
 	goep_parse_headers(buf);
 }
 
-STATIC struct bt_obex_server_ops goep_server_ops = {
+ZTESTABLE_STATIC struct bt_obex_server_ops goep_server_ops = {
 	.connect = goep_server_connect,
 	.disconnect = goep_server_disconnect,
 	.put = goep_server_put,
@@ -248,7 +245,7 @@ static void goep_client_action(struct bt_obex_client *client, uint8_t rsp_code,
 	goep_parse_headers(buf);
 }
 
-STATIC struct bt_obex_client_ops goep_client_ops = {
+ZTESTABLE_STATIC struct bt_obex_client_ops goep_client_ops = {
 	.connect = goep_client_connect,
 	.disconnect = goep_client_disconnect,
 	.put = goep_client_put,
@@ -264,12 +261,13 @@ static int rfcomm_accept(struct bt_conn *conn, struct bt_goep_transport_rfcomm_s
 	struct bt_goep_app *g_app;
 
 	g_app = goep_alloc(conn);
-	if (!g_app) {
+	if (g_app == NULL) {
 		bt_shell_print("Cannot allocate goep instance");
 		return -ENOMEM;
 	}
 
 	g_app->goep.transport_ops = &goep_transport_ops;
+	BT_GOEP_INIT_V1(&g_app->goep, &g_app->goep_transport.v1);
 	*goep = &g_app->goep;
 	return 0;
 }
@@ -279,7 +277,7 @@ static int cmd_register_rfcomm(const struct shell *sh, size_t argc, char *argv[]
 	int err;
 	uint8_t channel;
 
-	if (rfcomm_server.rfcomm.channel) {
+	if (rfcomm_server.rfcomm.channel != 0) {
 		shell_error(sh, "RFCOMM has been registered");
 		return -EBUSY;
 	}
@@ -289,7 +287,7 @@ static int cmd_register_rfcomm(const struct shell *sh, size_t argc, char *argv[]
 	rfcomm_server.rfcomm.channel = channel;
 	rfcomm_server.accept = rfcomm_accept;
 	err = bt_goep_transport_rfcomm_server_register(&rfcomm_server);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to register RFCOMM server (error %d)", err);
 		rfcomm_server.rfcomm.channel = 0;
 		return -ENOEXEC;
@@ -304,27 +302,28 @@ static int cmd_connect_rfcomm(const struct shell *sh, size_t argc, char *argv[])
 	struct bt_goep_app *g_app;
 	uint8_t channel;
 
-	if (!default_conn) {
+	if (default_conn == NULL) {
 		shell_error(sh, "Not connected");
 		return -ENOEXEC;
 	}
 
 	channel = (uint8_t)strtoul(argv[1], NULL, 16);
-	if (!channel) {
+	if (channel == 0) {
 		shell_error(sh, "Invalid channel");
 		return -ENOEXEC;
 	}
 
 	g_app = goep_alloc(default_conn);
-	if (!g_app) {
+	if (g_app == NULL) {
 		shell_error(sh, "Cannot allocate goep instance");
 		return -ENOMEM;
 	}
 
 	g_app->goep.transport_ops = &goep_transport_ops;
+	BT_GOEP_INIT_V1(&g_app->goep, &g_app->goep_transport.v1);
 
 	err = bt_goep_transport_rfcomm_connect(default_conn, &g_app->goep, channel);
-	if (err) {
+	if (err != 0) {
 		goep_free(g_app);
 		shell_error(sh, "Fail to connect to channel %d (err %d)", channel, err);
 	} else {
@@ -338,18 +337,18 @@ static int cmd_disconnect_rfcomm(const struct shell *sh, size_t argc, char *argv
 {
 	int err;
 
-	if (!default_conn) {
+	if (default_conn == NULL) {
 		shell_error(sh, "Not connected");
 		return -ENOEXEC;
 	}
 
-	if (!goep_app.conn) {
+	if (goep_app.conn == NULL) {
 		shell_error(sh, "No goep transport connection");
 		return -ENOEXEC;
 	}
 
 	err = bt_goep_transport_rfcomm_disconnect(&goep_app.goep);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to disconnect to channel (err %d)", err);
 	} else {
 		shell_print(sh, "GOEP RFCOMM disconnection pending");
@@ -363,12 +362,13 @@ static int l2cap_accept(struct bt_conn *conn, struct bt_goep_transport_l2cap_ser
 	struct bt_goep_app *g_app;
 
 	g_app = goep_alloc(conn);
-	if (!g_app) {
+	if (g_app == NULL) {
 		bt_shell_print("Cannot allocate goep instance");
 		return -ENOMEM;
 	}
 
 	g_app->goep.transport_ops = &goep_transport_ops;
+	BT_GOEP_INIT_V2(&g_app->goep, &g_app->goep_transport.v2);
 	*goep = &g_app->goep;
 	return 0;
 }
@@ -388,7 +388,7 @@ static int cmd_register_l2cap(const struct shell *sh, size_t argc, char *argv[])
 	l2cap_server.l2cap.psm = psm;
 	l2cap_server.accept = l2cap_accept;
 	err = bt_goep_transport_l2cap_server_register(&l2cap_server);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to register L2CAP server (error %d)", err);
 		l2cap_server.l2cap.psm = 0;
 		return -ENOEXEC;
@@ -403,7 +403,7 @@ static int cmd_connect_l2cap(const struct shell *sh, size_t argc, char *argv[])
 	struct bt_goep_app *g_app;
 	uint16_t psm;
 
-	if (!default_conn) {
+	if (default_conn == NULL) {
 		shell_error(sh, "Not connected");
 		return -ENOEXEC;
 	}
@@ -415,15 +415,16 @@ static int cmd_connect_l2cap(const struct shell *sh, size_t argc, char *argv[])
 	}
 
 	g_app = goep_alloc(default_conn);
-	if (!g_app) {
+	if (g_app == NULL) {
 		shell_error(sh, "Cannot allocate goep instance");
 		return -ENOMEM;
 	}
 
 	g_app->goep.transport_ops = &goep_transport_ops;
+	BT_GOEP_INIT_V2(&g_app->goep, &g_app->goep_transport.v2);
 
 	err = bt_goep_transport_l2cap_connect(default_conn, &g_app->goep, psm);
-	if (err) {
+	if (err != 0) {
 		goep_free(g_app);
 		shell_error(sh, "Fail to connect to PSM %d (err %d)", psm, err);
 	} else {
@@ -437,18 +438,18 @@ static int cmd_disconnect_l2cap(const struct shell *sh, size_t argc, char *argv[
 {
 	int err;
 
-	if (!default_conn) {
+	if (default_conn == NULL) {
 		shell_error(sh, "Not connected");
 		return -ENOEXEC;
 	}
 
-	if (!goep_app.conn) {
+	if (goep_app.conn == NULL) {
 		shell_error(sh, "No goep transport connection");
 		return -ENOEXEC;
 	}
 
 	err = bt_goep_transport_l2cap_disconnect(&goep_app.goep);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to disconnect L2CAP conn (err %d)", err);
 	} else {
 		shell_print(sh, "GOEP L2CAP disconnection pending");
@@ -464,7 +465,7 @@ static int cmd_add_header_count(const struct shell *sh, size_t argc, char *argv[
 	count = strtoul(argv[1], NULL, 16);
 
 	err = bt_obex_add_header_count(goep_app.tx_buf, count);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header count");
 	}
 	return err;
@@ -492,7 +493,7 @@ static int cmd_add_header_name(const struct shell *sh, size_t argc, char *argv[]
 	}
 
 	err = bt_obex_add_header_name(goep_app.tx_buf, (uint16_t)len, add_head_buffer);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header name");
 	}
 	return err;
@@ -512,7 +513,7 @@ static int cmd_add_header_type(const struct shell *sh, size_t argc, char *argv[]
 	}
 
 	err = bt_obex_add_header_type(goep_app.tx_buf, (uint16_t)len, add_head_buffer);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header type");
 	}
 	return err;
@@ -526,7 +527,7 @@ static int cmd_add_header_len(const struct shell *sh, size_t argc, char *argv[])
 	len = strtoul(argv[1], NULL, 16);
 
 	err = bt_obex_add_header_len(goep_app.tx_buf, len);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header len");
 	}
 	return err;
@@ -546,7 +547,7 @@ static int cmd_add_header_time_iso_8601(const struct shell *sh, size_t argc, cha
 	}
 
 	err = bt_obex_add_header_time_iso_8601(goep_app.tx_buf, (uint16_t)len, add_head_buffer);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header time_iso_8601");
 	}
 	return err;
@@ -560,7 +561,7 @@ static int cmd_add_header_time(const struct shell *sh, size_t argc, char *argv[]
 	t = strtoul(argv[1], NULL, 16);
 
 	err = bt_obex_add_header_time(goep_app.tx_buf, t);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header time");
 	}
 	return err;
@@ -580,7 +581,7 @@ static int cmd_add_header_description(const struct shell *sh, size_t argc, char 
 	}
 
 	err = bt_obex_add_header_description(goep_app.tx_buf, (uint16_t)len, add_head_buffer);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header description");
 	}
 	return err;
@@ -600,7 +601,7 @@ static int cmd_add_header_target(const struct shell *sh, size_t argc, char *argv
 	}
 
 	err = bt_obex_add_header_target(goep_app.tx_buf, (uint16_t)len, add_head_buffer);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header target");
 	}
 	return err;
@@ -620,7 +621,7 @@ static int cmd_add_header_http(const struct shell *sh, size_t argc, char *argv[]
 	}
 
 	err = bt_obex_add_header_http(goep_app.tx_buf, (uint16_t)len, add_head_buffer);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header http");
 	}
 	return err;
@@ -640,7 +641,7 @@ static int cmd_add_header_body(const struct shell *sh, size_t argc, char *argv[]
 	}
 
 	err = bt_obex_add_header_body(goep_app.tx_buf, (uint16_t)len, add_head_buffer);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header body");
 	}
 	return err;
@@ -660,7 +661,7 @@ static int cmd_add_header_end_body(const struct shell *sh, size_t argc, char *ar
 	}
 
 	err = bt_obex_add_header_end_body(goep_app.tx_buf, (uint16_t)len, add_head_buffer);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header end_body");
 	}
 	return err;
@@ -680,7 +681,7 @@ static int cmd_add_header_who(const struct shell *sh, size_t argc, char *argv[])
 	}
 
 	err = bt_obex_add_header_who(goep_app.tx_buf, (uint16_t)len, add_head_buffer);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header who");
 	}
 	return err;
@@ -694,7 +695,7 @@ static int cmd_add_header_conn_id(const struct shell *sh, size_t argc, char *arg
 	conn_id = strtoul(argv[1], NULL, 16);
 
 	err = bt_obex_add_header_conn_id(goep_app.tx_buf, conn_id);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header conn_id");
 	}
 	return err;
@@ -740,7 +741,7 @@ static int cmd_add_header_app_param(const struct shell *sh, size_t argc, char *a
 
 add_header:
 	err = bt_obex_add_header_app_param(goep_app.tx_buf, (size_t)tlv_count, tlvs);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header app_param");
 	}
 	tlv_count = 0;
@@ -787,7 +788,7 @@ static int cmd_add_header_auth_challenge(const struct shell *sh, size_t argc, ch
 
 add_header:
 	err = bt_obex_add_header_auth_challenge(goep_app.tx_buf, (size_t)tlv_count, tlvs);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header auth_challenge");
 	}
 	tlv_count = 0;
@@ -834,7 +835,7 @@ static int cmd_add_header_auth_rsp(const struct shell *sh, size_t argc, char *ar
 
 add_header:
 	err = bt_obex_add_header_auth_rsp(goep_app.tx_buf, (size_t)tlv_count, tlvs);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header auth_rsp");
 	}
 	tlv_count = 0;
@@ -849,7 +850,7 @@ static int cmd_add_header_creator_id(const struct shell *sh, size_t argc, char *
 	creator_id = strtoul(argv[1], NULL, 16);
 
 	err = bt_obex_add_header_creator_id(goep_app.tx_buf, creator_id);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header creator_id");
 	}
 	return err;
@@ -869,7 +870,7 @@ static int cmd_add_header_wan_uuid(const struct shell *sh, size_t argc, char *ar
 	}
 
 	err = bt_obex_add_header_wan_uuid(goep_app.tx_buf, (uint16_t)len, add_head_buffer);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header wan_uuid");
 	}
 	return err;
@@ -889,7 +890,7 @@ static int cmd_add_header_obj_class(const struct shell *sh, size_t argc, char *a
 	}
 
 	err = bt_obex_add_header_obj_class(goep_app.tx_buf, (uint16_t)len, add_head_buffer);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header obj_class");
 	}
 	return err;
@@ -909,7 +910,7 @@ static int cmd_add_header_session_param(const struct shell *sh, size_t argc, cha
 	}
 
 	err = bt_obex_add_header_session_param(goep_app.tx_buf, (uint16_t)len, add_head_buffer);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header session_param");
 	}
 	return err;
@@ -923,7 +924,7 @@ static int cmd_add_header_session_seq_number(const struct shell *sh, size_t argc
 	session_seq_number = strtoul(argv[1], NULL, 16);
 
 	err = bt_obex_add_header_session_seq_number(goep_app.tx_buf, session_seq_number);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header session_seq_number");
 	}
 	return err;
@@ -937,7 +938,7 @@ static int cmd_add_header_action_id(const struct shell *sh, size_t argc, char *a
 	action_id = strtoul(argv[1], NULL, 16);
 
 	err = bt_obex_add_header_action_id(goep_app.tx_buf, (uint8_t)action_id);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header action_id");
 	}
 	return err;
@@ -957,7 +958,7 @@ static int cmd_add_header_dest_name(const struct shell *sh, size_t argc, char *a
 	}
 
 	err = bt_obex_add_header_dest_name(goep_app.tx_buf, (uint16_t)len, add_head_buffer);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header dest_name");
 	}
 	return err;
@@ -971,7 +972,7 @@ static int cmd_add_header_perm(const struct shell *sh, size_t argc, char *argv[]
 	perm = strtoul(argv[1], NULL, 16);
 
 	err = bt_obex_add_header_perm(goep_app.tx_buf, perm);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header perm");
 	}
 	return err;
@@ -990,7 +991,7 @@ static int cmd_add_header_srm(const struct shell *sh, size_t argc, char *argv[])
 	}
 
 	err = bt_obex_add_header_srm(goep_app.tx_buf, (uint8_t)srm);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header srm");
 	}
 	return err;
@@ -1009,7 +1010,7 @@ static int cmd_add_header_srm_param(const struct shell *sh, size_t argc, char *a
 	}
 
 	err = bt_obex_add_header_srm_param(goep_app.tx_buf, (uint8_t)srm_param);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to add header srm_param");
 	}
 	return err;
@@ -1020,12 +1021,12 @@ static int cmd_goep_client_conn(const struct shell *sh, size_t argc, char *argv[
 	uint16_t mopl;
 	int err;
 
-	if (!default_conn) {
+	if (default_conn == NULL) {
 		shell_error(sh, "Not connected");
 		return -ENOEXEC;
 	}
 
-	if (!goep_app.conn) {
+	if (goep_app.conn == NULL) {
 		shell_error(sh, "No goep transport connection");
 		return -ENOEXEC;
 	}
@@ -1035,7 +1036,7 @@ static int cmd_goep_client_conn(const struct shell *sh, size_t argc, char *argv[
 	goep_app.client.ops = &goep_client_ops;
 	goep_app.client.obex = &goep_app.goep.obex;
 	err = bt_obex_connect(&goep_app.client, mopl, goep_app.tx_buf);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to send conn req %d", err);
 	} else {
 		goep_app.tx_buf = NULL;
@@ -1047,18 +1048,18 @@ static int cmd_goep_client_disconn(const struct shell *sh, size_t argc, char *ar
 {
 	int err;
 
-	if (!default_conn) {
+	if (default_conn == NULL) {
 		shell_error(sh, "Not connected");
 		return -ENOEXEC;
 	}
 
-	if (!goep_app.conn) {
+	if (goep_app.conn == NULL) {
 		shell_error(sh, "No goep transport connection");
 		return -ENOEXEC;
 	}
 
 	err = bt_obex_disconnect(&goep_app.client, goep_app.tx_buf);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to send disconn req %d", err);
 	} else {
 		goep_app.tx_buf = NULL;
@@ -1071,12 +1072,12 @@ static int cmd_goep_client_put(const struct shell *sh, size_t argc, char *argv[]
 	bool final;
 	int err = 0;
 
-	if (!default_conn) {
+	if (default_conn == NULL) {
 		shell_error(sh, "Not connected");
 		return -ENOEXEC;
 	}
 
-	if (!goep_app.conn) {
+	if (goep_app.conn == NULL) {
 		shell_error(sh, "No goep transport connection");
 		return -ENOEXEC;
 	}
@@ -1088,7 +1089,7 @@ static int cmd_goep_client_put(const struct shell *sh, size_t argc, char *argv[]
 	}
 
 	err = bt_obex_put(&goep_app.client, final, goep_app.tx_buf);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to send put req %d", err);
 	} else {
 		goep_app.tx_buf = NULL;
@@ -1101,12 +1102,12 @@ static int cmd_goep_client_get(const struct shell *sh, size_t argc, char *argv[]
 	bool final;
 	int err = 0;
 
-	if (!default_conn) {
+	if (default_conn == NULL) {
 		shell_error(sh, "Not connected");
 		return -ENOEXEC;
 	}
 
-	if (!goep_app.conn) {
+	if (goep_app.conn == NULL) {
 		shell_error(sh, "No goep transport connection");
 		return -ENOEXEC;
 	}
@@ -1118,7 +1119,7 @@ static int cmd_goep_client_get(const struct shell *sh, size_t argc, char *argv[]
 	}
 
 	err = bt_obex_get(&goep_app.client, final, goep_app.tx_buf);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to send get req %d", err);
 	} else {
 		goep_app.tx_buf = NULL;
@@ -1130,18 +1131,18 @@ static int cmd_goep_client_abort(const struct shell *sh, size_t argc, char *argv
 {
 	int err;
 
-	if (!default_conn) {
+	if (default_conn == NULL) {
 		shell_error(sh, "Not connected");
 		return -ENOEXEC;
 	}
 
-	if (!goep_app.conn) {
+	if (goep_app.conn == NULL) {
 		shell_error(sh, "No goep transport connection");
 		return -ENOEXEC;
 	}
 
 	err = bt_obex_abort(&goep_app.client, goep_app.tx_buf);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to send abort req %d", err);
 	} else {
 		goep_app.tx_buf = NULL;
@@ -1154,12 +1155,12 @@ static int cmd_goep_client_setpath(const struct shell *sh, size_t argc, char *ar
 	int err;
 	uint8_t flags = BIT(1);
 
-	if (!default_conn) {
+	if (default_conn == NULL) {
 		shell_error(sh, "Not connected");
 		return -ENOEXEC;
 	}
 
-	if (!goep_app.conn) {
+	if (goep_app.conn == NULL) {
 		shell_error(sh, "No goep transport connection");
 		return -ENOEXEC;
 	}
@@ -1176,7 +1177,7 @@ static int cmd_goep_client_setpath(const struct shell *sh, size_t argc, char *ar
 	}
 
 	err = bt_obex_setpath(&goep_app.client, flags, goep_app.tx_buf);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to send setpath req %d", err);
 	} else {
 		goep_app.tx_buf = NULL;
@@ -1189,12 +1190,12 @@ static int cmd_goep_client_action(const struct shell *sh, size_t argc, char *arg
 	bool final;
 	int err = 0;
 
-	if (!default_conn) {
+	if (default_conn == NULL) {
 		shell_error(sh, "Not connected");
 		return -ENOEXEC;
 	}
 
-	if (!goep_app.conn) {
+	if (goep_app.conn == NULL) {
 		shell_error(sh, "No goep transport connection");
 		return -ENOEXEC;
 	}
@@ -1206,7 +1207,7 @@ static int cmd_goep_client_action(const struct shell *sh, size_t argc, char *arg
 	}
 
 	err = bt_obex_action(&goep_app.client, final, goep_app.tx_buf);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to send action req %d", err);
 	} else {
 		goep_app.tx_buf = NULL;
@@ -1258,12 +1259,12 @@ static int cmd_goep_server_conn(const struct shell *sh, size_t argc, char *argv[
 	const char *rsp;
 	int err;
 
-	if (!default_conn) {
+	if (default_conn == NULL) {
 		shell_error(sh, "Not connected");
 		return -ENOEXEC;
 	}
 
-	if (!goep_app.conn) {
+	if (goep_app.conn == NULL) {
 		shell_error(sh, "No goep transport connection");
 		return -ENOEXEC;
 	}
@@ -1288,7 +1289,7 @@ static int cmd_goep_server_conn(const struct shell *sh, size_t argc, char *argv[
 	mopl = (uint16_t)strtoul(argv[2], NULL, 16);
 
 	err = bt_obex_connect_rsp(&goep_app.server, rsp_code, mopl, goep_app.tx_buf);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to send conn rsp %d", err);
 	} else {
 		goep_app.tx_buf = NULL;
@@ -1302,12 +1303,12 @@ static int cmd_goep_server_disconn(const struct shell *sh, size_t argc, char *ar
 	const char *rsp;
 	int err;
 
-	if (!default_conn) {
+	if (default_conn == NULL) {
 		shell_error(sh, "Not connected");
 		return -ENOEXEC;
 	}
 
-	if (!goep_app.conn) {
+	if (goep_app.conn == NULL) {
 		shell_error(sh, "No goep transport connection");
 		return -ENOEXEC;
 	}
@@ -1330,7 +1331,7 @@ static int cmd_goep_server_disconn(const struct shell *sh, size_t argc, char *ar
 	}
 
 	err = bt_obex_disconnect_rsp(&goep_app.server, rsp_code, goep_app.tx_buf);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to send disconn rsp %d", err);
 	} else {
 		goep_app.tx_buf = NULL;
@@ -1344,12 +1345,12 @@ static int cmd_goep_server_put(const struct shell *sh, size_t argc, char *argv[]
 	const char *rsp;
 	int err;
 
-	if (!default_conn) {
+	if (default_conn == NULL) {
 		shell_error(sh, "Not connected");
 		return -ENOEXEC;
 	}
 
-	if (!goep_app.conn) {
+	if (goep_app.conn == NULL) {
 		shell_error(sh, "No goep transport connection");
 		return -ENOEXEC;
 	}
@@ -1372,7 +1373,7 @@ static int cmd_goep_server_put(const struct shell *sh, size_t argc, char *argv[]
 	}
 
 	err = bt_obex_put_rsp(&goep_app.server, rsp_code, goep_app.tx_buf);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to send put rsp %d", err);
 	} else {
 		goep_app.tx_buf = NULL;
@@ -1386,12 +1387,12 @@ static int cmd_goep_server_get(const struct shell *sh, size_t argc, char *argv[]
 	const char *rsp;
 	int err;
 
-	if (!default_conn) {
+	if (default_conn == NULL) {
 		shell_error(sh, "Not connected");
 		return -ENOEXEC;
 	}
 
-	if (!goep_app.conn) {
+	if (goep_app.conn == NULL) {
 		shell_error(sh, "No goep transport connection");
 		return -ENOEXEC;
 	}
@@ -1414,7 +1415,7 @@ static int cmd_goep_server_get(const struct shell *sh, size_t argc, char *argv[]
 	}
 
 	err = bt_obex_get_rsp(&goep_app.server, rsp_code, goep_app.tx_buf);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to send get rsp %d", err);
 	} else {
 		goep_app.tx_buf = NULL;
@@ -1428,12 +1429,12 @@ static int cmd_goep_server_abort(const struct shell *sh, size_t argc, char *argv
 	const char *rsp;
 	int err;
 
-	if (!default_conn) {
+	if (default_conn == NULL) {
 		shell_error(sh, "Not connected");
 		return -ENOEXEC;
 	}
 
-	if (!goep_app.conn) {
+	if (goep_app.conn == NULL) {
 		shell_error(sh, "No goep transport connection");
 		return -ENOEXEC;
 	}
@@ -1456,7 +1457,7 @@ static int cmd_goep_server_abort(const struct shell *sh, size_t argc, char *argv
 	}
 
 	err = bt_obex_abort_rsp(&goep_app.server, rsp_code, goep_app.tx_buf);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to send abort rsp %d", err);
 	} else {
 		goep_app.tx_buf = NULL;
@@ -1470,12 +1471,12 @@ static int cmd_goep_server_setpath(const struct shell *sh, size_t argc, char *ar
 	const char *rsp;
 	int err;
 
-	if (!default_conn) {
+	if (default_conn == NULL) {
 		shell_error(sh, "Not connected");
 		return -ENOEXEC;
 	}
 
-	if (!goep_app.conn) {
+	if (goep_app.conn == NULL) {
 		shell_error(sh, "No goep transport connection");
 		return -ENOEXEC;
 	}
@@ -1498,7 +1499,7 @@ static int cmd_goep_server_setpath(const struct shell *sh, size_t argc, char *ar
 	}
 
 	err = bt_obex_setpath_rsp(&goep_app.server, rsp_code, goep_app.tx_buf);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to send setpath rsp %d", err);
 	} else {
 		goep_app.tx_buf = NULL;
@@ -1512,12 +1513,12 @@ static int cmd_goep_server_action(const struct shell *sh, size_t argc, char *arg
 	const char *rsp;
 	int err;
 
-	if (!default_conn) {
+	if (default_conn == NULL) {
 		shell_error(sh, "Not connected");
 		return -ENOEXEC;
 	}
 
-	if (!goep_app.conn) {
+	if (goep_app.conn == NULL) {
 		shell_error(sh, "No goep transport connection");
 		return -ENOEXEC;
 	}
@@ -1540,7 +1541,7 @@ static int cmd_goep_server_action(const struct shell *sh, size_t argc, char *arg
 	}
 
 	err = bt_obex_action_rsp(&goep_app.server, rsp_code, goep_app.tx_buf);
-	if (err) {
+	if (err != 0) {
 		shell_error(sh, "Fail to send action rsp %d", err);
 	} else {
 		goep_app.tx_buf = NULL;
@@ -1662,8 +1663,7 @@ static int cmd_release_buf(const struct shell *sh, size_t argc, char **argv)
 		return -EINVAL;
 	}
 
-	net_buf_unref(goep_app.tx_buf);
-	goep_app.tx_buf = NULL;
+	net_buf_drop(&goep_app.tx_buf);
 
 	return 0;
 }

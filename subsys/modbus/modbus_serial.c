@@ -379,7 +379,7 @@ static void cb_handler_rx(struct modbus_context *ctx)
 		}
 
 		if (c == MODBUS_ASCII_END_FRAME_CHAR2) {
-			k_work_submit(&ctx->server_work);
+			modbus_work_submit(&ctx->server_work);
 		}
 
 	} else {
@@ -439,15 +439,14 @@ static void uart_cb_handler(const struct device *dev, void *app_data)
 		return;
 	}
 
-	if (uart_irq_update(dev) && uart_irq_is_pending(dev)) {
+	uart_irq_update(dev);
 
-		if (uart_irq_rx_ready(dev)) {
-			cb_handler_rx(ctx);
-		}
+	if (uart_irq_rx_ready(dev)) {
+		cb_handler_rx(ctx);
+	}
 
-		if (uart_irq_tx_ready(dev)) {
-			cb_handler_tx(ctx);
-		}
+	if (uart_irq_tx_ready(dev)) {
+		cb_handler_tx(ctx);
 	}
 }
 
@@ -471,7 +470,7 @@ static void uart_cb_async_handler(const struct device *dev, struct uart_event *e
 		break;
 	case UART_RX_RDY:
 		cfg->uart_buf_ctr = evt->data.rx.len;
-		k_work_submit(&ctx->server_work);
+		modbus_work_submit(&ctx->server_work);
 		break;
 	case UART_TX_ABORTED:
 		__fallthrough;
@@ -501,7 +500,7 @@ static void rtu_tmr_handler(struct k_timer *t_id)
 		return;
 	}
 
-	k_work_submit(&ctx->server_work);
+	modbus_work_submit(&ctx->server_work);
 }
 
 static int configure_gpio(struct modbus_context *ctx)
@@ -693,8 +692,11 @@ int modbus_serial_init(struct modbus_context *ctx,
 		if (!err) {
 			k_timer_init(&cfg->rtu_timer, rtu_tmr_handler, NULL);
 			k_timer_user_data_set(&cfg->rtu_timer, ctx);
-			modbus_serial_rx_on(ctx);
 		}
+	}
+
+	if (!err && !ctx->client) {
+		modbus_serial_rx_on(ctx);
 	}
 
 	LOG_INF("RTU timeout %u us", cfg->rtu_timeout);

@@ -25,7 +25,7 @@ int sdmmc_read_status(struct sd_card *card)
 	cmd.opcode = SD_SEND_STATUS;
 	cmd.arg = 0;
 	if (!card->host_props.is_spi) {
-		cmd.arg = (card->relative_addr << 16U);
+		cmd.arg = ((uint32_t)card->relative_addr << 16U);
 	}
 	cmd.response_type = (SD_RSP_TYPE_R1 | SD_SPI_RSP_TYPE_R2);
 	cmd.retries = CONFIG_SD_CMD_RETRIES;
@@ -281,9 +281,8 @@ int sdmmc_read_csd(struct sd_card *card)
 }
 
 /* Reads card identification register, and decodes it */
-int card_read_cid(struct sd_card *card)
+int card_read_cid(struct sd_card *card, uint32_t *cid)
 {
-	uint32_t cid[4];
 	int ret;
 #if defined(CONFIG_SDMMC_STACK) || defined(CONFIG_SDIO_STACK)
 	/* Keep CID on stack for reduced RAM usage */
@@ -441,7 +440,7 @@ int sdmmc_select_card(struct sd_card *card)
 	int ret;
 
 	cmd.opcode = SD_SELECT_CARD;
-	cmd.arg = ((card->relative_addr) << 16U);
+	cmd.arg = ((uint32_t)card->relative_addr << 16U);
 	cmd.response_type = SD_RSP_TYPE_R1;
 	cmd.retries = CONFIG_SD_CMD_RETRIES;
 	cmd.timeout_ms = CONFIG_SD_CMD_TIMEOUT;
@@ -466,7 +465,7 @@ int card_app_command(struct sd_card *card, int relative_card_address)
 	int ret;
 
 	cmd.opcode = SD_APP_CMD;
-	cmd.arg = relative_card_address << 16U;
+	cmd.arg = (uint32_t)relative_card_address << 16U;
 	cmd.response_type = (SD_RSP_TYPE_R1 | SD_SPI_RSP_TYPE_R1);
 	cmd.retries = CONFIG_SD_CMD_RETRIES;
 	cmd.timeout_ms = CONFIG_SD_CMD_TIMEOUT;
@@ -579,6 +578,7 @@ int card_read_blocks(struct sd_card *card, uint8_t *rbuf, uint32_t start_block, 
 		sector = 0;
 		buf_offset = rbuf;
 		while (sector < num_blocks) {
+			rlen = MIN(rlen, num_blocks - sector);
 			/* Read from disk to card buffer */
 			ret = card_read(card, card->card_buffer, sector + start_block, rlen);
 			if (ret) {
@@ -744,6 +744,7 @@ int card_write_blocks(struct sd_card *card, const uint8_t *wbuf, uint32_t start_
 		sector = 0;
 		buf_offset = wbuf;
 		while (sector < num_blocks) {
+			wlen = MIN(wlen, num_blocks - sector);
 			/* Copy data into card buffer */
 			memcpy(card->card_buffer, buf_offset, wlen * card->block_size);
 			/* Write card buffer to disk */
@@ -864,8 +865,10 @@ int card_ioctl(struct sd_card *card, uint8_t cmd, void *buf)
 		(*(uint32_t *)buf) = card->block_count;
 		break;
 	case DISK_IOCTL_GET_SECTOR_SIZE:
-	case DISK_IOCTL_GET_ERASE_BLOCK_SZ:
 		(*(uint32_t *)buf) = card->block_size;
+		break;
+	case DISK_IOCTL_GET_ERASE_BLOCK_SZ: /* in sectors */
+		(*(uint32_t *)buf) = 1;
 		break;
 	case DISK_IOCTL_CTRL_SYNC:
 		/* Ensure card is not busy with data write.
@@ -883,6 +886,9 @@ int card_ioctl(struct sd_card *card, uint8_t cmd, void *buf)
 		/* Power down the card */
 		card->bus_io.power_mode = SDHC_POWER_OFF;
 		ret = sdhc_set_io(card->sdhc, &card->bus_io);
+		break;
+	case DISK_IOCTL_GET_CARD_CID:
+		ret = card_read_cid(card, buf);
 		break;
 	default:
 		ret = -ENOTSUP;

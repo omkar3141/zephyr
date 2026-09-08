@@ -10,8 +10,8 @@
  * @ingroup bindesc
  */
 
-#ifndef ZEPHYR_INCLUDE_ZEPHYR_BINDESC_H_
-#define ZEPHYR_INCLUDE_ZEPHYR_BINDESC_H_
+#ifndef ZEPHYR_INCLUDE_BINDESC_H_
+#define ZEPHYR_INCLUDE_BINDESC_H_
 
 /**
  * @defgroup bindesc Binary Descriptors
@@ -501,7 +501,7 @@ int bindesc_find_bytes(struct bindesc_handle *handle, uint16_t id, const uint8_t
  * @brief Get the size of an image's binary descriptors
  *
  * @details
- * Walks the binary descriptor structure to caluculate the total size of the structure
+ * Walks the binary descriptor structure to calculate the total size of the structure
  * in bytes. This is useful, for instance, if the whole structure is to be copied to RAM.
  *
  * @param handle An initialized bindesc handle
@@ -633,4 +633,4 @@ extern const struct bindesc_entry BINDESC_NAME(cxx_compiler_version);
  * @}
  */
 
-#endif /* ZEPHYR_INCLUDE_ZEPHYR_BINDESC_H_ */
+#endif /* ZEPHYR_INCLUDE_BINDESC_H_ */

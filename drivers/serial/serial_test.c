@@ -137,6 +137,14 @@ static int irq_tx_ready(const struct device *dev)
 	return available;
 }
 
+static int irq_is_pending(const struct device *dev)
+{
+	struct serial_vnd_data *data = dev->data;
+
+	return (data->irq_rx_enabled && !ring_buf_is_empty(data->read_queue)) ||
+	       (data->irq_tx_enabled && ring_buf_space_get(data->written) > 0) ? 1 : 0;
+}
+
 static void irq_callback_set(const struct device *dev, uart_irq_callback_user_data_t cb,
 			     void *user_data)
 {
@@ -153,11 +161,6 @@ static void irq_callback_set(const struct device *dev, uart_irq_callback_user_da
 	data->irq_isr = cb;
 	data->irq_isr_user_data = user_data;
 	LOG_DBG("callback set");
-}
-
-static int irq_update(const struct device *dev)
-{
-	return 1;
 }
 
 static int fifo_fill(const struct device *dev, const uint8_t *tx_data, int size)
@@ -416,7 +419,7 @@ static int serial_vnd_rx_enable(const struct device *dev, uint8_t *read_buf, siz
 		return -EINVAL;
 	}
 
-	__ASSERT(timeout == SYS_FOREVER_MS, "Async timeout not implemented.");
+	__ASSERT(timeout == SYS_FOREVER_US, "Async timeout not implemented.");
 
 	data->read_buf = read_buf;
 	data->read_size = read_size;
@@ -438,13 +441,13 @@ static DEVICE_API(uart, serial_vnd_api) = {
 #endif /* CONFIG_UART_USE_RUNTIME_CONFIGURE */
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	.irq_callback_set = irq_callback_set,
-	.irq_update = irq_update,
 	.irq_rx_enable = irq_rx_enable,
 	.irq_rx_disable = irq_rx_disable,
 	.irq_rx_ready = irq_rx_ready,
 	.irq_tx_enable = irq_tx_enable,
 	.irq_tx_disable = irq_tx_disable,
 	.irq_tx_ready = irq_tx_ready,
+	.irq_is_pending = irq_is_pending,
 	.fifo_read = fifo_read,
 	.fifo_fill = fifo_fill,
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */

@@ -9,7 +9,6 @@
 #include <zephyr/pm/policy.h>
 #include <zephyr/pm/state.h>
 #include <zephyr/sys/util_macro.h>
-#include <zephyr/pm/device.h>
 
 struct pm_state_device_constraint {
 	const char *const dev;
@@ -63,7 +62,7 @@ DT_FOREACH_STATUS_OKAY_NODE(DEVICE_CONSTRAINTS_DEFINE)
 #define PM_STATE_DEVICE_CONSTRAINT_INIT(node_id)                                              \
 	{                                                                                     \
 		.dev = DEVICE_DT_NAME(node_id),                                                \
-		.pm_constraints_size = DT_PROP_LEN(node_id, zephyr_disabling_power_states),   \
+		.pm_constraints_size = ARRAY_SIZE(PM_CONSTRAINTS_NAME(node_id)),               \
 		.constraints = PM_CONSTRAINTS_NAME(node_id),                                  \
 	},
 

@@ -10,6 +10,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/kernel/mm.h>
 #include <zephyr/toolchain.h>
+#include <zephyr/sys/bitarray.h>
 #include <xtensa/corebits.h>
 #include <xtensa_asm2_context.h>
 #include <xtensa_mmu_priv.h>
@@ -126,36 +127,49 @@
 #define PAGE_TABLE_IS_CACHED 1
 #endif
 
-/* Skip TLB IPI when updating page tables.
+/**
+ * @brief Option to skip TLB IPI when updating page tables.
+ *
+ * Skip TLB IPI when updating page tables.
+ *
  * This allows us to send IPI only after the last
  * changes of a series.
  */
 #define OPTION_NO_TLB_IPI BIT(0)
 
-/* Restore the PTE attributes if they have been
+/**
+ * @brief Option to restore PTE attributes.
+ *
+ * Restore the PTE attributes if they have been
  * stored in the SW bits part in the PTE.
  */
 #define OPTION_RESTORE_ATTRS BIT(1)
 
-/* Save the PTE attributes and ring in the SW bits part in the PTE. */
+/**
+ * @brief Option to save PTE attributes.
+ *
+ * Save the PTE attributes and ring in the SW bits part in the PTE.
+ */
 #define OPTION_SAVE_ATTRS BIT(2)
 
-/* Level 1 contains page table entries
- * necessary to map the page table itself.
+/**
+ * @brief Number of page table entries (PTE) in level 1 page tables.
+ *
+ * Level 1 contains page table entries necessary to map the page table itself.
  */
 #define L1_PAGE_TABLE_NUM_ENTRIES 1024U
 
-/* Size of level 1 page table.
- */
+/** Size of one level 1 page table in bytes. */
 #define L1_PAGE_TABLE_SIZE (L1_PAGE_TABLE_NUM_ENTRIES * sizeof(uint32_t))
 
-/* Level 2 contains page table entries
- * necessary to map the page table itself.
+/**
+ * @brief Number of page table entries (PTE) in level 2 page tables.
+ *
+ * Level 2 contains page table entries necessary to map memory pages.
  */
 #define L2_PAGE_TABLE_NUM_ENTRIES 1024U
 
-/* Size of level 2 page table.
- */
+/** Size of one level 2 page table in bytes. */
 #define L2_PAGE_TABLE_SIZE (L2_PAGE_TABLE_NUM_ENTRIES * sizeof(uint32_t))
 
 LOG_MODULE_DECLARE(os, CONFIG_KERNEL_LOG_LEVEL);
@@ -163,7 +177,9 @@ LOG_MODULE_DECLARE(os, CONFIG_KERNEL_LOG_LEVEL);
 BUILD_ASSERT(CONFIG_MMU_PAGE_SIZE == 0x1000,
 	     "MMU_PAGE_SIZE value is invalid, only 4 kB pages are supported\n");
 
-/*
+/**
+ * @brief Array of level 1 page tables.
+ *
  * Level 1 page table has to be 4Kb to fit into one of the wired entries.
  * All entries are initialized as INVALID, so an attempt to read an unmapped
  * area will cause a double exception.
@@ -174,19 +190,25 @@ BUILD_ASSERT(CONFIG_MMU_PAGE_SIZE == 0x1000,
 static uint32_t l1_page_tables[CONFIG_XTENSA_MMU_NUM_L1_TABLES][L1_PAGE_TABLE_NUM_ENTRIES]
 		__aligned(KB(4));
 
-/*
- * That is an alias for the page tables set used by the kernel.
+/**
+ * @brief Alias for the page tables set used by the kernel.
  */
 uint32_t *xtensa_kernel_ptables = (uint32_t *)l1_page_tables[0];
 
-/*
+/**
+ * @brief Array of level 2 page tables.
+ *
  * Each table in the level 2 maps a 4Mb memory range. It consists of 1024 entries each one
  * covering a 4Kb page.
  */
 static uint32_t l2_page_tables[CONFIG_XTENSA_MMU_NUM_L2_TABLES][L2_PAGE_TABLE_NUM_ENTRIES]
 		__aligned(KB(4));
 
-/*
+/**
+ * @brief Usage tracking for level 1 page tables.
+ *
+ * This is a bit mask of which L1 tables are being used.
+ *
  * This additional variable tracks which l1 tables are in use. This is kept separated from
  * the tables to keep alignment easier.
  *
@@ -194,7 +216,12 @@ static uint32_t l2_page_tables[CONFIG_XTENSA_MMU_NUM_L2_TABLES][L2_PAGE_TABLE_NU
  */
 static ATOMIC_DEFINE(l1_page_tables_track, CONFIG_XTENSA_MMU_NUM_L1_TABLES);
 
-/*
+/**
+ * @brief Usage tracking for level 2 page tables.
+ *
+ * This is an array of integer counter indicating how many times one L2 tables is
+ * referenced by L1 tables.
+ *
  * This additional variable tracks which l2 tables are in use. This is kept separated from
  * the tables to keep alignment easier.
  */
@@ -208,9 +235,7 @@ static uint32_t l1_page_tables_max_usage;
 static uint32_t l2_page_tables_max_usage;
 #endif /* CONFIG_XTENSA_MMU_PAGE_TABLE_STATS */
 
-/*
- * Protects xtensa_domain_list and serializes access to page tables.
- */
+/** Spin lock to protect xtensa_domain_list and serializes access to page tables. */
 static struct k_spinlock xtensa_mmu_lock;
 
 /** Spin lock to guard update to page table counters. */
@@ -218,19 +243,122 @@ static struct k_spinlock xtensa_counter_lock;
 
 #ifdef CONFIG_USERSPACE
 
-/*
- * Each domain has its own ASID. ASID can go through 1 (kernel) to 255.
- * When a TLB entry matches, the hw will check the ASID in the entry and finds
- * the correspondent position in the RASID register. This position will then be
- * compared with the current ring (CRING) to check the permission.
+#define ASID_DEFAULT 3
+
+/**
+ * @brief ASID allocation bitmap and helper functions.
+ *
+ * ASIDs 0-2 are reserved (0 = invalid, 1 = kernel, 2 = reserved, 255
+ * = shared). ASID 3 is the default domain. Usable ASIDs for user
+ * domains are 4 through (XTENSA_MMU_SHARED_ASID - 1).
+ *
+ * A bitarray covers the entire 256-entry ASID space so that bit
+ * indices map directly to ASID values with no translation.
+ * Set bit (1) = in use or reserved, clear bit (0) = free.
+ * This matches sys_bitarray_alloc() semantics which finds clear bits.
+ *
+ * A second bitarray (asid_dirty) tracks freed ASIDs that have stale
+ * TLB entries. On free, the ASID is placed in asid_dirty (asid_used
+ * bit stays set). When no free ASIDs remain in asid_used, a single
+ * TLB flush is performed and dirty bits are XORed back into asid_used
+ * (clearing the in-use bits), amortizing the flush cost across many
+ * alloc/free cycles.
+ *
+ * Reserved ASIDs are marked as in-use (set to 1) during
+ * initialization, so they can never be allocated.
  */
-static uint8_t asid_count = 3;
 
 /*
- * List with all active and initialized memory domains.
+ * When PTEVADDR is 0x20000000 the self-reference for ASID 'a' lands at
+ * L1 position 128 + a. Positions 256+ map the uncached alias region
+ * (VA 0x40000000), so ASIDs must stay below 128. For other PTEVADDR
+ * values where no overlap exists, the full range up to
+ * XTENSA_MMU_SHARED_ASID - 1 is usable.
  */
+#define ASID_PTEVADDR_MAX \
+	(256u - (CONFIG_XTENSA_MMU_PTEVADDR >> 22) - 1u)
+#define ASID_LAST_USER   MIN(XTENSA_MMU_SHARED_ASID - 1, ASID_PTEVADDR_MAX)
+
+#define ASID_SPACE 256
+
+static SYS_BITARRAY_DEFINE(asid_used, ASID_SPACE);
+static SYS_BITARRAY_DEFINE(asid_dirty, ASID_SPACE);
+
+/**
+ * @brief Initialize ASID bitmap.
+ *
+ * Marks reserved ASIDs (0 through ASID_DEFAULT, and ASID_LAST_USER+1
+ * through 255) as in-use (bit = 1) so they are never allocated.
+ * Usable ASIDs remain at 0 (free).
+ */
+static void asid_init(void)
+{
+	sys_bitarray_set_region(&asid_used, ASID_DEFAULT + 1, 0);
+	if (ASID_LAST_USER < ASID_SPACE - 1) {
+		sys_bitarray_set_region(&asid_used,
+					ASID_SPACE - 1 - ASID_LAST_USER,
+					ASID_LAST_USER + 1);
+	}
+}
+
+/**
+ * @brief Allocate a free ASID.
+ *
+ * Tries to allocate from asid_used. If no free ASIDs remain,
+ * performs a TLB flush, moves dirty ASIDs back via XOR, clears
+ * dirty, and retries.
+ *
+ * @return The allocated ASID number, or 0 if no ASIDs are available.
+ */
+static uint8_t asid_alloc(void)
+{
+	size_t asid;
+	int ret;
+
+	ret = sys_bitarray_alloc(&asid_used, 1, &asid);
+	if (ret == 0) {
+		return (uint8_t)asid;
+	}
+
+	/* No free ASIDs — flush TLB, reclaim dirty ones */
+	xtensa_tlb_autorefill_invalidate();
+	xtensa_mmu_tlb_ipi();
+
+	sys_bitarray_xor(&asid_used, &asid_dirty, ASID_SPACE, 0);
+	sys_bitarray_clear_region(&asid_dirty, ASID_SPACE, 0);
+
+	ret = sys_bitarray_alloc(&asid_used, 1, &asid);
+	if (ret < 0) {
+		return 0;
+	}
+	return (uint8_t)asid;
+}
+
+/**
+ * @brief Free a previously allocated ASID.
+ *
+ * Places the ASID into the dirty set. It will be reclaimed
+ * (cleared in asid_used) on the next TLB flush triggered by
+ * asid_alloc().
+ *
+ * @param asid The ASID to free.
+ */
+static void asid_free(uint8_t asid)
+{
+	__ASSERT(asid > ASID_DEFAULT && asid <= ASID_LAST_USER,
+		 "ASID %u out of range", asid);
+	if (asid <= ASID_DEFAULT || asid > ASID_LAST_USER) {
+		LOG_ERR("Trying to free a bad or static ASID %u", asid);
+		return;
+	}
+
+	sys_bitarray_set_bit(&asid_dirty, asid);
+}
+
+/** Linked list with all active and initialized memory domains. */
 static sys_slist_t xtensa_domain_list;
 
+/** Actions when duplicating page tables. */
 enum dup_action {
 	/* Restore all entries when duplicating. */
 	RESTORE,
@@ -246,7 +374,9 @@ static void dup_l2_table_if_needed(uint32_t *l1_table, uint32_t l1_pos, enum dup
 extern char _heap_end[];
 extern char _heap_start[];
 
-/*
+/**
+ * @brief Memory regions to initialize page tables at boot.
+ *
  * Static definition of all code & data memory regions of the
  * current Zephyr image. This information must be available &
  * processed upon MMU initialization.
@@ -326,6 +456,26 @@ static void init_page_table(uint32_t *ptable, size_t num_entries, uint32_t val)
 	}
 }
 
+static void calc_l2_page_tables_usage(void)
+{
+#ifdef CONFIG_XTENSA_MMU_PAGE_TABLE_STATS
+	uint32_t cur_l2_usage = 0;
+
+	/* Calculate how many L2 page tables are being used now. */
+	for (int idx = 0; idx < CONFIG_XTENSA_MMU_NUM_L2_TABLES; idx++) {
+		if (l2_page_tables_counter[idx] > 0) {
+			cur_l2_usage++;
+		}
+	}
+
+	/* Store the bigger number. */
+	l2_page_tables_max_usage = MAX(l2_page_tables_max_usage, cur_l2_usage);
+
+	LOG_DBG("L2 page table usage %u/%u/%u", cur_l2_usage, l2_page_tables_max_usage,
+		CONFIG_XTENSA_MMU_NUM_L2_TABLES);
+#endif /* CONFIG_XTENSA_MMU_PAGE_TABLE_STATS */
+}
+
 /**
  * @brief Find the L2 table counter array index from L2 table pointer.
  *
@@ -341,6 +491,14 @@ static inline int l2_table_to_counter_pos(uint32_t *l2_table)
 	return (l2_table - (uint32_t *)l2_page_tables) / (L2_PAGE_TABLE_NUM_ENTRIES);
 }
 
+/**
+ * @brief Allocate a level 2 page table from the L2 table array.
+ *
+ * This allocates a new level 2 page table from the L2 table array.
+ *
+ * @return Pointer to the newly allocated L2 table. NULL if no free table
+ *         in the array.
+ */
 static inline uint32_t *alloc_l2_table(void)
 {
 	uint16_t idx;
@@ -357,25 +515,23 @@ static inline uint32_t *alloc_l2_table(void)
 		}
 	}
 
-#ifdef CONFIG_XTENSA_MMU_PAGE_TABLE_STATS
-	uint32_t cur_l2_usage = 0;
-
-	/* Calculate how many L2 page tables are being used now. */
-	for (idx = 0; idx < CONFIG_XTENSA_MMU_NUM_L2_TABLES; idx++) {
-		if (l2_page_tables_counter[idx] > 0) {
-			cur_l2_usage++;
-		}
-	}
-
-	/* Store the bigger number. */
-	l2_page_tables_max_usage = MAX(l2_page_tables_max_usage, cur_l2_usage);
-#endif /* CONFIG_XTENSA_MMU_PAGE_TABLE_STATS */
+	calc_l2_page_tables_usage();
 
 	k_spin_unlock(&xtensa_counter_lock, key);
 
 	return ret;
 }
 
+/**
+ * @brief Map memory in the kernel page tables.
+ *
+ * This is used during boot, and is to map a region of memory in the kernel page tables.
+ *
+ * @param[in] start Start address of the memory region.
+ * @param[in] end End address of the memory region.
+ * @param[in] attrs Page table attributes for the memory region.
+ * @param[in] options Options for the memory region.
+ */
 static void map_memory_range(const uint32_t start, const uint32_t end,
 			     const uint32_t attrs, const uint32_t options)
 {
@@ -398,6 +554,15 @@ static void map_memory_range(const uint32_t start, const uint32_t end,
 
 			__ASSERT(l2_table != NULL,
 				 "There is no l2 page table available to map 0x%08x\n", page);
+
+			if (l2_table == NULL) {
+				/* This function is called during boot. If this cannot
+				 * properly map all predefined memory regions, it is very
+				 * unlikely for anything to run correctly. So forcibly
+				 * halt the system in case assertion has been turned off.
+				 */
+				arch_system_halt(K_ERR_KERNEL_PANIC);
+			}
 
 			init_page_table(l2_table, L2_PAGE_TABLE_NUM_ENTRIES, PTE_L2_ILLEGAL);
 
@@ -465,6 +630,10 @@ void xtensa_mmu_init(void)
 
 	xtensa_mmu_init_paging();
 
+#ifdef CONFIG_USERSPACE
+	asid_init();
+#endif
+
 	/*
 	 * This is used to determine whether we are faulting inside double
 	 * exception if this is not zero. Sometimes SoC starts with this not
@@ -494,18 +663,19 @@ void xtensa_mmu_reinit(void)
 }
 
 #ifdef CONFIG_ARCH_HAS_RESERVED_PAGE_FRAMES
-/* Zephyr's linker scripts for Xtensa usually puts
- * something before z_mapped_start (aka .text),
- * i.e. vecbase, so that we need to reserve those
- * space or else k_mem_map() would be mapping those,
- * resulting in faults.
- */
 __weak void arch_reserved_pages_update(void)
 {
+	/* Zephyr's linker scripts for Xtensa usually puts
+	 * something before z_mapped_start (aka .text),
+	 * i.e. vecbase, so that we need to reserve those
+	 * space or else k_mem_map() would be mapping those,
+	 * resulting in faults.
+	 */
+
 	uintptr_t page;
 	int idx;
 
-	for (page = CONFIG_SRAM_BASE_ADDRESS, idx = 0;
+	for (page = DT_CHOSEN_SRAM_ADDR, idx = 0;
 	     page < (uintptr_t)z_mapped_start;
 	     page += CONFIG_MMU_PAGE_SIZE, idx++) {
 		k_mem_page_frame_set(&k_mem_page_frames[idx], K_MEM_PAGE_FRAME_RESERVED);
@@ -513,6 +683,22 @@ __weak void arch_reserved_pages_update(void)
 }
 #endif /* CONFIG_ARCH_HAS_RESERVED_PAGE_FRAMES */
 
+/**
+ * @brief Map one memory page in the L2 table.
+ *
+ * This maps exactly one memory page in the L2 table.
+ *
+ * A new L2 table will be allocated if necessary.
+ *
+ * @param[in] l1_table Pointer to the level 1 page table.
+ * @param[in] vaddr Virtual address to be mapped.
+ * @param[in] phys Physical address to map to.
+ * @param[in] attrs Page table attributes (actual hardware attributes).
+ * @param[in] is_user True if this mapping can be used in user mode, false if kernel mode only.
+ *
+ * @retval true Mapping is successful.
+ * @retval false Mapping failed. Usually means there are no free L2 tables to be allocated.
+ */
 static bool l2_page_table_map(uint32_t *l1_table, void *vaddr, uintptr_t phys,
 			      uint32_t attrs, bool is_user)
 {
@@ -557,16 +743,31 @@ static bool l2_page_table_map(uint32_t *l1_table, void *vaddr, uintptr_t phys,
 	return true;
 }
 
-static inline void __arch_mem_map(void *vaddr, uintptr_t paddr, uint32_t attrs, bool is_user)
+/**
+ * @brief Called by @ref arch_mem_map to map one memory page.
+ *
+ * @see arch_mem_map
+ *
+ * This should only be called by @ref arch_mem_map to perform the mapping in the L2 tables.
+ *
+ * @param[in] vaddr Virtual address to be mapped.
+ * @param[in] paddr Physical address to map to.
+ * @param[in] attrs Page table attributes (actual hardware attributes).
+ * @param[in] is_user True if mapping for user mode, false if kernel mode only.
+ *
+ * @retval true Memory mapped
+ * @retval false Mapping failed
+ */
+static inline bool __arch_mem_map(void *vaddr, uintptr_t paddr, uint32_t attrs, bool is_user)
 {
 	bool ret;
 
 	ret = l2_page_table_map(xtensa_kernel_ptables, vaddr, paddr, attrs, is_user);
-	__ASSERT(ret, "Cannot map virtual address (%p)", vaddr);
+	if (!ret) {
+		LOG_ERR("Cannot map virtual address (%p)", vaddr);
+	}
 
-#ifndef CONFIG_USERSPACE
-	ARG_UNUSED(ret);
-#else
+#ifdef CONFIG_USERSPACE
 	if (ret) {
 		sys_snode_t *node;
 		struct arch_mem_domain *domain;
@@ -577,8 +778,12 @@ static inline void __arch_mem_map(void *vaddr, uintptr_t paddr, uint32_t attrs, 
 			domain = CONTAINER_OF(node, struct arch_mem_domain, node);
 
 			ret = l2_page_table_map(domain->ptables, vaddr, paddr, attrs, is_user);
-			__ASSERT(ret, "Cannot map virtual address (%p) for domain %p",
-				 vaddr, domain);
+			if (!ret) {
+				LOG_ERR("Cannot map virtual address (%p) for domain %p",
+					vaddr, domain);
+
+				break;
+			}
 
 			/* We may have made a copy of L2 table containing VECBASE.
 			 * So we need to re-calculate the static TLBs so the correct ones
@@ -589,6 +794,8 @@ static inline void __arch_mem_map(void *vaddr, uintptr_t paddr, uint32_t attrs, 
 		k_spin_unlock(&z_mem_domain_lock, key);
 	}
 #endif /* CONFIG_USERSPACE */
+
+	return ret;
 }
 
 void arch_mem_map(void *virt, uintptr_t phys, size_t size, uint32_t flags)
@@ -632,7 +839,9 @@ void arch_mem_map(void *virt, uintptr_t phys, size_t size, uint32_t flags)
 	key = k_spin_lock(&xtensa_mmu_lock);
 
 	while (rem_size > 0) {
-		__arch_mem_map((void *)va, pa, attrs, is_user);
+		if (!__arch_mem_map((void *)va, pa, attrs, is_user)) {
+			k_panic();
+		}
 
 		rem_size -= (rem_size >= KB(4)) ? KB(4) : rem_size;
 		va += KB(4);
@@ -716,6 +925,8 @@ static void l2_page_table_unmap(uint32_t *l1_table, void *vaddr)
 
 	K_SPINLOCK(&xtensa_counter_lock) {
 		l2_page_tables_counter_dec(l2_table);
+
+		calc_l2_page_tables_usage();
 	}
 
 end:
@@ -726,6 +937,15 @@ end:
 	}
 }
 
+/**
+ * @brief Called by @ref arch_mem_unmap to unmap one memory page.
+ *
+ * @see arch_mem_unmap
+ *
+ * This should only be called by @ref arch_mem_unmap to remove the mapping in the L2 tables.
+ *
+ * @param[in] vaddr Virtual address to be unmapped.
+ */
 static inline void __arch_mem_unmap(void *vaddr)
 {
 	l2_page_table_unmap(xtensa_kernel_ptables, vaddr);
@@ -897,6 +1117,11 @@ static bool is_l2_table_inside_array(uint32_t *l2_table)
 	return (addr >= l2_table_begin) && (addr < l2_table_end);
 }
 
+/**
+ * @brief Increment the tracking counter for one L2 table.
+ *
+ * @param[in] l2_table Pointer to the level 2 page table.
+ */
 static ALWAYS_INLINE void l2_page_tables_counter_inc(uint32_t *l2_table)
 {
 	if (is_l2_table_inside_array(l2_table)) {
@@ -904,15 +1129,41 @@ static ALWAYS_INLINE void l2_page_tables_counter_inc(uint32_t *l2_table)
 	}
 }
 
+/**
+ * @brief Decrement the tracking counter for one L2 table.
+ *
+ * @param[in] l2_table Pointer to the level 2 page table.
+ */
 static ALWAYS_INLINE void l2_page_tables_counter_dec(uint32_t *l2_table)
 {
 	if (is_l2_table_inside_array(l2_table)) {
-		l2_page_tables_counter[l2_table_to_counter_pos(l2_table)]--;
+		int pos = l2_table_to_counter_pos(l2_table);
+
+		l2_page_tables_counter[pos]--;
+
+		/* When the L2 table is no longer being referenced,
+		 * we should mark all PTEs to be illegal just to be
+		 * safe.
+		 */
+		if (l2_page_tables_counter[pos] == 0) {
+			init_page_table(l2_table, L2_PAGE_TABLE_NUM_ENTRIES, PTE_L2_ILLEGAL);
+		}
+
+		if (IS_ENABLED(PAGE_TABLE_IS_CACHED)) {
+			sys_cache_data_flush_and_invd_range((void *)l2_table, L2_PAGE_TABLE_SIZE);
+		}
 	}
 }
 
 #ifdef CONFIG_USERSPACE
 
+/**
+ * @brief Get the page table for the thread.
+ *
+ * @param[in] thread Pointer to the thread object.
+ *
+ * @return Pointer to the L1 table corresponding to the thread.
+ */
 static inline uint32_t *thread_page_tables_get(const struct k_thread *thread)
 {
 	if ((thread->base.user_options & K_USER) != 0U) {
@@ -922,6 +1173,14 @@ static inline uint32_t *thread_page_tables_get(const struct k_thread *thread)
 	return xtensa_kernel_ptables;
 }
 
+/**
+ * @brief Allocate a level 1 page table from the L1 table array.
+ *
+ * This allocates a new level 1 page table from the L1 table array.
+ *
+ * @return Pointer to the newly allocated L2 table. NULL if no free table
+ *         in the array.
+ */
 static inline uint32_t *alloc_l1_table(void)
 {
 	uint16_t idx;
@@ -946,16 +1205,19 @@ static inline uint32_t *alloc_l1_table(void)
 
 	/* Store the bigger number. */
 	l1_page_tables_max_usage = MAX(l1_page_tables_max_usage, cur_l1_usage);
+
+	LOG_DBG("L1 page table usage %u/%u/%u",	cur_l1_usage, l1_page_tables_max_usage,
+		CONFIG_XTENSA_MMU_NUM_L1_TABLES);
 #endif /* CONFIG_XTENSA_MMU_PAGE_TABLE_STATS */
 
 	return ret;
 }
 
 /**
- * Given page table position, calculate the corresponding virtual address.
+ * @brief Given page table position, calculate the corresponding virtual address.
  *
- * @param l1_pos Position in L1 page table.
- * @param l2_pos Position in L2 page table.
+ * @param[in] l1_pos Position in L1 page table.
+ * @param[in] l2_pos Position in L2 page table.
  * @return Virtual address.
  */
 static ALWAYS_INLINE uint32_t vaddr_from_pt_pos(uint32_t l1_pos, uint32_t l2_pos)
@@ -963,13 +1225,32 @@ static ALWAYS_INLINE uint32_t vaddr_from_pt_pos(uint32_t l1_pos, uint32_t l2_pos
 	return (l1_pos << 22U) | (l2_pos << 12U);
 }
 
+/**
+ * @brief Duplicate an existing level 2 page table.
+ *
+ * This allocates a new level 2 page table and duplicates the PTEs from an existing
+ * L2 table.
+ *
+ * @param[in] src_l2_table Pointer to the source L2 table to be duplicated.
+ * @param[in] action Action during duplication.
+ *                   RESTORE to restore PTEs to the attributes stored in the backup bits.
+ *                   COPY to copy PTEs from source without modifications.
+ *
+ * @return Pointer to the newly duplicated L2 table. NULL if table allocation fails.
+ */
 static uint32_t *dup_l2_table(uint32_t *src_l2_table, enum dup_action action)
 {
 	uint32_t *l2_table;
 
 	l2_table = alloc_l2_table();
+
+	/* Duplicating L2 tables is a must-have and must-success operation.
+	 * If we are running out of free L2 tables to be allocated, we cannot
+	 * continue.
+	 */
+	__ASSERT_NO_MSG(l2_table != NULL);
 	if (l2_table == NULL) {
-		return NULL;
+		arch_system_halt(K_ERR_KERNEL_PANIC);
 	}
 
 	switch (action) {
@@ -992,6 +1273,14 @@ static uint32_t *dup_l2_table(uint32_t *src_l2_table, enum dup_action action)
 	return l2_table;
 }
 
+/**
+ * @brief Duplicate the kernel page table into a new level 1 page table.
+ *
+ * This allocates a new level 1 page table and copy the PTEs from the kernel
+ * page table.
+ *
+ * @return Pointer to the newly duplicated L1 table. NULL if table allocation fails.
+ */
 static uint32_t *dup_l1_table(void)
 {
 	uint32_t *l1_table = alloc_l1_table();
@@ -1062,6 +1351,26 @@ static uint32_t *dup_l1_table(void)
 	return l1_table;
 }
 
+/**
+ * @brief Duplicate an existing level 2 page table if needed.
+ *
+ * If a L2 table is referenced by multiple L1 tables, we need to make a copy of
+ * the existing L2 table and modify the new table, basically a copy-on-write
+ * operation.
+ *
+ * If a new L2 table needs to be allocated, the corresponding PTE in the L1 table
+ * will be modified to point to the new table.
+ *
+ * If the L2 table is only referenced by exactly one L1 table, no duplication
+ * will be performed.
+ *
+ * @param[in] l1_table Pointer to the level 1 page table.
+ * @param[in] l1_pos Index of the PTE within the L1 table pointing to the L2 table
+ *                   to be examined.
+ * @param[in] action Action during duplication.
+ *                   RESTORE to restore PTEs to the attributes stored in the backup bits.
+ *                   COPY to copy PTEs from source without modifications.
+ */
 static void dup_l2_table_if_needed(uint32_t *l1_table, uint32_t l1_pos, enum dup_action action)
 {
 	uint32_t *l2_table, *src_l2_table;
@@ -1096,12 +1405,6 @@ int arch_mem_domain_init(struct k_mem_domain *domain)
 	k_spinlock_key_t key;
 	int ret;
 
-	/*
-	 * For now, lets just assert if we have reached the maximum number
-	 * of asid we assert.
-	 */
-	__ASSERT(asid_count < (XTENSA_MMU_SHARED_ASID), "Reached maximum of ASID available");
-
 	key = k_spin_lock(&xtensa_mmu_lock);
 	/* If this is the default domain, we don't need
 	 * to create a new set of page tables. We can just
@@ -1110,7 +1413,7 @@ int arch_mem_domain_init(struct k_mem_domain *domain)
 
 	if (domain == &k_mem_domain_default) {
 		domain->arch.ptables = xtensa_kernel_ptables;
-		domain->arch.asid = asid_count;
+		domain->arch.asid = ASID_DEFAULT;
 		goto end;
 	}
 
@@ -1123,7 +1426,13 @@ int arch_mem_domain_init(struct k_mem_domain *domain)
 	}
 
 	domain->arch.ptables = ptables;
-	domain->arch.asid = ++asid_count;
+
+	domain->arch.asid = asid_alloc();
+	__ASSERT(domain->arch.asid != 0, "No ASIDs available");
+	if (domain->arch.asid == 0) {
+		ret = -ENOMEM;
+		goto err;
+	}
 
 	sys_slist_append(&xtensa_domain_list, &domain->arch.node);
 
@@ -1137,8 +1446,84 @@ err:
 	return ret;
 }
 
+/**
+ * @brief Find the L1 table tracking index from L1 table pointer.
+ *
+ * @param[in] l1_table Pointer to L1 table.
+ *
+ * @note This does not check if the incoming L1 table pointer is a valid
+ *       L1 table.
+ *
+ * @return Index to the L1 table counter array.
+ */
+static inline int l1_table_to_track_pos(uint32_t *l1_table)
+{
+	return (l1_table - (uint32_t *)l1_page_tables) / (L1_PAGE_TABLE_NUM_ENTRIES);
+}
+
+int arch_mem_domain_deinit(struct k_mem_domain *domain)
+{
+	k_spinlock_key_t key;
+	uint32_t *l1_table = domain->arch.ptables;
+	uint32_t *l2_table;
+
+	if (l1_table == NULL) {
+		return -EINVAL;
+	}
+
+	key = k_spin_lock(&xtensa_mmu_lock);
+
+	for (uint32_t l1_pos = 0; l1_pos < L1_PAGE_TABLE_NUM_ENTRIES; l1_pos++) {
+		if (!is_pte_illegal(l1_table[l1_pos])) {
+			/* Since the L1 PTE points to a valid L2 table,
+			 * we need to decrement the usage counter for
+			 * that L2 table.
+			 */
+			l2_table = (uint32_t *)PTE_PPN_GET(l1_table[l1_pos]);
+
+			l2_page_tables_counter_dec(l2_table);
+		}
+
+		l1_table[l1_pos] = PTE_L1_ILLEGAL;
+	}
+
+	if (IS_ENABLED(PAGE_TABLE_IS_CACHED)) {
+		sys_cache_data_flush_range((void *)l1_table, L1_PAGE_TABLE_SIZE);
+	}
+
+	atomic_clear_bit(l1_page_tables_track, l1_table_to_track_pos(l1_table));
+
+	domain->arch.ptables = NULL;
+
+	asid_free(domain->arch.asid);
+
+	sys_slist_find_and_remove(&xtensa_domain_list, &domain->arch.node);
+
+	k_spin_unlock(&xtensa_mmu_lock, key);
+
+	K_SPINLOCK(&xtensa_counter_lock) {
+		calc_l2_page_tables_usage();
+	}
+
+	return 0;
+}
+
+/**
+ * @brief Update the mappings of a memory region.
+ *
+ * @note This does not lock the necessary spin locks to prevent simultaneous updates
+ *       to the page tables. Use @ref update_region instead if locking is desired.
+ *
+ * @param[in] l1_table Pointer to the L1 table.
+ * @param[in] start Starting virtual address of the memory region to be updated.
+ * @param[in] size Size of the memory region to be updated.
+ * @param[in] ring Ring value to set to.
+ * @param[in] attrs Page table attributes to set to (not used if option is RESTORE).
+ * @param[in] option Option for the memory region.
+ *                   OPTION_RESTORE_ATTRS will restore the attributes from the backup bits.
+ */
 static void region_map_update(uint32_t *l1_table, uintptr_t start,
-			      size_t size, uint32_t ring, uint32_t flags, uint32_t option)
+			      size_t size, uint32_t ring, uint32_t attrs, uint32_t option)
 {
 	for (size_t offset = 0; offset < size; offset += CONFIG_MMU_PAGE_SIZE) {
 		uint32_t *l2_table, pte;
@@ -1169,7 +1554,7 @@ static void region_map_update(uint32_t *l1_table, uintptr_t start,
 			new_attrs = PTE_BCKUP_ATTR_GET(pte);
 			new_ring = PTE_BCKUP_RING_GET(pte);
 		} else {
-			new_attrs = flags;
+			new_attrs = attrs;
 			new_ring = ring;
 		}
 
@@ -1186,14 +1571,28 @@ static void region_map_update(uint32_t *l1_table, uintptr_t start,
 	}
 }
 
+/**
+ * @brief Update the attributes of the memory region.
+ *
+ * @note This locks the necessary spin locks to prevent simultaneous updates
+ *       to the page tables.
+ *
+ * @param[in] ptables Pointer to the L1 table.
+ * @param[in] start Starting virtual address of the memory region to be updated.
+ * @param[in] size Size of the memory region to be updated.
+ * @param[in] ring Ring value to set to.
+ * @param[in] attrs Page table attributes to set to (not used if option is RESTORE).
+ * @param[in] option Option for the memory region.
+ *                   OPTION_RESTORE_ATTRS will restore the attributes from the backup bits.
+ */
 static void update_region(uint32_t *ptables, uintptr_t start, size_t size,
-			  uint32_t ring, uint32_t flags, uint32_t option)
+			  uint32_t ring, uint32_t attrs, uint32_t option)
 {
 	k_spinlock_key_t key;
 
 	key = k_spin_lock(&xtensa_mmu_lock);
 
-	region_map_update(ptables, start, size, ring, flags, option);
+	region_map_update(ptables, start, size, ring, attrs, option);
 
 #if CONFIG_MP_MAX_NUM_CPUS > 1
 	if ((option & OPTION_NO_TLB_IPI) != OPTION_NO_TLB_IPI) {
@@ -1207,6 +1606,22 @@ static void update_region(uint32_t *ptables, uintptr_t start, size_t size,
 	k_spin_unlock(&xtensa_mmu_lock, key);
 }
 
+/**
+ * @brief Reset the attributes of the memory region.
+ *
+ * This restores the ring and PTE attributes to the backup bits.
+ * Usually this restores the PTEs corresponding to the memory region to
+ * the ring and attributes at boot time just before MMU is enabled.
+ *
+ * @note This calls @ref update_region which locks the necessary spin locks to
+ *       prevent simultaneous updates to the page tables.
+ *
+ * @param[in] ptables Pointer to the L1 table.
+ * @param[in] start Starting virtual address of the memory region to be updated.
+ * @param[in] size Size of the memory region to be updated.
+ * @param[in] option Option for the memory region.
+ *                   OPTION_RESTORE_ATTRS will restore the attributes from the backup bits.
+ */
 static inline void reset_region(uint32_t *ptables, uintptr_t start, size_t size, uint32_t option)
 {
 	update_region(ptables, start, size, RING_KERNEL, XTENSA_MMU_PERM_W,
@@ -1258,7 +1673,6 @@ int arch_mem_domain_partition_add(struct k_mem_domain *domain,
 	return 0;
 }
 
-/* These APIs don't need to do anything */
 int arch_mem_domain_thread_add(struct k_thread *thread)
 {
 	bool is_user, is_migration;
@@ -1343,6 +1757,17 @@ int arch_mem_domain_thread_remove(struct k_thread *thread)
 	return 0;
 }
 
+/**
+ * @brief Check if a page can be legally accessed.
+ *
+ * @param[in] ptables Pointer to the level 1 page table.
+ * @param[in] page Virtual address of the page to be checked.
+ * @param[in] ring Ring value for the access.
+ * @param[in] write True if the access needs to write to this page, false if read only.
+ *
+ * @retval true Access is legal.
+ * @retval false Access is not legal and will probably generate page fault.
+ */
 static bool page_validate(uint32_t *ptables, uint32_t page, uint8_t ring, bool write)
 {
 	uint8_t asid_ring;
@@ -1381,7 +1806,18 @@ static bool page_validate(uint32_t *ptables, uint32_t page, uint8_t ring, bool w
 	return true;
 }
 
-static int mem_buffer_validate(const void *addr, size_t size, int write, int ring)
+/**
+ * @brief Check if a memory region can be legally accessed.
+ *
+ * @param[in] addr Start virtual address of the memory region to be checked.
+ * @param[in] size Size of the memory region to be checked.
+ * @param[in] write True if the access needs to write to this page, false if read only.
+ * @param[in] ring Ring value for the access (RING_USER or RING_KERNEL).
+ *
+ * @retval 0 Access is legal.
+ * @retval -1 Access is not legal and will probably generate page fault.
+ */
+static int mem_buffer_validate(const void *addr, size_t size, int write, uint8_t ring)
 {
 	int ret = 0;
 	uint8_t *virt;
@@ -1404,24 +1840,66 @@ static int mem_buffer_validate(const void *addr, size_t size, int write, int rin
 	return ret;
 }
 
-bool xtensa_mem_kernel_has_access(const void *addr, size_t size, int write)
-{
-	return mem_buffer_validate(addr, size, write, RING_KERNEL) == 0;
-}
-
 int arch_buffer_validate(const void *addr, size_t size, int write)
 {
 	return mem_buffer_validate(addr, size, write, RING_USER);
 }
 
-void xtensa_exc_dtlb_multihit_handle(void)
+bool xtensa_buffer_is_kernel_readable(const void *addr, size_t size)
 {
-	/* For some unknown reasons, using xtensa_dtlb_probe() would result in
-	 * QEMU raising privileged instruction exception. So for now, just
-	 * invalidate all auto-refilled DTLBs.
-	 */
+	return mem_buffer_validate(addr, size, false, RING_KERNEL) == 0;
+}
 
-	xtensa_dtlb_autorefill_invalidate();
+void xtensa_exc_dtlb_multihit_handle(void *vaddr)
+{
+	uint8_t way, i;
+	const uint8_t num_entries = BIT(XCHAL_DTLB_ARF_ENTRIES_LOG2);
+
+	/* Each auto-refill way has a number of entries (4 or 8 depending on
+	 * configuration). So we need to ignore the lowest bits of
+	 * the virtual page number (VPN) to match the truncated VPN in
+	 * each TLB entry.
+	 */
+	const uint32_t excvaddr =
+		(uint32_t)vaddr & (XTENSA_MMU_PTE_VPN_MASK << XCHAL_DTLB_ARF_ENTRIES_LOG2);
+
+	for (way = 0; way < XTENSA_MMU_NUM_TLB_AUTOREFILL_WAYS; way++) {
+		for (i = 0; i < num_entries; i++) {
+			uint32_t entry = way + (i << XTENSA_MMU_PTE_PPN_SHIFT);
+			uint32_t tlb_vaddr = (uint32_t)xtensa_dtlb_vaddr_read(entry);
+
+			if (tlb_vaddr == excvaddr) {
+				xtensa_dtlb_entry_invalidate(entry);
+			}
+		}
+	}
+	__asm__ volatile("isync");
+}
+
+void xtensa_exc_itlb_multihit_handle(void *vaddr)
+{
+	uint8_t way, i;
+	const uint8_t num_entries = BIT(XCHAL_ITLB_ARF_ENTRIES_LOG2);
+
+	/* Each auto-refill way has a number of entries (4 or 8 depending on
+	 * configuration). So we need to ignore the lowest bits of
+	 * the virtual page number (VPN) to match the truncated VPN in
+	 * each TLB entry.
+	 */
+	const uint32_t excvaddr =
+		(uint32_t)vaddr & (XTENSA_MMU_PTE_VPN_MASK << XCHAL_ITLB_ARF_ENTRIES_LOG2);
+
+	for (way = 0; way < XTENSA_MMU_NUM_TLB_AUTOREFILL_WAYS; way++) {
+		for (i = 0; i < num_entries; i++) {
+			uint32_t entry = way + (i << XTENSA_MMU_PTE_PPN_SHIFT);
+			uint32_t tlb_vaddr = (uint32_t)xtensa_itlb_vaddr_read(entry);
+
+			if (tlb_vaddr == excvaddr) {
+				xtensa_itlb_entry_invalidate(entry);
+			}
+		}
+	}
+	__asm__ volatile("isync");
 }
 
 bool xtensa_exc_load_store_ring_error_check(void *bsa_p)

@@ -29,6 +29,10 @@
 #define SYSMAP_FLAGS_OFFSET      0x4
 #define SYSMAP_ENTRY_OFFSET      0x8
 
+/* EM_SEL selects WRAM banks for BLE exchange memory */
+#define BLE_EM_SEL_32K 0x3U
+#define BLE_EM_SEL_64K 0xFU
+
 /* Initialize memory regions */
 void system_sysmap_init(void)
 {
@@ -59,19 +63,13 @@ void system_sysmap_init(void)
 	sys_write32(SYSMAP_ATTR_STRONG_ORDER, (sysmap_base + SYSMAP_FLAGS_OFFSET));
 	sysmap_base += SYSMAP_ENTRY_OFFSET;
 
-	/* 5. flash(2x32M) 0xA0000000~0xA4000000: Weak-Order, Cacheable, Non-Bufferable */
-	sys_write32(BL616_FLASH_XIP_BUSREMAP_END >> SYSMAP_BASE_SHIFT,
+	/* 5. flashes (2x64M) 0xA0000000~0xA8000000: Weak-Order, Cacheable, Non-Bufferable */
+	sys_write32(BL616_FLASH2_XIP_BUSREMAP_END >> SYSMAP_BASE_SHIFT,
 		    (sysmap_base + SYSMAP_ADDR_OFFSET));
 	sys_write32(SYSMAP_ATTR_CACHE_ABLE, (sysmap_base + SYSMAP_FLAGS_OFFSET));
 	sysmap_base += SYSMAP_ENTRY_OFFSET;
 
-	/* 6. empty 0xA2000000~0xA8000000: Strong-Order, Non-Cacheable, Non-Bufferable */
-	sys_write32(BL616_PSRAM_BUSREMAP_BASE >> SYSMAP_BASE_SHIFT,
-		    (sysmap_base + SYSMAP_ADDR_OFFSET));
-	sys_write32(SYSMAP_ATTR_STRONG_ORDER, (sysmap_base + SYSMAP_FLAGS_OFFSET));
-	sysmap_base += SYSMAP_ENTRY_OFFSET;
-
-	/* 7. psram(128M (4M)) 0xA8000000~0xB0000000(0xA8400000):
+	/* 6. psram(128M (4M)) 0xA8000000~0xB0000000(0xA8400000):
 	 * Weak-Order, Cacheable, Bufferable
 	 */
 	sys_write32(BL616_PSRAM_BUSREMAP_END >> SYSMAP_BASE_SHIFT,
@@ -80,32 +78,9 @@ void system_sysmap_init(void)
 		    (sysmap_base + SYSMAP_FLAGS_OFFSET));
 	sysmap_base += SYSMAP_ENTRY_OFFSET;
 
-	/* 8. others: Strong-Order, Non-Cacheable, Non-Bufferable */
+	/* 7. others: Strong-Order, Non-Cacheable, Non-Bufferable */
 	sys_write32(0xFFFFF000U >> SYSMAP_BASE_SHIFT, (sysmap_base + SYSMAP_ADDR_OFFSET));
 	sys_write32(SYSMAP_ATTR_STRONG_ORDER, (sysmap_base + SYSMAP_FLAGS_OFFSET));
-}
-
-/* brown out detection */
-void system_BOD_init(void)
-{
-	uint32_t tmp;
-
-	/* disable BOD interrupt */
-	tmp = sys_read32(HBN_BASE + HBN_IRQ_MODE_OFFSET);
-	tmp &= ~HBN_IRQ_BOR_EN_MSK;
-	sys_write32(tmp, HBN_BASE + HBN_IRQ_MODE_OFFSET);
-
-	tmp = sys_read32(HBN_BASE + HBN_BOR_CFG_OFFSET);
-	/* when brownout threshold, restart*/
-	tmp |= HBN_BOD_SEL_MSK;
-	/* set BOD threshold:
-	 * 0:2.05v,1:2.10v,2:2.15v....7:2.4v
-	 */
-	tmp &= ~HBN_BOD_VTH_MSK;
-	tmp |= (7 << HBN_BOD_VTH_POS);
-	/* enable BOD */
-	tmp |= HBN_PU_BOD_MSK;
-	sys_write32(tmp, HBN_BASE + HBN_BOR_CFG_OFFSET);
 }
 
 static void enable_branchpred(bool yes)
@@ -214,9 +189,21 @@ void soc_early_init_hook(void)
 	tmp &= ~HBN_REG_EN_AON_CTRL_GPIO_MSK;
 	sys_write32(tmp, HBN_BASE + HBN_PAD_CTRL_0_OFFSET);
 
-	/* TODO: 'em' config for ble goes here */
-
-	system_BOD_init();
-
 	irq_unlock(key);
+}
+
+void soc_prep_hook(void)
+{
+	uint32_t tmp;
+
+	tmp = sys_read32(GLB_BASE + GLB_SRAM_CFG3_OFFSET);
+	tmp &= GLB_EM_SEL_UMSK;
+#if defined(CONFIG_BT_BFLB_BL61X)
+	if (IS_ENABLED(CONFIG_BFLB_BL61X_BLE_EM_64K)) {
+		tmp |= (BLE_EM_SEL_64K << GLB_EM_SEL_POS);
+	} else {
+		tmp |= (BLE_EM_SEL_32K << GLB_EM_SEL_POS);
+	}
+#endif
+	sys_write32(tmp, GLB_BASE + GLB_SRAM_CFG3_OFFSET);
 }

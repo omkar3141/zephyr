@@ -49,7 +49,7 @@ static void thread_print_cb(struct thread_analyzer_info *info)
 #ifdef CONFIG_THREAD_RUNTIME_STATS
 	THREAD_ANALYZER_PRINT(
 		THREAD_ANALYZER_FMT(
-			" %-20s: STACK: unused %zu usage %zu / %zu (%zu %%); CPU: %u %%"),
+			" %-20s: STACK: unused %4zu usage %4zu / %4zu (%3zu %%); CPU: %3u %%"),
 		THREAD_ANALYZER_VSTR(info->name),
 		info->stack_size - info->stack_used, info->stack_used,
 		info->stack_size, pcnt,
@@ -61,7 +61,7 @@ static void thread_print_cb(struct thread_analyzer_info *info)
 
 		THREAD_ANALYZER_PRINT(
 			THREAD_ANALYZER_FMT(
-				" %-20s: PRIV_STACK: unused %zu usage %zu / %zu (%zu %%)"),
+				" %-20s: PRIV_STACK: unused %4zu usage %4zu / %4zu (%3zu %%)"),
 			" ", info->priv_stack_size - info->priv_stack_used, info->priv_stack_used,
 			info->priv_stack_size, pcnt);
 	}
@@ -84,7 +84,7 @@ static void thread_print_cb(struct thread_analyzer_info *info)
 #else
 	THREAD_ANALYZER_PRINT(
 		THREAD_ANALYZER_FMT(
-			" %-20s: unused %zu usage %zu / %zu (%zu %%)"),
+			" %-20s: unused %4zu usage %4zu / %4zu (%3zu %%)"),
 		THREAD_ANALYZER_VSTR(info->name),
 		info->stack_size - info->stack_used, info->stack_used,
 		info->stack_size, pcnt);
@@ -114,6 +114,10 @@ static void thread_print_cb(struct thread_analyzer_info *info)
 		break;
 	}
 
+#endif
+
+#ifdef CONFIG_THREAD_ANALYZER_PRINT_THREAD_PRIORITY
+	THREAD_ANALYZER_PRINT(THREAD_ANALYZER_FMT(" %-20s: PRIORITY: %d"), " ", info->prio);
 #endif
 }
 
@@ -157,7 +161,6 @@ static void thread_analyze_cb(const struct k_thread *cthread, void *user_data)
 	size_t size = thread->stack_info.size;
 	struct ta_cb_user_data *ud = user_data;
 	thread_analyzer_cb cb = ud->cb;
-	unsigned int cpu = ud->cpu;
 	struct thread_analyzer_info info;
 	char hexname[PTR_STR_MAXLEN + 1];
 	const char *name;
@@ -211,7 +214,7 @@ static void thread_analyze_cb(const struct k_thread *cthread, void *user_data)
 	}
 
 	if (IS_ENABLED(CONFIG_THREAD_ANALYZER_AUTO_SEPARATE_CORES)) {
-		if (k_thread_runtime_stats_cpu_get(cpu, &rt_stats_all) != 0) {
+		if (k_thread_runtime_stats_cpu_get(ud->cpu, &rt_stats_all) != 0) {
 			ret++;
 		}
 	} else {
@@ -224,6 +227,10 @@ static void thread_analyze_cb(const struct k_thread *cthread, void *user_data)
 		info.utilization = (info.usage.execution_cycles * 100U) /
 			rt_stats_all.execution_cycles;
 	}
+#endif
+
+#ifdef CONFIG_THREAD_ANALYZER_PRINT_THREAD_PRIORITY
+	info.prio = thread->base.prio;
 #endif
 
 	ARG_UNUSED(ret);
@@ -239,29 +246,43 @@ static void thread_analyze_cb(const struct k_thread *cthread, void *user_data)
 K_KERNEL_STACK_ARRAY_DECLARE(z_interrupt_stacks, CONFIG_MP_MAX_NUM_CPUS,
 			     CONFIG_ISR_STACK_SIZE);
 
-static void isr_stack(int core)
+static void isr_stack(thread_analyzer_cb cb, int core)
 {
 	const uint8_t *buf = K_KERNEL_STACK_BUFFER(z_interrupt_stacks[core]);
 	size_t size = K_KERNEL_STACK_SIZEOF(z_interrupt_stacks[core]);
 	size_t unused;
 	int err;
 
+#if CONFIG_MP_MAX_NUM_CPUS < 10
+	char name[] = "ISR0";
+
+	name[3] += core;
+#elif CONFIG_MP_MAX_NUM_CPUS < 100
+	char name[] = "ISR00";
+
+	name[3] += core / 10;
+	name[4] += core % 10;
+#else
+#error Too many CPUs
+#endif
 	err = z_stack_space_get(buf, size, &unused);
 	if (err == 0) {
-		THREAD_ANALYZER_PRINT(
-			THREAD_ANALYZER_FMT(
-				" %s%-17d: STACK: unused %zu usage %zu / %zu (%zu %%)"),
-			THREAD_ANALYZER_VSTR("ISR"), core, unused,
-			size - unused, size, (100 * (size - unused)) / size);
+		struct thread_analyzer_info isr_info = {
+			.name = name,
+			.stack_size = size,
+			.stack_used = size - unused,
+		};
+
+		cb(&isr_info);
 	}
 }
 
-static void isr_stacks(void)
+static void isr_stacks(thread_analyzer_cb cb)
 {
 	unsigned int num_cpus = arch_num_cpus();
 
 	for (int i = 0; i < num_cpus; i++) {
-		isr_stack(i);
+		isr_stack(cb, i);
 	}
 }
 
@@ -285,9 +306,9 @@ void thread_analyzer_run(thread_analyzer_cb cb, unsigned int cpu)
 
 	if (IS_ENABLED(CONFIG_THREAD_ANALYZER_ISR_STACK_USAGE)) {
 		if (IS_ENABLED(CONFIG_THREAD_ANALYZER_AUTO_SEPARATE_CORES)) {
-			isr_stack(cpu);
+			isr_stack(cb, cpu);
 		} else {
-			isr_stacks();
+			isr_stacks(cb);
 		}
 	}
 }

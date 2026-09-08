@@ -390,12 +390,6 @@ static int uart_sf32lb_irq_is_pending(const struct device *dev)
 	return sys_read32(config->base + UART_ISR) == 0U ? 0 : 1;
 }
 
-static int uart_sf32lb_irq_update(const struct device *dev)
-{
-	ARG_UNUSED(dev);
-	return 1;
-}
-
 static void uart_sf32lb_irq_callback_set(const struct device *dev, uart_irq_callback_user_data_t cb,
 					 void *user_data)
 {
@@ -801,7 +795,7 @@ static void uart_sf32lb_async_rx_timeout(struct k_work *work)
 }
 #endif /* CONFIG_UART_ASYNC_API */
 
-static const struct uart_driver_api uart_sf32lb_api = {
+static DEVICE_API(uart, uart_sf32lb_api) = {
 	.poll_in = uart_sf32lb_poll_in,
 	.poll_out = uart_sf32lb_poll_out,
 	.err_check = uart_sf32lb_err_check,
@@ -822,7 +816,6 @@ static const struct uart_driver_api uart_sf32lb_api = {
 	.irq_err_enable = uart_sf32lb_irq_err_enable,
 	.irq_err_disable = uart_sf32lb_irq_err_disable,
 	.irq_is_pending = uart_sf32lb_irq_is_pending,
-	.irq_update = uart_sf32lb_irq_update,
 	.irq_callback_set = uart_sf32lb_irq_callback_set,
 #endif
 #ifdef CONFIG_UART_ASYNC_API

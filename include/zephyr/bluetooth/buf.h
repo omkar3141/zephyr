@@ -14,6 +14,8 @@
 /**
  * @brief Data buffers
  * @defgroup bt_buf Data buffers
+ * @since 1.7
+ * @version 1.0.0
  * @ingroup bluetooth
  * @{
  */
@@ -27,7 +29,7 @@
 #include <zephyr/net_buf.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/sys/util_macro.h>
-#include <zephyr/sys_clock.h>
+#include <zephyr/sys/clock.h>
 #include <zephyr/toolchain.h>
 
 #ifdef __cplusplus
@@ -201,7 +203,7 @@ struct net_buf *bt_buf_get_rx(enum bt_buf_type type, k_timeout_t timeout);
  * callee must not perform any action that makes the current thread unready. When called from ISR
  * context, the callback runs without scheduler lock.
  *
- * @funcprops \isr_ok
+ * @isr_ok
  *
  * @param type_mask A bit mask of buffer types that have been freed.
  */
@@ -211,7 +213,7 @@ typedef void (*bt_buf_rx_freed_cb_t)(enum bt_buf_type type_mask);
  *
  * It's safe to call this inside the callback itself.
  *
- * @funcprops \isr_ok
+ * @isr_ok
  *
  * @param cb Callback to notify about freed buffer in the incoming data pool. If NULL, the callback
  *           is disabled.
@@ -243,35 +245,6 @@ struct net_buf *bt_buf_get_tx(enum bt_buf_type type, k_timeout_t timeout,
  *  @return A new buffer.
  */
 struct net_buf *bt_buf_get_evt(uint8_t evt, bool discardable, k_timeout_t timeout);
-
-/** Set the buffer type. The type is encoded as an H:4 byte prefix as part of
- *  the payload itself.
- *
- *  @param buf   Bluetooth buffer
- *  @param type  The BT_* type to set the buffer to
- */
-static inline void __deprecated bt_buf_set_type(struct net_buf *buf, enum bt_buf_type type)
-{
-	__ASSERT_NO_MSG(net_buf_headroom(buf) >= 1);
-	net_buf_push_u8(buf, bt_buf_type_to_h4(type));
-}
-
-
-/** Get the buffer type. This pulls the H:4 byte prefix from the payload, which means
- *  that the call can be done only once per buffer.
- *
- *  @param buf   Bluetooth buffer
- *
- *  @return The BT_* type to of the buffer
- */
-static inline enum bt_buf_type __deprecated bt_buf_get_type(struct net_buf *buf)
-{
-	/* We have to assume the direction since the H:4 type doesn't tell us
-	 * if the buffer is incoming or outgoing. The common use case of this API is for outgoing
-	 * buffers, so we assume that.
-	 */
-	return bt_buf_type_from_h4(net_buf_pull_u8(buf), BT_BUF_OUT);
-}
 
 /**
  * @}

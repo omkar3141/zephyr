@@ -173,9 +173,7 @@ static inline int start_stream(const struct i2s_max32_stream *stream, enum i2s_d
 	 */
 	struct dma_config dma_cfg = {
 		.dma_slot = stream->dma.slot,
-		.source_data_size = stream_data->i2s_cfg.word_size / 8,
 		.source_burst_length = 4,
-		.dest_data_size = stream_data->i2s_cfg.word_size / 8,
 		.dest_burst_length = 4,
 		.block_count = 1,
 		.user_data = (void *)stream,
@@ -210,6 +208,8 @@ static inline int start_stream(const struct i2s_max32_stream *stream, enum i2s_d
 		dma_block.dest_addr_adj = DMA_ADDR_ADJ_INCREMENT;
 		/* Configure DMA */
 		dma_cfg.channel_direction = PERIPHERAL_TO_MEMORY;
+		dma_cfg.source_data_size = sizeof(uint32_t);
+		dma_cfg.dest_data_size = stream_data->i2s_cfg.word_size / 8;
 		dma_cfg.dma_callback = i2s_max32_rx_dma_callback;
 		dma_cfg.channel_priority = 1;
 	} else {
@@ -226,6 +226,8 @@ static inline int start_stream(const struct i2s_max32_stream *stream, enum i2s_d
 		dma_block.dest_addr_adj = DMA_ADDR_ADJ_NO_CHANGE;
 		/* Configure DMA */
 		dma_cfg.channel_direction = MEMORY_TO_PERIPHERAL;
+		dma_cfg.source_data_size = stream_data->i2s_cfg.word_size / 8;
+		dma_cfg.dest_data_size = sizeof(uint32_t);
 		dma_cfg.dma_callback = i2s_max32_tx_dma_callback;
 		dma_cfg.channel_priority = 0;
 	}
@@ -545,8 +547,8 @@ static int i2s_cfg_to_max32_cfg(const struct i2s_config *i2s_cfg, mxc_i2s_req_t 
 		return -EINVAL;
 	}
 
-	/* Set master/slave mode */
-	if (i2s_cfg->options & I2S_OPT_FRAME_CLK_SLAVE) {
+	/* Set controller/target mode */
+	if (i2s_cfg->options & I2S_OPT_FRAME_CLK_TARGET) {
 		max_cfg->channelMode = MXC_I2S_EXTERNAL_SCK_EXTERNAL_WS;
 	} else {
 		max_cfg->channelMode = MXC_I2S_INTERNAL_SCK_WS_0;
@@ -732,8 +734,8 @@ static int i2s_max32_init(const struct device *dev)
 #define MAX32_DT_INST_DMA_CELL(n, name, cell) DT_INST_DMAS_CELL_BY_NAME(n, name, cell)
 
 #define I2S_MAX32_STREAM_DATA_CREATE_AND_INIT(n, dir)                                              \
-	K_MSGQ_DEFINE(i2s_max32_##dir##_q_##n, sizeof(struct i2s_mem_block),                       \
-		      CONFIG_I2S_MAX32_QUEUE_SIZE, 1);                                             \
+	K_MSGQ_DEFINE_STATIC_TYPE(i2s_max32_##dir##_q_##n, struct i2s_mem_block,                   \
+				  CONFIG_I2S_MAX32_QUEUE_SIZE);                                    \
 	static struct i2s_max32_stream_data i2s_max32_##dir##_data_##n = {                         \
 		.state = I2S_STATE_NOT_READY,                                                      \
 		.drain = false,                                                                    \

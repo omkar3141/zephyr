@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/* Replace the xspi1 by a "st,stm32-mspi-controller" compatible */
+/* Replace the xspi1 by a "st,stm32-xspi-controller" compatible */
 /delete-node/ &xspi1;
 
 / {
@@ -21,9 +21,9 @@
 			clock-names = "xspix", "xspi-ker";
 			clocks = <&rcc STM32_CLOCK(AHB4, 20U)>,
 				 <&rcc STM32_SRC_PLL1_Q OCTOSPI1_SEL(1)>;
+			clock-frequency = <DT_FREQ_M(50)>;
 			#address-cells = <1>;
 			#size-cells = <0>;
-			clock-frequency = <0x17d7840>;
 			op-mode = "MSPI_OP_MODE_CONTROLLER";
 			status = "okay";
 			pinctrl-0 = <&octospi1_io0_pb1 &octospi1_io1_pd12
@@ -38,17 +38,18 @@
 			dma-names = "tx", "rx";
 
 			mx25lm51245: ospi-nor-flash@0 {
-				compatible = "jedec,mspi-nor";
+				compatible = "st,nor", "mxicy,mx25u", "jedec,nor";
 				reg = <0>;
 				size = <DT_SIZE_M(512)>; /* 512 Mbits */
 				status = "okay";
-				read-command = <0xEE11>;
-				write-command = <0x12ED>;
+				read-command = <0xee11>;
+				write-command = <0x12ed>;
 				rx-dummy = <20>;
 				mspi-max-frequency = <DT_FREQ_M(50)>;
 				mspi-io-mode = "MSPI_IO_MODE_OCTAL";
 				mspi-data-rate = "MSPI_DATA_RATE_DUAL";
 				mspi-hardware-ce-num = <0>;
+				st,mem-type = "macronix";
 				command-length = "INSTR_2_BYTE";
 				jedec-id = [c2 85 3a];
 
@@ -57,9 +58,9 @@
 					#address-cells = <1>;
 					#size-cells = <1>;
 
-					slot_partition0: partition@0 {
+					partition@0 {
 						label = "nor";
-						reg = <0x00000000 DT_SIZE_M(8)>;
+						reg = <0x00000000 DT_SIZE_M(4)>;
 					};
 				};
 			};

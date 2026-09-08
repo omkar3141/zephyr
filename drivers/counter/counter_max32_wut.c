@@ -156,6 +156,7 @@ static int counter_max32_wut_set_alarm(const struct device *dev, uint8_t chan,
 
 	min_abs_ticks = (uint64_t)now_ticks + data->guard_period;
 	if ((!absolute && (abs_ticks < now_ticks)) || (abs_ticks > min_abs_ticks)) {
+		MXC_WUT_Disable(cfg->regs);
 		MXC_WUT_SetCompare(cfg->regs, abs_ticks & top_ticks);
 		MXC_WUT_Enable(cfg->regs);
 		return 0;
@@ -163,7 +164,7 @@ static int counter_max32_wut_set_alarm(const struct device *dev, uint8_t chan,
 
 	irq_on_late = alarm_cfg->flags & COUNTER_ALARM_CFG_EXPIRE_WHEN_LATE;
 	if (irq_on_late || !absolute) {
-		NVIC_SetPendingIRQ(cfg->irq_number);
+		k_irq_set_pending(cfg->irq_number);
 	} else {
 		data->alarm.callback = NULL;
 		data->alarm.user_data = NULL;
@@ -204,13 +205,26 @@ static void counter_max32_wut_hw_init(const struct device *dev)
 {
 	const struct max32_wut_config *cfg = dev->config;
 
-	Wrap_MXC_SYS_Select32KClockSource(cfg->clock_source);
-
 	cfg->irq_config(dev);
 
 	if (cfg->wakeup_source) {
 		MXC_LP_EnableWUTAlarmWakeup();
 	}
+}
+
+static int counter_max32_wut_pm_action(const struct device *dev, enum pm_device_action action)
+{
+	switch (action) {
+	case PM_DEVICE_ACTION_RESUME:
+		counter_max32_wut_hw_init(dev);
+		break;
+	case PM_DEVICE_ACTION_SUSPEND:
+		break;
+	default:
+		return -ENOTSUP;
+	}
+
+	return 0;
 }
 
 static int counter_max32_wut_init(const struct device *dev)
@@ -219,6 +233,8 @@ static int counter_max32_wut_init(const struct device *dev)
 	uint8_t prescaler_lo, prescaler_hi;
 	mxc_wut_pres_t pres;
 	mxc_wut_cfg_t wut_cfg;
+
+	Wrap_MXC_SYS_Select32KClockSource(cfg->clock_source);
 
 	counter_max32_wut_hw_init(dev);
 
@@ -236,25 +252,8 @@ static int counter_max32_wut_init(const struct device *dev)
 
 	MXC_WUT_SetCount(cfg->regs, 0);
 
-	return 0;
+	return pm_device_driver_init(dev, counter_max32_wut_pm_action);
 }
-
-#ifdef CONFIG_PM_DEVICE
-static int counter_max32_wut_pm_action(const struct device *dev, enum pm_device_action action)
-{
-	switch (action) {
-	case PM_DEVICE_ACTION_RESUME:
-		counter_max32_wut_hw_init(dev);
-		break;
-	case PM_DEVICE_ACTION_SUSPEND:
-		break;
-	default:
-		return -ENOTSUP;
-	}
-
-	return 0;
-}
-#endif /* CONFIG_PM_DEVICE */
 
 static DEVICE_API(counter, counter_max32_wut_driver_api) = {
 	.start = counter_max32_wut_start,

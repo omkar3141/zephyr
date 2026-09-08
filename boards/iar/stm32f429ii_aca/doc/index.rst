@@ -35,7 +35,7 @@ Hardware
 The STM32F429II-ACA evaluation board provides the following hardware components:
 
 - STM32F429II in LQFP176 package
-- ARM |reg| 32-bit Cortex |reg| -M4 CPU with FPU
+- ARM® 32-bit Cortex®-M4 CPU with FPU
 - 180 MHz max CPU frequency
 - VDD from 1.8 V to 3.6 V
 - 2 MB Internal Flash
@@ -92,9 +92,6 @@ It is connected to the on-chip OTG_HS peripheral.
 Programming and Debugging
 *************************
 
-The ``stm32f429ii_aca`` board supports the runners and associated west
-commands listed below.
-
 .. zephyr:board-supported-runners::
 
 Applications for the ``stm32f429ii_aca`` board configuration can be built
@@ -121,12 +118,13 @@ Here is an example for the :zephyr:code-sample:`blinky` application.
 
 LED1 should then begin to blink continuously with a 1-second delay.
 
-By default, the board uses the jlink runner for flashing operations.
-Alternative runners for openocd or pyocd are also available and they are
-accessible through the ``--runner`` (or ``-r``) option:
+By default, the board uses the iar runner for flashing operations.
+Alternative runners for jlink, openocd or pyocd are also available
+and they are accessible through the ``--runner`` (or ``-r``) option:
 
 .. code-block:: console
 
+   $ west flash --runner jlink
    $ west flash --runner openocd
    $ west flash --runner pyocd
 

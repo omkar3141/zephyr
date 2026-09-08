@@ -4,7 +4,7 @@
 
 /*
  * Copyright (c) 2015-2016 Intel Corporation
- * Copyright 2021,2024 NXP
+ * Copyright 2021,2024-2025 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -14,7 +14,6 @@
 #include <errno.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/byteorder.h>
-#include <zephyr/sys/check.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/sys/printk.h>
 
@@ -24,7 +23,7 @@
 #include <zephyr/bluetooth/classic/a2dp_codec_sbc.h>
 #include <zephyr/bluetooth/classic/a2dp.h>
 
-#include "common/assert.h"
+#include <common/assert.h>
 
 #define A2DP_SBC_PAYLOAD_TYPE (0x60U)
 
@@ -42,11 +41,10 @@
 #define CTRL_PARAM(_ctrl_param) CONTAINER_OF(_ctrl_param, struct bt_a2dp, ctrl_param)
 #define DELAY_REPORT_REQ(_req)  CONTAINER_OF(_req, struct bt_avdtp_delay_report_params, req)
 
-#include "host/hci_core.h"
-#include "host/conn_internal.h"
-#include "host/l2cap_internal.h"
+#include <host/hci_core.h>
+#include <host/conn_internal.h>
+#include <host/l2cap_internal.h>
 #include "avdtp_internal.h"
-#include "a2dp_internal.h"
 
 #define LOG_LEVEL CONFIG_BT_A2DP_LOG_LEVEL
 #include <zephyr/logging/log.h>
@@ -89,6 +87,15 @@ static struct bt_a2dp *a2dp_get_connection(struct bt_conn *conn)
 	a2dp = &connection[index];
 
 	if (a2dp->session.br_chan.chan.conn == NULL) {
+		/* The session release work submitted when the previous
+		 * connection was disconnected may still be pending. Wiping
+		 * a queued work item would corrupt the work queue, so
+		 * reject the object reuse until the work has completed.
+		 */
+		if (k_work_busy_get(&a2dp->session._release_work) != 0) {
+			return NULL;
+		}
+
 		/* Clean the memory area before returning */
 		(void)memset(a2dp, 0, sizeof(struct bt_a2dp));
 	}
@@ -329,6 +336,13 @@ static int a2dp_process_config_ind(struct bt_avdtp *session, struct bt_avdtp_sep
 		return -EINVAL;
 	}
 
+	if (codec_info_element_len > CONFIG_BT_A2DP_CODEC_MAX_IE_LEN) {
+		LOG_WRN("Received IE exceeds the max supported length (%u > %u)",
+			codec_info_element_len, CONFIG_BT_A2DP_CODEC_MAX_IE_LEN);
+		*errcode = BT_AVDTP_UNSUPPORTED_CONFIGURATION;
+		return -EINVAL;
+	}
+
 	if (codec_type == BT_A2DP_SBC) {
 		struct bt_a2dp_codec_sbc_params *sbc_set;
 		struct bt_a2dp_codec_sbc_params *sbc;
@@ -368,9 +382,8 @@ static int a2dp_process_config_ind(struct bt_avdtp *session, struct bt_avdtp_sep
 	cfg.delay_report = delay_report;
 	cfg.codec_config = &codec_config;
 	cfg.codec_config->len = codec_info_element_len;
-	memcpy(&cfg.codec_config->codec_ie[0], codec_info_element,
-	       (codec_info_element_len > BT_A2DP_MAX_IE_LENGTH ? BT_A2DP_MAX_IE_LENGTH
-							       : codec_info_element_len));
+	memcpy(&cfg.codec_config->codec_ie[0], codec_info_element, codec_info_element_len);
+
 	if (!reconfig) {
 		err = a2dp_cb->config_req(a2dp, ep, &cfg, &stream, &rsp_err_code);
 		if (!err && stream) {
@@ -480,15 +493,11 @@ static int a2dp_ctrl_ind(struct bt_avdtp *session, struct bt_avdtp_sep *sep, uin
 
 static int a2dp_open_ind(struct bt_avdtp *session, struct bt_avdtp_sep *sep, uint8_t *errcode)
 {
-	struct bt_a2dp_ep *ep = CONTAINER_OF(sep, struct bt_a2dp_ep, sep);
 	bt_a2dp_ctrl_req_cb req_cb;
-	bt_a2dp_ctrl_done_cb done_cb;
 
 	__ASSERT(sep, "Invalid sep");
 	req_cb = a2dp_cb != NULL ? a2dp_cb->establish_req : NULL;
-	done_cb = (ep->stream != NULL && ep->stream->ops != NULL) ? ep->stream->ops->established
-								  : NULL;
-	return a2dp_ctrl_ind(session, sep, errcode, req_cb, done_cb);
+	return a2dp_ctrl_ind(session, sep, errcode, req_cb, NULL);
 }
 
 static int a2dp_start_ind(struct bt_avdtp *session, struct bt_avdtp_sep *sep, uint8_t *errcode)
@@ -699,10 +708,12 @@ static int bt_a2dp_set_config_cb(struct bt_avdtp_req *req, struct net_buf *buf)
 	if (status == BT_AVDTP_SUCCESS) {
 		struct bt_avdtp_set_configuration_params *param = SET_CONF_REQ(req);
 
+		__ASSERT(param->codec_specific_ie_len <= CONFIG_BT_A2DP_CODEC_MAX_IE_LEN,
+			 "Invalid codec IE length");
+
 		stream->codec_config.len = param->codec_specific_ie_len;
 		memcpy(&stream->codec_config.codec_ie[0], param->codec_specific_ie,
-		       (param->codec_specific_ie_len > BT_A2DP_MAX_IE_LENGTH ?
-			BT_A2DP_MAX_IE_LENGTH : param->codec_specific_ie_len));
+		       param->codec_specific_ie_len);
 	}
 
 	if ((a2dp_cb != NULL) && (a2dp_cb->config_rsp != NULL)) {
@@ -721,6 +732,8 @@ static int bt_a2dp_get_capabilities_cb(struct bt_avdtp_req *req, struct net_buf 
 	int err;
 	uint8_t *codec_info_element;
 	struct bt_a2dp *a2dp = GET_CAP_PARAM(GET_CAP_REQ(req));
+	struct bt_a2dp_ep *ep = NULL;
+	struct bt_a2dp_ep_info *info;
 	uint16_t codec_info_element_len;
 	uint8_t codec_type;
 	uint8_t user_ret;
@@ -743,40 +756,45 @@ static int bt_a2dp_get_capabilities_cb(struct bt_avdtp_req *req, struct net_buf 
 		return 0;
 	}
 
-	if (codec_info_element_len > BT_A2DP_MAX_IE_LENGTH) {
-		codec_info_element_len = BT_A2DP_MAX_IE_LENGTH;
+	if ((a2dp->discover_cb_param == NULL) || (a2dp->discover_cb_param->cb == NULL)) {
+		return 0;
 	}
 
-	if ((a2dp->discover_cb_param != NULL) && (a2dp->discover_cb_param->cb != NULL)) {
-		struct bt_a2dp_ep *ep = NULL;
-		struct bt_a2dp_ep_info *info = &a2dp->discover_cb_param->info;
-
-		info->codec_type = codec_type;
-		info->sep_info = &a2dp->discover_cb_param->seps_info[a2dp->get_cap_index];
-		memcpy(&info->codec_cap.codec_ie, codec_info_element, codec_info_element_len);
-		info->codec_cap.len = codec_info_element_len;
-		info->delay_report = delay_report;
-
-		user_ret = a2dp->discover_cb_param->cb(a2dp, info, &ep);
-
-		if (ep != NULL) {
-			ep->codec_type = info->codec_type;
-			ep->sep.sep_info = *info->sep_info;
-			*ep->codec_cap = info->codec_cap;
-			ep->delay_report = info->delay_report;
-			ep->stream = NULL;
-		}
-
-		if (user_ret == BT_A2DP_DISCOVER_EP_CONTINUE) {
-			if (bt_a2dp_get_sep_caps(a2dp) != 0) {
-				a2dp->discover_cb_param->cb(a2dp, NULL, NULL);
-				a2dp->discover_cb_param = NULL;
-			}
-		} else {
-			a2dp->discover_cb_param = NULL;
-		}
+	if (codec_info_element_len > CONFIG_BT_A2DP_CODEC_MAX_IE_LEN) {
+		LOG_WRN("Received IE exceeds the max supported length (%u > %u)",
+			codec_info_element_len, CONFIG_BT_A2DP_CODEC_MAX_IE_LEN);
+		goto next_discover;
 	}
 
+	info = &a2dp->discover_cb_param->info;
+	info->codec_type = codec_type;
+	info->sep_info = &a2dp->discover_cb_param->seps_info[a2dp->get_cap_index];
+	memcpy(&info->codec_cap.codec_ie, codec_info_element, codec_info_element_len);
+	info->codec_cap.len = codec_info_element_len;
+	info->delay_report = delay_report;
+
+	user_ret = a2dp->discover_cb_param->cb(a2dp, info, &ep);
+
+	if (ep != NULL) {
+		ep->codec_type = info->codec_type;
+		ep->sep.sep_info = *info->sep_info;
+		*ep->codec_cap = info->codec_cap;
+		ep->delay_report = info->delay_report;
+		ep->stream = NULL;
+	}
+
+	if (user_ret == BT_A2DP_DISCOVER_EP_CONTINUE) {
+		goto next_discover;
+	}
+
+	a2dp->discover_cb_param = NULL;
+	return 0;
+
+next_discover:
+	if (bt_a2dp_get_sep_caps(a2dp) != 0) {
+		a2dp->discover_cb_param->cb(a2dp, NULL, NULL);
+		a2dp->discover_cb_param = NULL;
+	}
 	return 0;
 }
 
@@ -940,6 +958,9 @@ static inline void bt_a2dp_stream_config_set_param(struct bt_a2dp *a2dp,
 						   uint8_t int_id, uint8_t codec_type,
 						   struct bt_avdtp_sep *sep)
 {
+	__ASSERT(config->codec_config->len <= CONFIG_BT_A2DP_CODEC_MAX_IE_LEN,
+		 "Invalid codec IE length");
+
 	memset(&a2dp->set_config_param, 0U, sizeof(a2dp->set_config_param));
 	bt_a2dp_init_req(&a2dp->set_config_param.req, cb);
 	a2dp->set_config_param.acp_stream_ep_id = remote_id;
@@ -958,7 +979,8 @@ int bt_a2dp_stream_config(struct bt_a2dp *a2dp, struct bt_a2dp_stream *stream,
 	int err;
 
 	if ((a2dp == NULL) || (stream == NULL) || (local_ep == NULL) || (remote_ep == NULL) ||
-	    (config == NULL)) {
+	    (config == NULL) || (config->codec_config == NULL) ||
+	    (config->codec_config->len > CONFIG_BT_A2DP_CODEC_MAX_IE_LEN)) {
 		return -EINVAL;
 	}
 
@@ -1025,13 +1047,9 @@ static int bt_a2dp_ctrl_cb(struct bt_avdtp_req *req, bt_a2dp_rsp_cb rsp_cb, bt_a
 
 static int bt_a2dp_open_cb(struct bt_avdtp_req *req, struct net_buf *buf)
 {
-	struct bt_a2dp_ep *ep = CONTAINER_OF(CTRL_REQ(req)->sep, struct bt_a2dp_ep, sep);
 	bt_a2dp_rsp_cb rsp_cb = a2dp_cb != NULL ? a2dp_cb->establish_rsp : NULL;
-	bt_a2dp_done_cb done_cb = (ep->stream != NULL && ep->stream->ops != NULL)
-					  ? ep->stream->ops->established
-					  : NULL;
 
-	return bt_a2dp_ctrl_cb(req, rsp_cb, done_cb);
+	return bt_a2dp_ctrl_cb(req, rsp_cb, NULL);
 }
 
 static int bt_a2dp_start_cb(struct bt_avdtp_req *req, struct net_buf *buf)
@@ -1096,8 +1114,18 @@ static int bt_a2dp_get_config_cb(struct bt_avdtp_req *req, struct net_buf *buf)
 	err = bt_avdtp_parse_capability_codec(buf, &codec_type, &codec_info_element,
 					      &codec_info_element_len, &delay_report);
 	if (err != 0) {
+		status = BT_AVDTP_BAD_LENGTH;
+	}
+
+	if (err == 0 && codec_info_element_len > CONFIG_BT_A2DP_CODEC_MAX_IE_LEN) {
+		LOG_WRN("Received IE exceeds the max supported length (%u > %u)",
+			codec_info_element_len, CONFIG_BT_A2DP_CODEC_MAX_IE_LEN);
+		status = BT_AVDTP_UNSUPPORTED_CONFIGURATION;
+	}
+
+	if (status != BT_AVDTP_SUCCESS) {
 		if (a2dp_cb != NULL && a2dp_cb->get_config_rsp != NULL) {
-			a2dp_cb->get_config_rsp(ep->stream, NULL, BT_AVDTP_BAD_LENGTH);
+			a2dp_cb->get_config_rsp(ep->stream, NULL, status);
 		}
 
 		return -EINVAL;
@@ -1106,9 +1134,7 @@ static int bt_a2dp_get_config_cb(struct bt_avdtp_req *req, struct net_buf *buf)
 	cfg.delay_report = delay_report;
 	cfg.codec_config = &codec_config;
 	cfg.codec_config->len = codec_info_element_len;
-	memcpy(&cfg.codec_config->codec_ie[0], codec_info_element,
-	       (codec_info_element_len > BT_A2DP_MAX_IE_LENGTH ? BT_A2DP_MAX_IE_LENGTH
-							       : codec_info_element_len));
+	memcpy(&cfg.codec_config->codec_ie[0], codec_info_element, codec_info_element_len);
 
 	if (a2dp_cb != NULL && a2dp_cb->get_config_rsp != NULL) {
 		a2dp_cb->get_config_rsp(ep->stream, &cfg, status);
@@ -1260,7 +1286,8 @@ int bt_a2dp_stream_reconfig(struct bt_a2dp_stream *stream, struct bt_a2dp_codec_
 	int err;
 	uint8_t remote_id;
 
-	if ((stream == NULL) || (config == NULL)) {
+	if ((stream == NULL) || (config == NULL) || (config->codec_config == NULL) ||
+	    (config->codec_config->len > CONFIG_BT_A2DP_CODEC_MAX_IE_LEN)) {
 		return -EINVAL;
 	}
 
@@ -1362,7 +1389,7 @@ int bt_a2dp_stream_delay_report(struct bt_a2dp_stream *stream, uint16_t delay)
 	int err;
 	struct bt_a2dp *a2dp;
 
-	CHECKIF(stream == NULL) {
+	if (stream == NULL) {
 		return -EINVAL;
 	}
 
@@ -1397,32 +1424,6 @@ int bt_a2dp_stream_delay_report(struct bt_a2dp_stream *stream, uint16_t delay)
 }
 #endif
 
-int a2dp_endpoint_released(struct bt_avdtp_sep *sep)
-{
-	struct bt_a2dp_ep *ep;
-
-	__ASSERT(sep, "Invalid sep");
-	ep = CONTAINER_OF(sep, struct bt_a2dp_ep, sep);
-
-	if (ep->stream != NULL) {
-		struct bt_a2dp_stream_ops *ops;
-		struct bt_a2dp_stream *stream = ep->stream;
-
-		ops = stream->ops;
-		/* Many places set ep->stream as NULL like abort and close.
-		 * it should be OK without lock protection because
-		 * all the related callbacks are in the same zephyr task context.
-		 */
-		ep->stream = NULL;
-
-		if ((ops != NULL) && (ops->released != NULL)) {
-			ops->released(stream);
-		}
-	}
-
-	return 0;
-}
-
 static const struct bt_avdtp_ops_cb signaling_avdtp_ops = {
 	.connected = a2dp_connected,
 	.disconnected = a2dp_disconnected,
@@ -1441,6 +1442,54 @@ static const struct bt_avdtp_ops_cb signaling_avdtp_ops = {
 	.delay_report_ind = a2dp_delay_report_ind,
 #endif
 };
+
+static void stream_connected(struct bt_avdtp_sep *sep)
+{
+	struct bt_a2dp_ep *ep;
+	struct bt_a2dp_stream *stream;
+
+	__ASSERT(sep, "Invalid sep");
+	ep = CONTAINER_OF(sep, struct bt_a2dp_ep, sep);
+	if (ep->stream == NULL) {
+		return;
+	}
+
+	stream = ep->stream;
+	if (stream->ops != NULL && stream->ops->established != NULL) {
+		stream->ops->established(stream);
+	}
+}
+
+static void stream_disconnected(struct bt_avdtp_sep *sep)
+{
+	struct bt_a2dp_ep *ep;
+	struct bt_a2dp_stream *stream;
+
+	__ASSERT(sep, "Invalid sep");
+	ep = CONTAINER_OF(sep, struct bt_a2dp_ep, sep);
+	if (ep->stream == NULL) {
+		return;
+	}
+
+	stream = ep->stream;
+	ep->stream = NULL;
+	if (stream->ops != NULL && stream->ops->released != NULL) {
+		stream->ops->released(stream);
+	}
+}
+
+static const struct bt_avdtp_sep_ops source_sep_ops = {
+	.connected = stream_connected,
+	.disconnected = stream_disconnected,
+};
+
+#if defined(CONFIG_BT_A2DP_SINK)
+static const struct bt_avdtp_sep_ops sink_sep_ops = {
+	.connected = stream_connected,
+	.disconnected = stream_disconnected,
+	.media_data_cb = bt_a2dp_media_data_callback,
+};
+#endif
 
 int a2dp_accept(struct bt_conn *conn, struct bt_avdtp **session)
 {
@@ -1462,25 +1511,6 @@ int a2dp_accept(struct bt_conn *conn, struct bt_avdtp **session)
 static struct bt_avdtp_event_cb avdtp_cb = {
 	.accept = a2dp_accept,
 };
-
-int bt_a2dp_init(void)
-{
-	int err;
-
-	/* Register event handlers with AVDTP */
-	err = bt_avdtp_register(&avdtp_cb);
-	if (err < 0) {
-		LOG_ERR("A2DP registration failed");
-		return err;
-	}
-
-	ARRAY_FOR_EACH(connection, i) {
-		memset(&connection[i], 0, sizeof(struct bt_a2dp));
-	}
-
-	LOG_DBG("A2DP Initialized successfully.");
-	return 0;
-}
 
 struct bt_a2dp *bt_a2dp_connect(struct bt_conn *conn)
 {
@@ -1520,15 +1550,14 @@ int bt_a2dp_register_ep(struct bt_a2dp_ep *ep, uint8_t media_type, uint8_t sep_t
 
 #if defined(CONFIG_BT_A2DP_SINK)
 	if (sep_type == BT_AVDTP_SINK) {
-		ep->sep.media_data_cb = bt_a2dp_media_data_callback;
+		ep->sep.ops = &sink_sep_ops;
 	} else {
-		ep->sep.media_data_cb = NULL;
+		ep->sep.ops = &source_sep_ops;
 	}
 #else
-	ep->sep.media_data_cb = NULL;
+	ep->sep.ops = &source_sep_ops;
 #endif
 
-	ep->sep.endpoint_released = a2dp_endpoint_released;
 	err = bt_avdtp_register_sep(media_type, sep_type, &(ep->sep));
 	if (err < 0) {
 		return err;
@@ -1539,7 +1568,7 @@ int bt_a2dp_register_ep(struct bt_a2dp_ep *ep, uint8_t media_type, uint8_t sep_t
 
 struct bt_conn *bt_a2dp_get_conn(struct bt_a2dp *a2dp)
 {
-	CHECKIF(a2dp == NULL) {
+	if (a2dp == NULL) {
 		return NULL;
 	}
 
@@ -1552,6 +1581,27 @@ struct bt_conn *bt_a2dp_get_conn(struct bt_a2dp *a2dp)
 
 int bt_a2dp_register_cb(struct bt_a2dp_cb *cb)
 {
+	int err;
+
+	if (cb == NULL) {
+		return -EINVAL;
+	}
+
+	if (a2dp_cb != NULL) {
+		return -EALREADY;
+	}
+
 	a2dp_cb = cb;
+
+	/* Register event handlers with AVDTP */
+	err = bt_avdtp_register(&avdtp_cb);
+	if ((err < 0) && (err != -EALREADY)) {
+		a2dp_cb = NULL;
+		LOG_ERR("A2DP registration failed (err %d)", err);
+		return err;
+	}
+
+	LOG_DBG("A2DP cbs registered.");
+
 	return 0;
 }

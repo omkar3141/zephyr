@@ -17,7 +17,6 @@
 #include <zephyr/dt-bindings/flash_controller/ospi.h>
 #include <zephyr/dt-bindings/reset/stm32u5_reset.h>
 #include <zephyr/dt-bindings/dma/stm32_dma.h>
-#include <zephyr/dt-bindings/adc/stm32u5_adc.h>
 #include <zephyr/dt-bindings/power/stm32_pwr.h>
 #include <zephyr/dt-bindings/sensor/qdec_stm32.h>
 #include <freq.h>
@@ -25,6 +24,7 @@
 
 / {
 	chosen {
+		zephyr,crc = &crc;
 		zephyr,entropy = &rng;
 		zephyr,flash-controller = &flash;
 	};
@@ -40,6 +40,8 @@
 			#address-cells = <1>;
 			#size-cells = <1>;
 			cpu-power-states = <&stop0 &stop1 &stop2>;
+			i-cache-line-size = <16>;
+			d-cache-line-size = <16>;
 
 			mpu: mpu@e000ed90 {
 				compatible = "arm,armv8m-mpu";
@@ -134,6 +136,13 @@
 			status = "disabled";
 		};
 
+		clk_shsi: clk-shsi {
+			#clock-cells = <0>;
+			compatible = "fixed-clock";
+			clock-frequency = <DT_FREQ_M(48)>;
+			status = "disabled";
+		};
+
 		pll1: pll: pll {
 			#clock-cells = <0>;
 			compatible = "st,stm32u5-pll-clock";
@@ -156,6 +165,7 @@
 	mcos {
 		mco1: mco1 {
 			compatible = "st,stm32-clock-mco";
+			clock-names = "clksel";
 			status = "disabled";
 		};
 	};
@@ -168,14 +178,52 @@
 
 			#address-cells = <1>;
 			#size-cells = <1>;
+			ranges;
 
 			flash0: flash@8000000 {
 				compatible = "st,stm32-nv-flash", "soc-nv-flash";
-
+				#address-cells = <1>;
+				#size-cells = <1>;
 				write-block-size = <16>;
 				erase-block-size = <8192>;
 				/* maximum erase time(ms) for a 8K sector */
 				max-erase-time = <5>;
+			};
+
+			st_nvm_user_otp: flash@bfa0000 {
+				compatible = "st,stm32-nvm-otp";
+				reg = <0x0bfa0000 512>;
+				status = "disabled";
+			};
+
+			/* Undocumented/unnamed RO area */
+			flash@bfa0500 {
+				compatible = "st,stm32-nvm-otp";
+				reg = <0x0bfa0500 6912>;
+
+				nvmem-layout {
+					compatible = "fixed-layout";
+					#address-cells = <1>;
+					#size-cells = <1>;
+
+					ts_cal1_otp: ts-cal1@210 {
+						reg = <0x210 0x2>;
+						#nvmem-cell-cells = <0>;
+						read-only;
+					};
+
+					ts_cal2_otp: ts-cal2@242 {
+						reg = <0x242 0x2>;
+						#nvmem-cell-cells = <0>;
+						read-only;
+					};
+
+					vrefint_otp: vrefint@2a5 {
+						reg = <0x2a5 0x2>;
+						#nvmem-cell-cells = <0>;
+						read-only;
+					};
+				};
 			};
 		};
 
@@ -217,7 +265,8 @@
 			compatible = "st,stm32-pinctrl";
 			#address-cells = <1>;
 			#size-cells = <1>;
-			reg = <0x42020000 0x2000>;
+			reg = <0x42020000 0x2800>;
+			ranges;
 
 			gpioa: gpio@42020000 {
 				compatible = "st,stm32-gpio";
@@ -287,7 +336,7 @@
 			compatible = "st,stm32-window-watchdog";
 			reg = <0x40002c00 0x1000>;
 			clocks = <&rcc STM32_CLOCK(APB1, 11)>;
-			interrupts = <0 7>;
+			interrupts = <0 0>;
 			status = "disabled";
 		};
 
@@ -350,9 +399,11 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 			reg = <0x40013000 0x400>;
-			interrupts = <59 5>;
+			interrupts = <59 0>;
 			clocks = <&rcc STM32_CLOCK(APB2, 12)>;
 			st,spi-data-width = "full-4-to-32-bit";
+			fifo-size = <16>;
+			fifo-max-transfer-size = <65535>;
 			status = "disabled";
 		};
 
@@ -361,9 +412,11 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 			reg = <0x40003800 0x400>;
-			interrupts = <60 5>;
+			interrupts = <60 0>;
 			clocks = <&rcc STM32_CLOCK(APB1, 14)>;
 			st,spi-data-width = "full-4-to-32-bit";
+			fifo-size = <16>;
+			fifo-max-transfer-size = <65535>;
 			status = "disabled";
 		};
 
@@ -372,9 +425,11 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 			reg = <0x46002000 0x400>;
-			interrupts = <99 5>;
+			interrupts = <99 0>;
 			clocks = <&rcc STM32_CLOCK(APB3, 5)>;
 			st,spi-data-width = "limited-8-16-bit";
+			fifo-size = <8>;
+			fifo-max-transfer-size = <1023>;
 			status = "disabled";
 		};
 
@@ -427,19 +482,19 @@
 		};
 
 		lptim1: timers@46004400 {
-			compatible = "st,stm32-lptim";
+			compatible = "st,stm32u5-lptim", "st,stm32-lptim";
 			#address-cells = <1>;
 			#size-cells = <0>;
 			reg = <0x46004400 0x400>;
 			clocks = <&rcc STM32_CLOCK(APB3, 11)>;
 			resets = <&rctl STM32_RESET(APB3, 11)>;
-			interrupts = <67 1>;
+			interrupts = <67 0>;
 			interrupt-names = "wakeup";
 			status = "disabled";
 		};
 
 		lptim2: timers@40009400 {
-			compatible = "st,stm32-lptim";
+			compatible = "st,stm32u5-lptim", "st,stm32-lptim";
 			#address-cells = <1>;
 			#size-cells = <0>;
 			reg = <0x40009400 0x400>;
@@ -451,7 +506,7 @@
 		};
 
 		lptim3: timers@46004800 {
-			compatible = "st,stm32-lptim";
+			compatible = "st,stm32u5-lptim", "st,stm32-lptim";
 			#address-cells = <1>;
 			#size-cells = <0>;
 			reg = <0x46004800 0x400>;
@@ -463,7 +518,7 @@
 		};
 
 		lptim4: timers@46004c00 {
-			compatible = "st,stm32-lptim";
+			compatible = "st,stm32u5-lptim", "st,stm32-lptim";
 			#address-cells = <1>;
 			#size-cells = <0>;
 			reg = <0x46004c00 0x400>;
@@ -484,28 +539,32 @@
 			status = "disabled";
 		};
 
-		sai1_a: sai1@40015404 {
+		sai1: sai1@40015400 {
 			compatible = "st,stm32-sai";
 			#address-cells = <1>;
-			#size-cells = <0>;
-			reg = <0x40015404 0x20>;
+			#size-cells = <1>;
+			reg = <0x40015400 0x400>;
+			ranges;
 			clocks = <&rcc STM32_CLOCK(APB2, 21)>,
 				 <&rcc STM32_SRC_PLL2_P SAI1_SEL(0)>;
-			dmas = <&gpdma1 1 36 (STM32_DMA_MODE_NORMAL | STM32_DMA_PRIORITY_HIGH |
-				STM32_DMA_16BITS)>;
+			clock-names = "sai_ck", "sai_ker_ck";
 			status = "disabled";
-		};
 
-		sai1_b: sai1@40015424 {
-			compatible = "st,stm32-sai";
-			#address-cells = <1>;
-			#size-cells = <0>;
-			reg = <0x40015424 0x20>;
-			clocks = <&rcc STM32_CLOCK(APB2, 21)>,
-				 <&rcc STM32_SRC_PLL2_P SAI1_SEL(0)>;
-			dmas = <&gpdma1 0 37 (STM32_DMA_MODE_NORMAL | STM32_DMA_PRIORITY_HIGH |
-				STM32_DMA_16BITS)>;
-			status = "disabled";
+			sai1_a: sai1a@40015404 {
+				reg = <0x40015404 0x20>;
+				dmas = <&gpdma1 1 36 (STM32_DMA_16BITS | STM32_DMA_PRIORITY_HIGH)>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+				status = "disabled";
+			};
+
+			sai1_b: sai1b@40015424 {
+				reg = <0x40015424 0x20>;
+				dmas = <&gpdma1 0 37 (STM32_DMA_16BITS | STM32_DMA_PRIORITY_HIGH)>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+				status = "disabled";
+			};
 		};
 
 		timers1: timers@40012c00 {
@@ -658,12 +717,6 @@
 			interrupt-names = "global";
 			status = "disabled";
 
-			pwm {
-				compatible = "st,stm32-pwm";
-				status = "disabled";
-				#pwm-cells = <3>;
-			};
-
 			counter {
 				compatible = "st,stm32-counter";
 				status = "disabled";
@@ -679,12 +732,6 @@
 			interrupts = <50 0>;
 			interrupt-names = "global";
 			status = "disabled";
-
-			pwm {
-				compatible = "st,stm32-pwm";
-				status = "disabled";
-				#pwm-cells = <3>;
-			};
 
 			counter {
 				compatible = "st,stm32-counter";
@@ -817,8 +864,6 @@
 			reg = <0x420c0800 0x400>;
 			clocks = <&rcc STM32_CLOCK(AHB2, 18)>;
 			interrupts = <94 0>;
-			nist-config = <0xf60d00>;
-			health-test-config = <0x9aae>;
 			status = "disabled";
 		};
 
@@ -857,10 +902,7 @@
 			clock-names = "adcx", "adc_ker";
 			interrupts = <37 0>;
 			#io-channel-cells = <1>;
-			resolutions = <STM32_ADC_RES(14, 0x00)
-				       STM32_ADC_RES(12, 0x01)
-				       STM32_ADC_RES(10, 0x02)
-				       STM32_ADC_RES(8, 0x03)>;
+			st,adc-resolutions = <14 12 10 8>;
 			sampling-times = <5 6 12 20 36 68 391 814>;
 			st,adc-clock-source = "ASYNC";
 			st,adc-sequencer = "programmable";
@@ -869,6 +911,7 @@
 			st,adc-has-deep-powerdown;
 			st,adc-has-channel-preselection;
 			st,adc-has-differential-support;
+			st,adc-has-injected-support;
 			status = "disabled";
 		};
 
@@ -880,10 +923,7 @@
 			clock-names = "adcx", "adc_ker";
 			interrupts = <113 0>;
 			#io-channel-cells = <1>;
-			resolutions = <STM32_ADC_RES(12, 0x00)
-				       STM32_ADC_RES(10, 0x01)
-				       STM32_ADC_RES(8, 0x02)
-				       STM32_ADC_RES(6, 0x03)>;
+			st,adc-resolutions = <12 10 8 6>;
 			sampling-times = <2 4 8 13 20 40 80 815>;
 			num-sampling-time-common-channels = <2>;
 			st,adc-clock-source = "ASYNC";
@@ -908,16 +948,15 @@
 			compatible = "st,stm32u5-dma";
 			#dma-cells = <3>;
 			reg = <0x40020000 0x400>;
-			interrupts = <29 0 30 0 31 0 32 0 33 0 34 0 35 0 36 0
-				      80 0 81 0 82 0 83 0 84 0 85 0 86 0 87 0>;
+			interrupts = <29 0>, <30 0>, <31 0>, <32 0>, <33 0>, <34 0>, <35 0>, <36 0>,
+				     <80 0>, <81 0>, <82 0>, <83 0>, <84 0>, <85 0>, <86 0>, <87 0>;
 			clocks = <&rcc STM32_CLOCK(AHB1, 0)>;
 			dma-channels = <16>;
 			dma-requests = <114>;
-			dma-offset = <0>;
 			status = "disabled";
 		};
 
-		hash: hash@420c0400 {
+		hash: crypto@420c0400 {
 			compatible = "st,stm32-hash";
 			reg = <0x420c0400 0x400>;
 			clocks = <&rcc STM32_CLOCK(AHB2, 17)>;
@@ -937,7 +976,6 @@
 		pwr: power@46020800 {
 			compatible = "st,stm32u5-pwr", "st,stm32-dualreg-pwr", "st,stm32-pwr";
 			reg = <0x46020800 0x400>; /* PWR register bank */
-			status = "disabled";
 
 			/*
 			 * After reset, the LDO regulator is selected as
@@ -946,68 +984,89 @@
 			 */
 			power-supply = "ldo";
 
-			wkup-pins-nb = <8>; /* 8 system wake-up pins */
-			wkup-pin-srcs = <3>; /* 3 gpio sources associated with each wkup pin */
-			wkup-pins-pol;
-			wkup-pins-pupd;
+			wakeup-controller {
+				compatible = "st,stm32-pwr-wkupctrl";
+				#address-cells = <1>;
+				#size-cells = <0>;
+				status = "disabled";
 
-			#address-cells = <1>;
-			#size-cells = <0>;
+				st,max-wkup-line-idx = <8>;
+				st,has-multi-source-lines;
+				st,has-pwr-full-pupd;
 
-			wkup-pin@1 {
-				reg = <0x1>;
-				wkup-gpios = <&gpioa 0 STM32_PWR_WKUP_EVT_SRC_0>,
-					     <&gpiob 2 STM32_PWR_WKUP_EVT_SRC_1>,
-					     <&gpioe 4 STM32_PWR_WKUP_EVT_SRC_2>;
+				wkup@1 {
+					reg = <0x1>;
+					wkup-gpios = <&gpioa 0 STM32_PWR_WKUP_EVT_SRC_0>,
+						     <&gpiob 2 STM32_PWR_WKUP_EVT_SRC_1>,
+						     <&gpioe 4 STM32_PWR_WKUP_EVT_SRC_2>;
+				};
+
+				wkup@2 {
+					reg = <0x2>;
+					wkup-gpios = <&gpioa 4 STM32_PWR_WKUP_EVT_SRC_0>,
+						     <&gpioc 13 STM32_PWR_WKUP_EVT_SRC_1>,
+						     <&gpioe 5 STM32_PWR_WKUP_EVT_SRC_2>;
+				};
+
+				wkup@3 {
+					reg = <0x3>;
+					wkup-gpios = <&gpioe 6 STM32_PWR_WKUP_EVT_SRC_0>,
+						     <&gpioa 1 STM32_PWR_WKUP_EVT_SRC_1>,
+						     <&gpiob 6 STM32_PWR_WKUP_EVT_SRC_2>;
+				};
+
+				wkup@4 {
+					reg = <0x4>;
+					wkup-gpios = <&gpioa 2 STM32_PWR_WKUP_EVT_SRC_0>,
+						     <&gpiob 1 STM32_PWR_WKUP_EVT_SRC_1>,
+						     <&gpiob 7 STM32_PWR_WKUP_EVT_SRC_2>;
+				};
+
+				wkup@5 {
+					reg = <0x5>;
+					wkup-gpios = <&gpioc 5 STM32_PWR_WKUP_EVT_SRC_0>,
+						     <&gpioa 3 STM32_PWR_WKUP_EVT_SRC_1>,
+						     <&gpiob 8 STM32_PWR_WKUP_EVT_SRC_2>;
+				};
+
+				wkup@6 {
+					reg = <0x6>;
+					wkup-gpios = <&gpiob 5 STM32_PWR_WKUP_EVT_SRC_0>,
+						     <&gpioa 5 STM32_PWR_WKUP_EVT_SRC_1>,
+						     <&gpioe 7 STM32_PWR_WKUP_EVT_SRC_2>;
+				};
+
+				wkup@7 {
+					reg = <0x7>;
+					wkup-gpios = <&gpiob 15 STM32_PWR_WKUP_EVT_SRC_0>,
+						     <&gpioa 6 STM32_PWR_WKUP_EVT_SRC_1>,
+						     <&gpioe 8 STM32_PWR_WKUP_EVT_SRC_2>;
+				};
+
+				wkup@8 {
+					reg = <0x8>;
+					wkup-gpios = <&gpioa 7 STM32_PWR_WKUP_EVT_SRC_1>,
+						     <&gpiob 10 STM32_PWR_WKUP_EVT_SRC_2>;
+				};
 			};
+		};
 
-			wkup-pin@2 {
-				reg = <0x2>;
-				wkup-gpios = <&gpioa 4 STM32_PWR_WKUP_EVT_SRC_0>,
-					     <&gpioc 13 STM32_PWR_WKUP_EVT_SRC_1>,
-					     <&gpioe 5 STM32_PWR_WKUP_EVT_SRC_2>;
-			};
+		crc: crc@40023000 {
+			compatible = "st,stm32-crc";
+			reg = <0x40023000 0x400>;
+			clocks = <&rcc STM32_CLOCK(AHB1, 12)>;
+			resets = <&rctl STM32_RESET(AHB1, 12)>;
+			status = "disabled";
+		};
 
-			wkup-pin@3 {
-				reg = <0x3>;
-				wkup-gpios = <&gpioe 6 STM32_PWR_WKUP_EVT_SRC_0>,
-					     <&gpioa 1 STM32_PWR_WKUP_EVT_SRC_1>,
-					     <&gpiob 6 STM32_PWR_WKUP_EVT_SRC_2>;
-			};
-
-			wkup-pin@4 {
-				reg = <0x4>;
-				wkup-gpios = <&gpioa 2 STM32_PWR_WKUP_EVT_SRC_0>,
-					     <&gpiob 1 STM32_PWR_WKUP_EVT_SRC_1>,
-					     <&gpiob 7 STM32_PWR_WKUP_EVT_SRC_2>;
-			};
-
-			wkup-pin@5 {
-				reg = <0x5>;
-				wkup-gpios = <&gpioc 5 STM32_PWR_WKUP_EVT_SRC_0>,
-					     <&gpioa 3 STM32_PWR_WKUP_EVT_SRC_1>,
-					     <&gpiob 8 STM32_PWR_WKUP_EVT_SRC_2>;
-			};
-
-			wkup-pin@6 {
-				reg = <0x6>;
-				wkup-gpios = <&gpiob 5 STM32_PWR_WKUP_EVT_SRC_0>,
-					     <&gpioa 5 STM32_PWR_WKUP_EVT_SRC_1>,
-					     <&gpioe 7 STM32_PWR_WKUP_EVT_SRC_2>;
-			};
-
-			wkup-pin@7 {
-				reg = <0x7>;
-				wkup-gpios = <&gpiob 15 STM32_PWR_WKUP_EVT_SRC_0>,
-					     <&gpioa 6 STM32_PWR_WKUP_EVT_SRC_1>,
-					     <&gpioe 8 STM32_PWR_WKUP_EVT_SRC_2>;
-			};
-
-			wkup-pin@8 {
-				reg = <0x8>;
-				wkup-gpios = <&gpioa 7 STM32_PWR_WKUP_EVT_SRC_1>,
-					     <&gpiob 10 STM32_PWR_WKUP_EVT_SRC_2>;
-			};
+		gpu2d: gpu@4002f000 {
+			compatible = "st,neochrom-gpu2d";
+			reg = <0x4002f000 0x1000>;
+			clocks = <&rcc STM32_CLOCK(AHB1, 20)>;
+			interrupts = <132 0>, <133 0>;
+			interrupt-names = "gpu2d", "gpu2d_er";
+			resets = <&rctl STM32_RESET(AHB1, 20)>;
+			status = "disabled";
 		};
 	};
 
@@ -1015,7 +1074,7 @@
 		compatible = "swj-connector";
 		pinctrl-0 = <&debug_jtms_swdio_pa13 &debug_jtck_swclk_pa14
 			     &debug_jtdi_pa15 &debug_jtdo_swo_pb3
-			     &debug_jtrst_pb4>;
+			     &debug_njtrst_pb4>;
 		pinctrl-1 = <&analog_pa13 &analog_pa14 &analog_pa15
 			     &analog_pb3 &analog_pb4>;
 		pinctrl-names = "default", "sleep";
@@ -1023,8 +1082,8 @@
 
 	die_temp: dietemp {
 		compatible = "st,stm32-temp-cal";
-		ts-cal1-addr = <0x0bfa0710>;
-		ts-cal2-addr = <0x0bfa0742>;
+		nvmem-cells = <&ts_cal1_otp>, <&ts_cal2_otp>;
+		nvmem-cell-names = "TS_CAL1", "TS_CAL2";
 		ts-cal1-temp = <30>;
 		ts-cal2-temp = <130>;
 		ts-cal-vrefanalog = <3000>;
@@ -1035,7 +1094,7 @@
 
 	vref1: vref_1 {
 		compatible = "st,stm32-vref";
-		vrefint-cal-addr = <0x0bfa07a5>;
+		nvmem-cells = <&vrefint_otp>;
 		vrefint-cal-mv = <3000>;
 		vrefint-cal-resolution = <14>;
 		io-channels = <&adc1 0>;
@@ -1044,7 +1103,7 @@
 
 	vref4: vref_4 {
 		compatible = "st,stm32-vref";
-		vrefint-cal-addr = <0x0bfa07a5>;
+		nvmem-cells = <&vrefint_otp>;
 		vrefint-cal-mv = <3000>;
 		vrefint-cal-resolution = <14>;
 		io-channels = <&adc4 0>;

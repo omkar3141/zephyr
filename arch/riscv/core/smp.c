@@ -12,6 +12,9 @@
 #include <zephyr/arch/riscv/irq.h>
 #include <zephyr/drivers/pm_cpu_ops.h>
 #include <zephyr/platform/hooks.h>
+#if defined(CONFIG_RISCV_IMSIC)
+#include <zephyr/drivers/interrupt_controller/riscv_imsic.h>
+#endif
 
 volatile struct {
 	arch_cpustart_t fn;
@@ -57,9 +60,23 @@ void arch_secondary_cpu_init(int hartid)
 	for (i = 0; i < CONFIG_MP_MAX_NUM_CPUS; i++) {
 		if (_kernel.cpus[i].arch.hartid == hartid) {
 			cpu_num = i;
+			break;
 		}
 	}
+
 	csr_write(mscratch, &_kernel.cpus[cpu_num]);
+
+	/*
+	 * The no-match check must sit after the mscratch write:
+	 * arch_curr_cpu() reads mscratch, so the fatal path needs the
+	 * per-CPU pointer set first. Note that on the no-match path
+	 * cpu_num is still 0, so the panic is reported against whatever
+	 * CPU 0 is running.
+	 */
+	if (i >= CONFIG_MP_MAX_NUM_CPUS) {
+		k_panic();
+	}
+
 #ifdef CONFIG_SMP
 	_kernel.cpus[cpu_num].arch.online = true;
 #endif
@@ -72,13 +89,20 @@ void arch_secondary_cpu_init(int hartid)
 #ifdef CONFIG_RISCV_PMP
 	z_riscv_pmp_init();
 #endif
+#ifdef CONFIG_CUSTOM_STACK_GUARD
+	z_riscv_custom_stack_guard_init();
+#endif /* CONFIG_CUSTOM_STACK_GUARD */
 #ifdef CONFIG_SMP
 	irq_enable(RISCV_IRQ_MSOFT);
 #endif /* CONFIG_SMP */
-#ifdef CONFIG_PLIC_IRQ_AFFINITY
+#if defined(CONFIG_PLIC_IRQ_AFFINITY) || defined(CONFIG_RISCV_APLIC_DIRECT_IRQ_AFFINITY)
 	/* Enable on secondary cores so that they can respond to PLIC */
 	irq_enable(RISCV_IRQ_MEXT);
-#endif /* CONFIG_PLIC_IRQ_AFFINITY */
+#endif /* CONFIG_PLIC_IRQ_AFFINITY || CONFIG_RISCV_APLIC_DIRECT_IRQ_AFFINITY */
+#if defined(CONFIG_RISCV_IMSIC) && defined(CONFIG_SMP)
+	/* Initialize IMSIC on secondary CPU */
+	z_riscv_imsic_secondary_init();
+#endif /* CONFIG_RISCV_IMSIC && CONFIG_SMP */
 	soc_per_core_init_hook();
 	riscv_cpu_init[cpu_num].fn(riscv_cpu_init[cpu_num].arg);
 }

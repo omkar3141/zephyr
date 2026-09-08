@@ -6,8 +6,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef CSR_H_
-#define CSR_H_
+#ifndef ZEPHYR_INCLUDE_ARCH_RISCV_CSR_H_
+#define ZEPHYR_INCLUDE_ARCH_RISCV_CSR_H_
 
 #define MSTATUS_UIE	0x00000001
 #define MSTATUS_SIE	0x00000002
@@ -133,6 +133,15 @@
 #define SATP_MODE_SV57	10
 #define SATP_MODE_SV64	11
 
+/**
+ * PMPCFG CSR base address
+ */
+#define CSR_PMPCFG_BASE  0x3a0
+/**
+ * PMPADDR CSR base address
+ */
+#define CSR_PMPADDR_BASE 0x3b0
+
 #define PMP_R		0x01
 #define PMP_W		0x02
 #define PMP_X		0x04
@@ -193,13 +202,37 @@
 	((val) & ~(which)) | ((fieldval) * ((which) & ~((which)-1)))	\
 )									\
 
+#ifdef CONFIG_RISCV_ISA_EXT_SMCSRIND
+
+#define MISELECT 0x350
+#define MIREG    0x351
+#define MIREG2   0x352
+#define MIREG3   0x353
+#define MIREG4   0x355
+#define MIREG5   0x356
+#define MIREG6   0x357
+
+#endif /* CONFIG_RISCV_ISA_EXT_SMCSRIND */
+
+#ifndef _ASMLANGUAGE
+
 #define csr_read(csr)						\
 ({								\
-	register unsigned long __rv;				\
+	unsigned long __rv;					\
 	__asm__ volatile ("csrr %0, " STRINGIFY(csr)		\
 				: "=r" (__rv));			\
 	__rv;							\
 })
+
+/**
+ * Same as csr_read, but instead of a name string, the CSR is given as immediate address
+ */
+#define csr_read_imm(csr)                                                                          \
+	({                                                                                         \
+		register unsigned long __rv;                                                       \
+		__asm__ volatile("csrr %0, %1" : "=r"(__rv) : "i"(csr));                           \
+		__rv;                                                                              \
+	})
 
 #define csr_write(csr, val)					\
 	do {							\
@@ -210,6 +243,14 @@
 				  : "memory");		\
 	} while (0)
 
+/**
+ * Same as csr_write, but instead of a name string, the CSR is given as immediate address
+ */
+#define csr_write_imm(csr, val)                                                                    \
+	do {                                                                                       \
+		unsigned long __wv = (unsigned long)(val);                                         \
+		__asm__ volatile("csrw %0, %1" : : "i"(csr), "rK"(__wv) : "memory");               \
+	} while (0)
 
 #define csr_read_set(csr, val)					\
 ({								\
@@ -247,44 +288,15 @@
 				  : "memory");		\
 	} while (0)
 
-#ifdef CONFIG_RISCV_ISA_EXT_SMCSRIND
+#define csr_swap(csr, val)					\
+({								\
+	unsigned long __swv = (unsigned long)(val);		\
+	__asm__ volatile ("csrrw %0, " STRINGIFY(csr) ", %1"	\
+			  : "=r" (__swv) : "rK" (__swv)		\
+			  : "memory");				\
+	__swv;							\
+})
 
-#define MISELECT 0x350
-#define MIREG    0x351
-#define MIREG2   0x352
-#define MIREG3   0x353
-#define MIREG4   0x355
-#define MIREG5   0x356
-#define MIREG6   0x357
+#endif /* !_ASMLANGUAGE */
 
-static inline unsigned long icsr_read(unsigned int index)
-{
-	csr_write(MISELECT, index);
-	return csr_read(MIREG);
-}
-
-static inline void icsr_write(unsigned int index, unsigned long value)
-{
-	csr_write(MISELECT, index);
-	csr_write(MIREG, value);
-}
-
-static inline unsigned long icsr_read_set(unsigned int index, unsigned long mask)
-{
-	unsigned long val = icsr_read(index);
-
-	icsr_write(index, val | mask);
-	return val;
-}
-
-static inline unsigned long icsr_read_clear(unsigned int index, unsigned long mask)
-{
-	unsigned long val = icsr_read(index);
-
-	icsr_write(index, val & ~mask);
-	return val;
-}
-
-#endif /* CONFIG_RISCV_ISA_EXT_SMCSRIND */
-
-#endif /* CSR_H_ */
+#endif /* ZEPHYR_INCLUDE_ARCH_RISCV_CSR_H_ */

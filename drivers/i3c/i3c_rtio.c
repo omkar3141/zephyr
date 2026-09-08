@@ -48,6 +48,8 @@ struct rtio_sqe *i3c_rtio_copy(struct rtio *r, struct rtio_iodev *iodev, const s
 			((msgs[i].flags & I3C_MSG_RESTART) ? RTIO_IODEV_I3C_RESTART : 0) |
 			((msgs[i].flags & I3C_MSG_HDR) ? RTIO_IODEV_I3C_HDR : 0) |
 			((msgs[i].flags & I3C_MSG_NBCH) ? RTIO_IODEV_I3C_NBCH : 0) |
+			((msgs[i].flags & I3C_MSG_NOACK_EXPECTED) ?
+				RTIO_IODEV_I3C_NOACK_EXPECTED : 0) |
 			RTIO_IODEV_I3C_HDR_MODE_SET(msgs[i].hdr_mode) |
 			RTIO_IODEV_I3C_HDR_CMD_CODE_SET(msgs[i].hdr_cmd_code);
 	}
@@ -186,10 +188,10 @@ int i3c_rtio_configure(struct i3c_rtio *ctx, enum i3c_config_type type, void *co
 	cqe = rtio_cqe_consume(r);
 	if (unlikely(cqe != NULL)) {
 		res = cqe->result;
+		rtio_cqe_release(r, cqe);
 	} else {
 		res = -EIO;
 	}
-	rtio_cqe_release(r, cqe);
 
 out:
 	k_sem_give(&ctx->lock);
@@ -223,10 +225,10 @@ int i3c_rtio_ccc(struct i3c_rtio *ctx, struct i3c_ccc_payload *payload)
 	cqe = rtio_cqe_consume(r);
 	if (unlikely(cqe != NULL)) {
 		res = cqe->result;
+		rtio_cqe_release(r, cqe);
 	} else {
 		res = -EIO;
 	}
-	rtio_cqe_release(r, cqe);
 
 out:
 	k_sem_give(&ctx->lock);
@@ -259,10 +261,10 @@ int i3c_rtio_recover(struct i3c_rtio *ctx)
 	cqe = rtio_cqe_consume(r);
 	if (unlikely(cqe != NULL)) {
 		res = cqe->result;
+		rtio_cqe_release(r, cqe);
 	} else {
 		res = -EIO;
 	}
-	rtio_cqe_release(r, cqe);
 
 out:
 	k_sem_give(&ctx->lock);
